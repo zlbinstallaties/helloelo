@@ -33,6 +33,8 @@
 - Proposal approval is invalidated when description, provider/model selection, or metadata changes. Build execution and publishing remain unavailable.
 - Public ORM `create`, `write`, and `copy` cannot set workflow-managed fields. Protected fields are written only by private, checked workflow methods; context values cannot bypass this boundary.
 - Odoo 20 Enterprise-beveiliging gebruikt `ir.access` met alleen de DIG Builder-beheerdersgroep en de company-domain `[('company_id', 'in', company_ids)]`; de serviceconfiguratie gebruikt server-side `get_str()`/`set_str()`.
+- De metadata-contractroute gebruikt uitsluitend modelgebonden `fields_get()` voor de allowlist onder de huidige gebruiker; zij leest niet de volledige `ir.model.fields`-catalogus en gebruikt hiervoor geen `sudo()`.
+- De integratietest laat alleen de exact geconfigureerde interne `GET /api/providers`-serviceaanroep door; andere bestemmingen blijven onder de Odoo-testblokkade en redirects worden niet gevolgd.
 
 ## API-flow
 

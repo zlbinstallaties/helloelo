@@ -72,7 +72,6 @@ class DigBuilderProject(models.Model):
     def _metadata_contract(self):
         self._check_builder_admin()
         models = []
-        field_model = self.env["ir.model.fields"]
         for model_name, field_names in self.METADATA_FIELDS.items():
             try:
                 model = self.env[model_name]
@@ -80,13 +79,23 @@ class DigBuilderProject(models.Model):
                 continue
             if model is None or not model.has_access("read"):
                 continue
-            fields = field_model.search([("model", "=", model_name), ("name", "in", field_names)])
+            readable_fields = []
+            for field_name in field_names:
+                try:
+                    field_info = model.fields_get(
+                        [field_name], attributes=["type", "relation"]
+                    ).get(field_name)
+                except (AccessError, KeyError):
+                    field_info = None
+                if field_info:
+                    readable_fields.append({
+                        "name": field_name,
+                        "type": field_info.get("type"),
+                        "relation": field_info.get("relation") or None,
+                    })
             models.append({
                 "name": model_name,
-                "fields": [
-                    {"name": field.name, "type": field.ttype, "relation": field.relation or None}
-                    for field in fields.sorted("name")
-                ],
+                "fields": sorted(readable_fields, key=lambda field: field["name"]),
             })
         return {"version": self.METADATA_VERSION, "company_id": self.env.company.id, "models": models}
 

@@ -1,6 +1,10 @@
 import json
+from unittest.mock import patch
 
+import requests
 from odoo.tests.common import HttpCase, tagged
+
+from ..models import builder_project
 
 
 @tagged("post_install", "-at_install")
@@ -88,6 +92,7 @@ class TestDigBuilderRoutes(HttpCase):
         self.assertTrue({"name", "start_datetime", "end_datetime", "state"}.issubset(
             {field["name"] for field in planning["fields"]}
         ))
+        self.assertNotIn("create_date", {field["name"] for field in planning["fields"]})
         self.assertNotIn("BUILDER_ADMIN_TOKEN", response.text)
         self.assertNotIn("OPENAI_API_KEY", response.text)
         self.assertNotIn("ANTHROPIC_API_KEY", response.text)

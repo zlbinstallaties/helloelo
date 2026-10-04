@@ -1,8 +1,12 @@
 import os
 from urllib.parse import urlsplit
+from unittest.mock import patch
 
+import requests
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
+
+from ..models import builder_project
 
 
 @tagged("post_install", "-at_install", "dig_builder_integration")
@@ -17,6 +21,52 @@ class TestDigBuilderServiceIntegration(TransactionCase):
             "password": "test-password",
             "group_ids": [(4, group.id)],
         })
+
+    @staticmethod
+    def _request_handler(original_request, service_url):
+        configured = urlsplit(service_url)
+
+        def request(method, url, **kwargs):
+            target = urlsplit(url)
+            is_allowed = (
+                method.upper() == "GET"
+                and target.scheme == configured.scheme == "http"
+                and target.hostname == configured.hostname
+                and target.port == configured.port == 8080
+                and target.path == "/api/providers"
+                and not target.query
+                and not target.fragment
+            )
+            if not is_allowed:
+                return original_request(method, url, **kwargs)
+            if kwargs.get("allow_redirects"):
+                raise AssertionError("redirects are not allowed for the internal service test")
+
+            session = requests.Session()
+            session.trust_env = False
+            prepared = session.prepare_request(requests.Request(
+                method=method,
+                url=url,
+                headers=kwargs.get("headers"),
+                data=kwargs.get("data"),
+            ))
+            response = session.get_adapter(url).send(
+                prepared,
+                stream=kwargs.get("stream", False),
+                timeout=kwargs.get("timeout"),
+                verify=kwargs.get("verify", True),
+                cert=kwargs.get("cert"),
+                proxies={},
+            )
+            if response.is_redirect or response.is_permanent_redirect:
+                response.close()
+                session.close()
+                raise AssertionError("redirects are not allowed for the internal service test")
+            response.content
+            session.close()
+            return response
+
+        return request
 
     def test_odoo_reaches_builder_and_rejects_wrong_token(self):
         if os.environ.get("DIG_BUILDER_INTEGRATION") != "1":
@@ -43,12 +93,20 @@ class TestDigBuilderServiceIntegration(TransactionCase):
             "provider": "openai",
             "model": "integration-test-model",
         })
-        response = project._builder_service_request("/api/providers", method="GET")
-        self.assertIn("providers", response)
+        original_request = builder_project.requests.request
+        handler = self._request_handler(original_request, service_url)
+        with patch.object(builder_project.requests, "request", side_effect=handler):
+            response = project._builder_service_request("/api/providers", method="GET")
+            self.assertIn("providers", response)
 
-        params.set_str("dig_builder.service_token", "wrong-token")
-        try:
-            with self.assertRaises(UserError):
-                project._builder_service_request("/api/providers", method="GET")
-        finally:
-            params.set_str("dig_builder.service_token", service_token)
+            params.set_str("dig_builder.service_token", "wrong-token")
+            try:
+                with self.assertRaises(UserError):
+                    project._builder_service_request("/api/providers", method="GET")
+
+                params.set_str("dig_builder.service_url", "http://outside.invalid:8080")
+                with self.assertRaisesRegex(Exception, "External requests verboten"):
+                    project._builder_service_request("/api/providers", method="GET")
+            finally:
+                params.set_str("dig_builder.service_url", service_url)
+                params.set_str("dig_builder.service_token", service_token)
