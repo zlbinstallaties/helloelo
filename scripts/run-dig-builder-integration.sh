@@ -1,21 +1,65 @@
 #!/bin/sh
-set -eu
+set -u
 
 compose_file="docker-compose.dig-builder-integration.yml"
-project="dig-builder-ci"
+run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+project="dig-builder-ci-${run_id}"
+artifact_dir="${DIG_BUILDER_ARTIFACT_DIR:-${TMPDIR:-/tmp}/dig-builder-integration-${run_id}}"
 env_file="$(mktemp)"
+mkdir -p "$artifact_dir"
+umask 077
+
+compose() {
+    docker compose -p "$project" -f "$compose_file" --env-file "$env_file" "$@"
+}
+
+save_runtime_state() {
+    compose ps -a >"$artifact_dir/compose-ps.txt" 2>&1 || true
+    compose logs --no-color >"$artifact_dir/container-logs.txt" 2>&1 || true
+}
+
 cleanup() {
-    docker compose -p "$project" -f "$compose_file" --env-file "$env_file" down --volumes >/dev/null 2>&1 || true
+    save_runtime_state
+    compose down --volumes --remove-orphans >"$artifact_dir/cleanup.log" 2>&1 || true
     rm -f "$env_file"
 }
 trap cleanup EXIT INT TERM
 
 token="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-umask 077
 printf 'BUILDER_ADMIN_TOKEN=%s\n' "$token" > "$env_file"
 
-docker compose -p "$project" -f "$compose_file" --env-file "$env_file" up --build -d db runner builder-api
-docker compose -p "$project" -f "$compose_file" --env-file "$env_file" run --rm odoo \
-    odoo --db_host=db --db_port=5432 --db_user=odoo --db_password=odoo-ci-only \
-    -d dig_builder_ci -i dig_builder --test-enable --stop-after-init \
-    --addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons
+status=0
+compose up --build -d db runner builder-api >"$artifact_dir/compose-up.log" 2>&1 || status=$?
+
+if [ "$status" -eq 0 ]; then
+    compose run --rm odoo odoo --no-http -d dig_builder_ci -i dig_builder \
+        --stop-after-init \
+        --addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons \
+        >"$artifact_dir/install-odoo.log" 2>&1 || status=$?
+fi
+
+if [ "$status" -eq 0 ]; then
+    compose run --rm \
+        -e DIG_BUILDER_SERVICE_URL=http://builder-api:8080 \
+        -e DIG_BUILDER_SERVICE_TOKEN="$token" \
+        odoo odoo shell --no-http -d dig_builder_ci <<'PY' >"$artifact_dir/configure-odoo.log" 2>&1 || status=$?
+import os
+
+params = env["ir.config_parameter"].sudo()
+params.set_param("dig_builder.service_url", os.environ["DIG_BUILDER_SERVICE_URL"])
+params.set_param("dig_builder.service_token", os.environ["DIG_BUILDER_SERVICE_TOKEN"])
+PY
+fi
+
+if [ "$status" -eq 0 ]; then
+    compose run --rm \
+        -e DIG_BUILDER_INTEGRATION=1 \
+        odoo odoo --no-http -d dig_builder_ci -i dig_builder -u dig_builder \
+        --test-enable --test-tags /dig_builder --stop-after-init \
+        --addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons \
+        >"$artifact_dir/odoo-tests.log" 2>&1 || status=$?
+fi
+
+printf '%s\n' "$status" >"$artifact_dir/exit-status"
+printf 'Integration artifacts: %s\n' "$artifact_dir"
+exit "$status"

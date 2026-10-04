@@ -22,6 +22,11 @@ services:
       - "8090"
     networks:
       - dig-builder-ci
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   builder-api:
     build:
@@ -34,11 +39,17 @@ services:
     volumes:
       - dig-builder-ci-service:/data
     depends_on:
-      - runner
+      runner:
+        condition: service_healthy
     expose:
       - "8080"
     networks:
       - dig-builder-ci
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   odoo:
     image: odoo:20.0
@@ -46,7 +57,7 @@ services:
       db:
         condition: service_healthy
       builder-api:
-        condition: service_started
+        condition: service_healthy
     environment:
       HOST: db
       USER: odoo

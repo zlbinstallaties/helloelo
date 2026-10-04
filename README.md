@@ -85,4 +85,5 @@ sh scripts/run-dig-builder-integration.sh
 
 De huidige omgeving bevat geen Docker/Odoo-runner, dus deze controle is alleen
 geschreven en niet hier uitgevoerd. De hoofdstack en bestaande databases worden
-door dit script niet gebruikt.
+door dit script niet gebruikt. De uitvoermap wordt na afloop afgedrukt en bevat
+de testuitvoer, containerlogs, Compose-status en exitstatus.
