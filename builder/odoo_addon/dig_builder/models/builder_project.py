@@ -45,6 +45,8 @@ class DigBuilderProject(models.Model):
     metadata_hash = fields.Char(readonly=True, copy=False)
     company_id = fields.Many2one("res.company", required=True, default=lambda self: self.env.company)
     owner_id = fields.Many2one("res.users", required=True, default=lambda self: self.env.user)
+    message_ids = fields.One2many("dig.builder.message", "project_id", readonly=True)
+    task_ids = fields.One2many("dig.builder.task", "project_id", readonly=True)
 
     METADATA_VERSION = "odoo20-v1"
     METADATA_FIELDS = {
@@ -104,6 +106,50 @@ class DigBuilderProject(models.Model):
 
     def _current_description_hash(self):
         return self._digest(self.description or "")
+
+    def _conversation_payload(self):
+        self.ensure_one()
+        return [{"role": message.role, "content": message.body} for message in self.message_ids.sorted("create_date, id")]
+
+    def enqueue_description(self, body, client_request_id):
+        self.ensure_one()
+        self._check_builder_admin()
+        if self.company_id != self.env.company:
+            raise AccessError(_("Het project hoort niet bij de actieve onderneming."))
+        body = (body or "").strip()
+        client_request_id = (client_request_id or "").strip()
+        if not body or not client_request_id:
+            raise UserError(_("Een bericht en uniek verzoek-id zijn verplicht."))
+        existing = self.env["dig.builder.task"].search([
+            ("project_id", "=", self.id),
+            ("client_request_id", "=", client_request_id),
+        ], limit=1)
+        if existing:
+            return existing
+        if self.state not in {"draft", "proposed"} or self.phase != "describe":
+            raise UserError(_("Dit project kan nu geen beschrijving verwerken."))
+        self.write({"description": body})
+        metadata = self._metadata_contract()
+        message = self.env["dig.builder.message"].create({
+            "project_id": self.id,
+            "company_id": self.company_id.id,
+            "role": "user",
+            "body": body,
+            "client_request_id": client_request_id,
+        })
+        conversation = self._conversation_payload()
+        task = self.env["dig.builder.task"].create({
+            "project_id": self.id,
+            "company_id": self.company_id.id,
+            "requested_by": self.env.user.id,
+            "client_request_id": client_request_id,
+            "provider": self.provider,
+            "model": self.model,
+            "metadata_json": json.dumps(metadata, sort_keys=True),
+            "conversation_json": json.dumps(conversation, ensure_ascii=True),
+        })
+        message.task_id = task.id
+        return task
 
     def _write_workflow(self, vals):
         """Write protected fields only from a checked workflow method."""
@@ -233,6 +279,14 @@ class DigBuilderProject(models.Model):
             response.raise_for_status()
             return response.json()
         except (requests.RequestException, ValueError) as error:
+            detail = ""
+            if "response" in locals():
+                try:
+                    detail = (response.json().get("error") or "")
+                except (ValueError, AttributeError):
+                    detail = ""
+            if isinstance(detail, str) and detail and len(detail) <= 160:
+                raise UserError(_("The DIG Builder service request failed: %s") % detail) from error
             raise UserError(_("The DIG Builder service request failed.")) from error
 
     def action_generate_proposal(self):

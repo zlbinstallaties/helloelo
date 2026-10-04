@@ -148,3 +148,40 @@ class TestDigBuilderSecurity(TransactionCase):
         project = self._project()
         with self.assertRaises(UserError):
             project.action_approve()
+
+    def test_conversation_enqueue_is_idempotent_and_snapshots_metadata(self):
+        project = self._project()
+        first = project.enqueue_description("Plan een planningsoverzicht", "request-1")
+        second = project.enqueue_description("Plan een planningsoverzicht", "request-1")
+        self.assertEqual(first, second)
+        self.assertEqual(project.task_ids, first)
+        self.assertEqual(project.message_ids.mapped("body"), ["Plan een planningsoverzicht"])
+        self.assertIn('"version": "odoo20-v1"', first.metadata_json)
+        self.assertIn("Plan een planningsoverzicht", first.conversation_json)
+
+    def test_assistant_messages_cannot_be_forged_with_context(self):
+        project = self._project()
+        with self.assertRaises(UserError):
+            self.env["dig.builder.message"].with_context(dig_builder_internal=True).create({
+                "project_id": project.id,
+                "role": "assistant",
+                "body": "Forged response",
+            })
+
+    def test_queued_task_creates_server_assistant_message(self):
+        project = self._project()
+        task = project.enqueue_description("Maak een voorstel", "request-run")
+
+        def service_response(_record, path, method="POST", payload=None):
+            if path == "/api/projects":
+                return {"project": {"id": "service-run"}}
+            return {"project": {"proposal": "Voorstel vanuit service"}}
+
+        with patch.object(DigBuilderProject, "_builder_service_request", autospec=True, side_effect=service_response):
+            task._run()
+
+        self.assertEqual(task.state, "succeeded")
+        self.assertEqual(project.proposal, "Voorstel vanuit service")
+        assistant_messages = project.message_ids.filtered(lambda message: message.role == "assistant")
+        self.assertEqual(len(assistant_messages), 1)
+        self.assertEqual(assistant_messages.body, "Voorstel vanuit service")

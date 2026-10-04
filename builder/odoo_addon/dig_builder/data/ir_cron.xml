@@ -1,0 +1,11 @@
+<odoo>
+    <record id="ir_cron_process_builder_tasks" model="ir.cron">
+        <field name="name">DIG Builder: process tasks</field>
+        <field name="model_id" ref="model_dig_builder_task"/>
+        <field name="state">code</field>
+        <field name="code">model._process_pending_tasks()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="dig_builder.DigBuilderApp">
+        <main class="o_dig_builder_app">
+            <aside class="o_dig_builder_sidebar">
+                <div class="o_dig_builder_brand">DIG Builder</div>
+                <div class="o_dig_builder_phase-list">
+                    <div class="is-active">1. Beschrijven</div>
+                    <div class="is-disabled">2. Bouwen</div>
+                    <div class="is-disabled">3. Publiceren</div>
+                </div>
+                <button class="btn btn-primary" t-on-click="() => this.state.project = null">Nieuw project</button>
+            </aside>
+            <section class="o_dig_builder_workspace">
+                <header class="o_dig_builder_header">
+                    <div>
+                        <span class="o_dig_builder_kicker">BESCHRIJVEN</span>
+                        <h1 t-esc="state.project?.name || 'Nieuw project'"/>
+                    </div>
+                    <div class="o_dig_builder_header-actions">
+                        <button class="btn btn-outline-secondary" disabled="true">Bouwen</button>
+                        <button class="btn btn-outline-secondary" disabled="true">Publiceren</button>
+                    </div>
+                </header>
+                <div class="o_dig_builder_content" t-if="!state.loading">
+                    <section class="o_dig_builder_chat">
+                        <div class="o_dig_builder_messages">
+                            <t t-if="!state.project?.messages?.length">
+                                <div class="o_dig_builder_empty">Beschrijf wat je wilt bouwen. De Builder maakt eerst een voorstel dat je expliciet kunt goedkeuren.</div>
+                            </t>
+                            <t t-foreach="state.project?.messages || []" t-as="message" t-key="message.id">
+                                <article t-att-class="`o_dig_builder_message is-${message.role}`">
+                                    <span class="o_dig_builder_message-role" t-esc="message.role === 'user' ? 'Jij' : 'DIG Builder'"/>
+                                    <p t-esc="message.body"/>
+                                </article>
+                            </t>
+                        </div>
+                        <div class="o_dig_builder_composer">
+                            <div class="o_dig_builder_provider-fields" t-if="!state.project">
+                                <label>Provider<select t-model="state.provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+                                <label>Model<input t-model="state.model"/></label>
+                            </div>
+                            <textarea t-model="state.body" placeholder="Wat wil je bouwen?" t-on-keydown="(event) => event.key === 'Enter' && !event.shiftKey && (event.preventDefault(), this.sendMessage())"/>
+                            <button class="btn btn-primary" t-on-click="sendMessage" t-att-disabled="state.sending || !state.body.trim()">Versturen</button>
+                        </div>
+                        <div class="o_dig_builder_task-status" t-if="state.project?.task">
+                            <span t-if="state.project.task.state === 'queued'">Wachten op de Builder-service...</span>
+                            <span t-if="state.project.task.state === 'running'">Voorstel wordt gegenereerd...</span>
+                            <span class="text-danger" t-if="state.project.task.state === 'failed'" t-esc="state.project.task.error || 'De taak is mislukt.'"/>
+                        </div>
+                        <div class="alert alert-danger" t-if="state.error" t-esc="state.error"/>
+                    </section>
+                    <aside class="o_dig_builder_preview">
+                        <div class="o_dig_builder_preview-tabs"><span class="is-active">Voorstel</span><span>Bestanden</span><span>Wijzigingen</span><span>Tests</span></div>
+                        <div class="o_dig_builder_proposal" t-if="state.project?.proposal">
+                            <h2>Voorstel</h2>
+                            <pre t-esc="state.project.proposal"/>
+                            <button class="btn btn-success" t-on-click="approve" t-if="state.project.state === 'proposed'">Voorstel goedkeuren</button>
+                        </div>
+                        <div class="o_dig_builder_empty" t-else="">Nog geen preview beschikbaar.</div>
+                    </aside>
+                </div>
+            </section>
+        </main>
+    </t>
+</templates>
