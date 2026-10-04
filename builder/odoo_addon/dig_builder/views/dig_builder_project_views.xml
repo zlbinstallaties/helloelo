@@ -57,7 +57,7 @@
         <field name="name">DIG Builder</field>
         <field name="tag">dig_builder_app</field>
         <field name="context">{}</field>
-        <field name="groups_id" eval="[(4, ref('dig_builder.group_dig_builder_admin'))]"/>
+        <field name="group_ids" eval="[(4, ref('dig_builder.group_dig_builder_admin'))]"/>
     </record>
 
     <menuitem id="menu_dig_builder_root" name="DIG Builder" groups="dig_builder.group_dig_builder_admin"/>

@@ -79,3 +79,40 @@ class Store:
             project["state"] = "proposed"
             self._write(data)
             return project
+
+    def create_task(self, payload: dict) -> dict:
+        with self._lock:
+            data = self._read()
+            request_id = payload.get("client_request_id")
+            if request_id:
+                existing = next((item for item in data.get("tasks", []) if item.get("payload", {}).get("client_request_id") == request_id), None)
+                if existing is not None:
+                    return existing
+            task = {
+                "id": secrets.token_urlsafe(12),
+                "state": "queued",
+                "payload": payload,
+                "result": None,
+                "error": None,
+            }
+            data.setdefault("tasks", []).append(task)
+            self._write(data)
+        return task
+
+    def get_task(self, task_id: str) -> dict | None:
+        with self._lock:
+            return next((task for task in self._read().get("tasks", []) if task["id"] == task_id), None)
+
+    def task_ids_in_states(self, states: set[str]) -> list[str]:
+        with self._lock:
+            return [task["id"] for task in self._read().get("tasks", []) if task.get("state") in states]
+
+    def update_task(self, task_id: str, **changes: object) -> dict | None:
+        with self._lock:
+            data = self._read()
+            task = next((item for item in data.get("tasks", []) if item["id"] == task_id), None)
+            if task is None:
+                return None
+            task.update(changes)
+            self._write(data)
+            return task

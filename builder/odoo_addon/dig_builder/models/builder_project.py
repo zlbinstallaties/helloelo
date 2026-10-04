@@ -44,6 +44,8 @@ class DigBuilderProject(models.Model):
     metadata_version = fields.Char(readonly=True, copy=False)
     description_hash = fields.Char(readonly=True, copy=False)
     metadata_hash = fields.Char(readonly=True, copy=False)
+    revision = fields.Integer(default=0, readonly=True, copy=False)
+    create_request_id = fields.Char(index=True, readonly=True, copy=False)
     company_id = fields.Many2one("res.company", required=True, default=lambda self: self.env.company)
     owner_id = fields.Many2one("res.users", required=True, default=lambda self: self.env.user)
     message_ids = fields.One2many("dig.builder.message", "project_id", readonly=True)
@@ -59,9 +61,15 @@ class DigBuilderProject(models.Model):
     }
     PROTECTED_FIELDS = {
         "state", "phase", "proposal", "service_project_id", "metadata_summary",
-        "metadata_json", "metadata_version", "description_hash", "metadata_hash",
+        "metadata_json", "metadata_version", "description_hash", "metadata_hash", "revision",
     }
     NORMAL_INPUT_FIELDS = {"name", "description", "provider", "model"}
+    SERVER_FIELDS = {"revision", "create_request_id"}
+
+    create_request_unique = models.Constraint(
+        "UNIQUE(company_id, create_request_id)",
+        "Dit projectverzoek is al aangemaakt.",
+    )
 
     def _check_builder_admin(self):
         if not self.env.user.has_group("dig_builder.group_dig_builder_admin"):
@@ -129,11 +137,17 @@ class DigBuilderProject(models.Model):
             return existing
         if self.state not in {"draft", "proposed"} or self.phase != "describe":
             raise UserError(_("Dit project kan nu geen beschrijving verwerken."))
+        self.write({"description": body})
         metadata = self._metadata_contract()
+        self._write_workflow({
+            "metadata_json": json.dumps(metadata, sort_keys=True),
+            "metadata_version": metadata["version"],
+            "metadata_summary": _("%s modellen beschikbaar in onderneming %s") % (len(metadata["models"]), self.env.company.display_name),
+        })
         conversation = self._conversation_payload() + [{"role": "user", "content": body}]
         try:
             with self.env.cr.savepoint():
-                task = self.env["dig.builder.task"].create({
+                task = self.env["dig.builder.task"]._create_queued({
                     "project_id": self.id,
                     "company_id": self.company_id.id,
                     "requested_by": self.env.user.id,
@@ -142,27 +156,21 @@ class DigBuilderProject(models.Model):
                     "model": self.model,
                     "metadata_json": json.dumps(metadata, sort_keys=True),
                     "conversation_json": json.dumps(conversation, ensure_ascii=True),
+                    "description_snapshot": body,
+                    "project_revision": self.revision,
                 })
         except IntegrityError:
             return self.env["dig.builder.task"].search([
                 ("project_id", "=", self.id),
                 ("client_request_id", "=", client_request_id),
             ], limit=1)
-        self.write({"description": body})
-        message = self.env["dig.builder.message"].create({
-            "project_id": self.id,
-            "company_id": self.company_id.id,
-            "role": "user",
-            "body": body,
-            "client_request_id": client_request_id,
-            "task_id": task.id,
-        })
+        self.env["dig.builder.message"]._create_user_for_task(self, body, task, client_request_id)
         return task
 
     def _write_workflow(self, vals):
         """Write protected fields only from a checked workflow method."""
         self._check_builder_admin()
-        if not vals or not set(vals).issubset(self.PROTECTED_FIELDS):
+        if not vals or not set(vals).issubset(self.PROTECTED_FIELDS | {"revision"}):
             raise UserError(_("Invalid internal builder workflow update."))
         for project in self:
             if project.company_id != self.env.company:
@@ -177,7 +185,7 @@ class DigBuilderProject(models.Model):
             for key in self.env.context
             if key.startswith("default_")
         }
-        if context_defaults.intersection(self.PROTECTED_FIELDS | {"company_id", "owner_id"}):
+        if context_defaults.intersection(self.PROTECTED_FIELDS | self.SERVER_FIELDS | {"company_id", "owner_id"}):
             raise UserError(_("Builder workflow and identity defaults must not be supplied through context."))
         clean_vals_list = []
         for original_vals in vals_list:
@@ -190,9 +198,34 @@ class DigBuilderProject(models.Model):
                 raise AccessError(_("A builder project must belong to the active company."))
             if vals.get("owner_id", self.env.user.id) != self.env.user.id:
                 raise AccessError(_("A builder project must be owned by the current user."))
+            if vals.get("create_request_id") is not None and not vals["create_request_id"].strip():
+                raise UserError(_("Een projectverzoek-id mag niet leeg zijn."))
             clean_vals_list.append(vals)
 
-        records = super().create(clean_vals_list)
+        records = self.browse()
+        for vals in clean_vals_list:
+            request_id = vals.get("create_request_id")
+            if request_id:
+                existing = self.search([
+                    ("company_id", "=", self.env.company.id),
+                    ("create_request_id", "=", request_id),
+                ], limit=1)
+                if existing:
+                    records |= existing
+                    continue
+            try:
+                with self.env.cr.savepoint():
+                    created = super(DigBuilderProject, self).create([vals])
+            except IntegrityError:
+                if not request_id:
+                    raise
+                created = self.search([
+                    ("company_id", "=", self.env.company.id),
+                    ("create_request_id", "=", request_id),
+                ], limit=1)
+                if not created:
+                    raise
+            records |= created
         # Context defaults are applied by the ORM during create. Validate the
         # stored values and clear every workflow field before returning.
         for project in records:
@@ -208,6 +241,7 @@ class DigBuilderProject(models.Model):
                 "metadata_version": False,
                 "description_hash": False,
                 "metadata_hash": False,
+                "revision": project.revision,
             })
         return records
 
@@ -218,7 +252,7 @@ class DigBuilderProject(models.Model):
             raise AccessError(_("The project belongs to another company."))
         requested = dict(default or {})
         context_defaults = {key: value for key, value in self.env.context.items() if key.startswith("default_")}
-        if self.PROTECTED_FIELDS.intersection(requested) or self.PROTECTED_FIELDS.intersection(key.removeprefix("default_") for key in context_defaults) or {"company_id", "owner_id"}.intersection(requested) or {"company_id", "owner_id"}.intersection(key.removeprefix("default_") for key in context_defaults):
+        if self.PROTECTED_FIELDS.intersection(requested) or self.PROTECTED_FIELDS.intersection(key.removeprefix("default_") for key in context_defaults) or {"company_id", "owner_id", "create_request_id"}.intersection(requested) or {"company_id", "owner_id", "create_request_id"}.intersection(key.removeprefix("default_") for key in context_defaults):
             raise UserError(_("A copied project cannot supply workflow fields."))
         copied = self.create({
             "name": requested.get("name", _("%s (copy)") % self.name),
@@ -253,6 +287,7 @@ class DigBuilderProject(models.Model):
                 "service_project_id": False,
                 "description_hash": False,
                 "metadata_hash": False,
+                "revision": project.revision + 1,
             })
         return result
 
@@ -328,6 +363,7 @@ class DigBuilderProject(models.Model):
                 "metadata_json": json.dumps(metadata, sort_keys=True),
                 "metadata_version": metadata["version"],
                 "metadata_summary": _("%s models available in company %s") % (len(metadata["models"]), self.env.company.display_name),
+                "revision": project.revision + 1,
             }
             if project.state != "draft":
                 values.update({"state": "draft", "phase": "describe", "proposal": False, "service_project_id": False, "description_hash": False, "metadata_hash": False})

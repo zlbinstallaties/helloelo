@@ -53,12 +53,14 @@
                                 <label>Provider<select t-model="state.provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
                                 <label>Model<input t-model="state.model"/></label>
                             </div>
-                            <textarea t-model="state.body" placeholder="Wat wil je bouwen?" t-on-keydown="(event) => event.key === 'Enter' && !event.shiftKey && (event.preventDefault(), this.sendMessage())"/>
+                            <textarea t-model="state.body" placeholder="Wat wil je bouwen?" t-on-keydown="handleComposerKeydown"/>
                             <button class="btn btn-primary" t-on-click="sendMessage" t-att-disabled="state.sending || !state.body.trim()">Versturen</button>
                         </div>
                         <div class="o_dig_builder_task-status" t-if="state.project?.task">
                             <span t-if="state.project.task.state === 'queued'">Wachten op de Builder-service...</span>
                             <span t-if="state.project.task.state === 'running'">Voorstel wordt gegenereerd...</span>
+                            <span t-if="state.project.task.state === 'stale'">Dit voorstel is verouderd door een latere wijziging.</span>
+                            <span t-if="state.project.task.state === 'interrupted'">Deze taak is onderbroken. Verstuur de beschrijving opnieuw.</span>
                             <span class="text-danger" t-if="state.project.task.state === 'failed'" t-esc="state.project.task.error || 'De taak is mislukt.'"/>
                         </div>
                         <div class="alert alert-danger" t-if="state.error" t-esc="state.error"/>

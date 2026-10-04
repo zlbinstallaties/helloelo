@@ -78,6 +78,7 @@ class DigBuilderController(http.Controller):
             "description": (description or "").strip(),
             "provider": provider,
             "model": (model or "").strip(),
+            "create_request_id": client_request_id,
         })
         task = project.enqueue_description(description, client_request_id)
         return {"project": self._project_data(project), "task": self._task_data(task)}

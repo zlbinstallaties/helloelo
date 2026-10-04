@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -74,6 +75,12 @@ def project_id_from_path(path: str) -> str | None:
     return None
 
 
+def task_id_from_path(path: str) -> str | None:
+    prefix = "/api/tasks/"
+    task_id = path.removeprefix(prefix).strip("/")
+    return task_id if path.startswith(prefix) and task_id and "/" not in task_id else None
+
+
 def proposal_prompt(project: dict) -> str:
     metadata = project.get("metadata") or {"version": "odoo20-v1", "company_id": 1, "models": []}
     conversation = project.get("conversation") or []
@@ -90,6 +97,30 @@ def proposal_prompt(project: dict) -> str:
         "\n\nCONVERSATION (data):\n" + conversation_text +
         "\n\nUSER REQUEST (data):\n" + project["description"]
     )
+
+
+def run_task(task_id: str) -> None:
+    task = store.get_task(task_id)
+    if task is None or task.get("state") != "queued":
+        return
+    store.update_task(task_id, state="running")
+    payload = task["payload"]
+    project = {
+        "description": payload["description"],
+        "metadata": payload["metadata"],
+        "conversation": payload["conversation"],
+        "provider": payload["provider"],
+        "model": payload["model"],
+    }
+    try:
+        result = test(project["provider"], project["model"], proposal_prompt(project))
+        if not result.get("ok") or not result.get("complete") or not result.get("text"):
+            raise ProviderError("provider_empty_or_incomplete_response")
+        store.update_task(task_id, state="succeeded", result={"proposal": result["text"]})
+    except ProviderError as error:
+        store.update_task(task_id, state="failed", error=str(error))
+    except Exception:
+        store.update_task(task_id, state="failed", error="builder_task_failed")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -109,6 +140,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/providers":
             json_response(self, 200, {"providers": statuses()})
+            return
+        if path.startswith("/api/tasks/"):
+            task_id = task_id_from_path(path)
+            task = store.get_task(task_id) if task_id else None
+            if task is None:
+                json_response(self, 404, {"error": "task_not_found"})
+                return
+            json_response(self, 200, {"task": {key: task.get(key) for key in ("id", "state", "result", "error")}})
             return
         if path == "/api/projects":
             json_response(self, 200, {"projects": store.list_projects()})
@@ -156,6 +195,37 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, 503, {"error": str(error)})
             return
 
+        if path == "/api/tasks":
+            description = payload.get("description", "")
+            provider = payload.get("provider", "")
+            model = payload.get("model", "")
+            try:
+                metadata = validated_metadata(payload.get("metadata"))
+                conversation = validated_conversation(payload.get("conversation"))
+            except ValueError as error:
+                json_response(self, 400, {"error": str(error)})
+                return
+            if not isinstance(description, str) or not description.strip() or len(description) > 20_000:
+                json_response(self, 400, {"error": "description_required"})
+                return
+            if provider not in {"openai", "anthropic"}:
+                json_response(self, 400, {"error": "explicit_provider_required"})
+                return
+            if not isinstance(model, str) or not model.strip() or len(model) > 200:
+                json_response(self, 400, {"error": "model_required"})
+                return
+            task = store.create_task({
+                "description": description.strip(),
+                "client_request_id": payload.get("client_request_id"),
+                "provider": provider,
+                "model": model.strip(),
+                "metadata": metadata,
+                "conversation": conversation,
+            })
+            threading.Thread(target=run_task, args=(task["id"],), daemon=True).start()
+            json_response(self, 202, {"task": {"id": task["id"], "state": task["state"]}})
+            return
+
         if path == "/api/projects":
             description = payload.get("description", "")
             provider = payload.get("provider", "")
@@ -200,4 +270,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    for interrupted_task_id in store.task_ids_in_states({"running"}):
+        store.update_task(interrupted_task_id, state="queued", error=None)
+    for pending_task_id in store.task_ids_in_states({"queued"}):
+        threading.Thread(target=run_task, args=(pending_task_id,), daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

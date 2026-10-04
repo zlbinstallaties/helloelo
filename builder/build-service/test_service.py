@@ -25,6 +25,15 @@ class BuilderServiceContractTests(unittest.TestCase):
             self.assertNotIn("API_KEY", serialized)
             self.assertNotIn("secret", serialized.lower())
 
+    def test_service_tasks_are_idempotent_by_request_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["BUILDER_DATA_DIR"] = directory
+            store = Store()
+            payload = {"client_request_id": "request-1", "description": "Describe", "provider": "openai", "model": "test-model", "metadata": {}, "conversation": []}
+            first = store.create_task(payload)
+            second = store.create_task(dict(payload))
+            self.assertEqual(first["id"], second["id"])
+
     def test_metadata_is_validated_and_reaches_the_proposal_prompt(self):
         metadata = {"version": "odoo20-v1", "company_id": 2, "models": [{"name": "planning.slot", "fields": [{"name": "name", "type": "char", "relation": None}]}]}
         project = {"description": "Show planning", "metadata": validated_metadata(metadata)}

@@ -159,6 +159,19 @@ class TestDigBuilderSecurity(TransactionCase):
         self.assertIn('"version": "odoo20-v1"', first.metadata_json)
         self.assertIn("Plan een planningsoverzicht", first.conversation_json)
 
+    def test_project_creation_request_is_idempotent(self):
+        model = self.env["dig.builder.project"].with_user(self.builder_user)
+        values = {
+            "name": "Idempotent project",
+            "description": "Describe once",
+            "provider": "openai",
+            "model": "test-model",
+            "create_request_id": "create-request-1",
+        }
+        first = model.create(values)
+        second = model.create(values)
+        self.assertEqual(first, second)
+
     def test_assistant_messages_cannot_be_forged_with_context(self):
         project = self._project()
         with self.assertRaises(UserError):
@@ -173,18 +186,36 @@ class TestDigBuilderSecurity(TransactionCase):
         task = project.enqueue_description("Maak een voorstel", "request-run")
 
         def service_response(_record, path, method="POST", payload=None):
-            if path == "/api/projects":
-                return {"project": {"id": "service-run"}}
-            return {"project": {"proposal": "Voorstel vanuit service"}}
+            if path == "/api/tasks":
+                return {"task": {"id": "service-run", "state": "queued"}}
+            return {"task": {"id": "service-run", "state": "succeeded", "result": {"proposal": "Voorstel vanuit service"}}}
 
         with patch.object(DigBuilderProject, "_builder_service_request", autospec=True, side_effect=service_response):
             task._run()
+            task._poll_service()
 
         self.assertEqual(task.state, "succeeded")
         self.assertEqual(project.proposal, "Voorstel vanuit service")
         assistant_messages = project.message_ids.filtered(lambda message: message.role == "assistant")
         self.assertEqual(len(assistant_messages), 1)
         self.assertEqual(assistant_messages.body, "Voorstel vanuit service")
+
+    def test_result_is_stale_when_project_changes_during_task(self):
+        project = self._project()
+        task = project.enqueue_description("Oude beschrijving", "request-stale")
+
+        def service_response(_record, path, method="POST", payload=None):
+            if path == "/api/tasks":
+                return {"task": {"id": "service-stale", "state": "queued"}}
+            return {"task": {"id": "service-stale", "state": "succeeded", "result": {"proposal": "Oud voorstel"}}}
+
+        with patch.object(DigBuilderProject, "_builder_service_request", autospec=True, side_effect=service_response):
+            task._run()
+            project.write({"description": "Nieuwe beschrijving"})
+            task._poll_service()
+
+        self.assertEqual(task.state, "stale")
+        self.assertFalse(project.proposal)
 
     def test_provider_failure_is_a_visible_recoverable_task_failure(self):
         project = self._project()
