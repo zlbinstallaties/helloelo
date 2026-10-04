@@ -1,0 +1,50 @@
+services:
+  builder-api:
+    build:
+      context: ./builder/build-service
+    environment:
+      BUILDER_ADMIN_TOKEN: ${BUILDER_ADMIN_TOKEN:?BUILDER_ADMIN_TOKEN must be set}
+      BUILDER_DATA_DIR: /data
+      BUILDER_RUNNER_URL: ${BUILDER_RUNNER_URL:-http://runner:8090}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - builder-data:/data
+    depends_on:
+      runner:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  runner:
+    build:
+      context: ./builder/runner
+    expose:
+      - "8090"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  builder-data:

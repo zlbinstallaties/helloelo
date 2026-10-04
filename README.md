@@ -62,3 +62,13 @@ De onafhankelijke hosting van deze app vereist een vervanging van de HelloLeo Pr
 ## Zelfstandige hosting
 
 Zelfstandig hosten is niet direct plug-and-play. Vervang minimaal de HelloLeo Integration Proxy, `@helloleo/runtime`-cache en Cloudflare-runtime door eigen server-side equivalenten. Behoud de Odoo-credentials uitsluitend als serversecret, voeg echte applicatie-authenticatie en autorisatie toe en test de Odoo 20-veldnamen opnieuw in de doelomgeving. Odoo Enterprise-broncode hoort niet in deze repository.
+
+## DIG Builder (fase 2)
+
+De map `builder/` bevat een onafhankelijke buildservice-basis, een runner-healthgrens en een Odoo-addon-skelet. Start deze services met:
+
+```bash
+docker compose up --build
+```
+
+Zet eerst `BUILDER_ADMIN_TOKEN` en providercredentials in een lokale `.env`. De providerstatus meldt expliciet wanneer een provider niet is ingesteld; er is geen stille fallback of gesimuleerde AI. De runner voert in deze fase nog geen gegenereerde code uit.

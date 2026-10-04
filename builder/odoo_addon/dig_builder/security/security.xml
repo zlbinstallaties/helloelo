@@ -1,0 +1,6 @@
+<odoo>
+    <record id="group_dig_builder_admin" model="res.groups">
+        <field name="name">DIG Builder Administrator</field>
+        <field name="category_id" ref="base.module_category_tools"/>
+    </record>
+</odoo>
