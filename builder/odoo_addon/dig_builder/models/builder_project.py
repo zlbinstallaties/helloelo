@@ -109,33 +109,65 @@ class DigBuilderProject(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         self._check_builder_admin()
-        for vals in vals_list:
+        context_defaults = {
+            key.removeprefix("default_")
+            for key in self.env.context
+            if key.startswith("default_")
+        }
+        if context_defaults.intersection(self.PROTECTED_FIELDS | {"company_id", "owner_id"}):
+            raise UserError(_("Builder workflow and identity defaults must not be supplied through context."))
+        clean_vals_list = []
+        for original_vals in vals_list:
+            vals = dict(original_vals)
             if (self.PROTECTED_FIELDS - {"state", "phase"}).intersection(vals):
                 raise UserError(_("New builder projects must start as an unapproved description draft."))
             if vals.get("state", "draft") != "draft" or vals.get("phase", "describe") != "describe":
                 raise UserError(_("New builder projects must start in draft/describe."))
-            vals["state"] = "draft"
-            vals["phase"] = "describe"
             if vals.get("company_id", self.env.company.id) != self.env.company.id:
                 raise AccessError(_("A builder project must belong to the active company."))
             if vals.get("owner_id", self.env.user.id) != self.env.user.id:
                 raise AccessError(_("A builder project must be owned by the current user."))
-        return super().create(vals_list)
+            clean_vals_list.append(vals)
+
+        records = super().create(clean_vals_list)
+        # Context defaults are applied by the ORM during create. Validate the
+        # stored values and clear every workflow field before returning.
+        for project in records:
+            if project.state != "draft" or project.phase != "describe" or project.company_id != self.env.company or project.owner_id != self.env.user:
+                raise AccessError(_("The new builder project has invalid server-managed defaults."))
+            project._write_workflow({
+                "state": "draft",
+                "phase": "describe",
+                "proposal": False,
+                "service_project_id": False,
+                "metadata_summary": False,
+                "metadata_json": False,
+                "metadata_version": False,
+                "description_hash": False,
+                "metadata_hash": False,
+            })
+        return records
 
     def copy(self, default=None):
         self.ensure_one()
         self._check_builder_admin()
         if self.company_id != self.env.company:
             raise AccessError(_("The project belongs to another company."))
-        requested = default or {}
-        if self.PROTECTED_FIELDS.intersection(requested) or {"company_id", "owner_id"}.intersection(requested):
+        requested = dict(default or {})
+        context_defaults = {key: value for key, value in self.env.context.items() if key.startswith("default_")}
+        if self.PROTECTED_FIELDS.intersection(requested) or self.PROTECTED_FIELDS.intersection(key.removeprefix("default_") for key in context_defaults) or {"company_id", "owner_id"}.intersection(requested) or {"company_id", "owner_id"}.intersection(key.removeprefix("default_") for key in context_defaults):
             raise UserError(_("A copied project cannot supply workflow fields."))
-        return self.create({
+        copied = self.create({
             "name": requested.get("name", _("%s (copy)") % self.name),
             "description": requested.get("description", self.description),
             "provider": requested.get("provider", self.provider),
             "model": requested.get("model", self.model),
+            "state": "draft",
+            "phase": "describe",
+            "company_id": self.env.company.id,
+            "owner_id": self.env.user.id,
         })
+        return copied
 
     def write(self, vals):
         self._check_builder_admin()

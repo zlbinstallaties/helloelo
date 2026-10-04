@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo-ci-only
+    volumes:
+      - dig-builder-ci-db:/var/lib/postgresql/data
+    networks:
+      - dig-builder-ci
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  runner:
+    build:
+      context: ./builder/runner
+    expose:
+      - "8090"
+    networks:
+      - dig-builder-ci
+
+  builder-api:
+    build:
+      context: ./builder/build-service
+    environment:
+      BUILDER_ADMIN_TOKEN: ${BUILDER_ADMIN_TOKEN:?temporary token is required}
+      BUILDER_DATA_DIR: /data
+      BUILDER_RUNNER_URL: http://runner:8090
+      PROPOSAL_MAX_OUTPUT_TOKENS: 2048
+    volumes:
+      - dig-builder-ci-service:/data
+    depends_on:
+      - runner
+    expose:
+      - "8080"
+    networks:
+      - dig-builder-ci
+
+  odoo:
+    image: odoo:20.0
+    depends_on:
+      db:
+        condition: service_healthy
+      builder-api:
+        condition: service_started
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo-ci-only
+    volumes:
+      - ./builder/odoo_addon:/mnt/extra-addons/dig_builder:ro
+    networks:
+      - dig-builder-ci
+
+volumes:
+  dig-builder-ci-db:
+  dig-builder-ci-service:
+
+networks:
+  dig-builder-ci:
+    name: dig-builder-ci

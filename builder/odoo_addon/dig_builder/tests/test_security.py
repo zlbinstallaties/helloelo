@@ -52,18 +52,24 @@ class TestDigBuilderSecurity(TransactionCase):
     def test_create_only_allows_a_clean_draft(self):
         model = self.env["dig.builder.project"].with_user(self.builder_user)
         base = {"name": "Create test", "description": "Describe", "provider": "openai", "model": "test-model"}
-        for bad in (
-            {"state": "approved"},
-            {"state": "built"},
-            {"proposal": "forged"},
-            {"service_project_id": "forged"},
-            {"metadata_json": "forged"},
-            {"description_hash": "forged"},
-        ):
+        for bad in ({"state": "approved"}, {"state": "built"}, {"phase": "build"}, *(
+            {field: "forged"} for field in DigBuilderProject.PROTECTED_FIELDS - {"state", "phase"}
+        )):
             with self.assertRaises(UserError):
                 model.create([dict(base, **bad)])
         with self.assertRaises(UserError):
             model.create([dict(base, state="approved"), dict(base, state="built")])
+
+    def test_create_rejects_protected_and_identity_context_defaults(self):
+        model = self.env["dig.builder.project"].with_user(self.builder_user)
+        base = {"name": "Context test", "description": "Describe", "provider": "openai", "model": "test-model"}
+        for field in DigBuilderProject.PROTECTED_FIELDS | {"company_id", "owner_id"}:
+            with self.subTest(field=field), self.assertRaises(UserError):
+                model.with_context(**{"default_%s" % field: "forged"}).create(base)
+
+        other_company = self.env["res.company"].create({"name": "Context Other Company"})
+        with self.assertRaises(UserError):
+            model.with_context(default_company_id=other_company.id).create(base)
 
     def test_direct_protected_writes_and_context_flags_are_rejected(self):
         project = self._project()
@@ -114,6 +120,22 @@ class TestDigBuilderSecurity(TransactionCase):
         self.assertFalse(copy_project.service_project_id)
         self.assertFalse(copy_project.description_hash)
         self.assertFalse(copy_project.metadata_hash)
+
+    def test_copy_rejects_forged_context_defaults(self):
+        project = self._project()
+        for field in DigBuilderProject.PROTECTED_FIELDS | {"company_id", "owner_id"}:
+            with self.subTest(field=field), self.assertRaises(UserError):
+                project.with_context(**{"default_%s" % field: "forged"}).copy()
+
+    def test_copy_preserves_only_normal_inputs(self):
+        project = self._project()
+        copied = project.copy({"name": "Copied name", "description": "Copied description", "provider": "anthropic", "model": "test-model-2"})
+        self.assertEqual(copied.name, "Copied name")
+        self.assertEqual(copied.description, "Copied description")
+        self.assertEqual(copied.provider, "anthropic")
+        self.assertEqual(copied.model, "test-model-2")
+        self.assertEqual(copied.company_id, self.env.company)
+        self.assertEqual(copied.owner_id, self.builder_user)
 
     def test_metadata_contract_excludes_unlisted_models_and_records(self):
         metadata = self._project().with_user(self.builder_user)._metadata_contract()

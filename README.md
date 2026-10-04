@@ -72,3 +72,17 @@ docker compose up --build
 ```
 
 Zet eerst `BUILDER_ADMIN_TOKEN` en providercredentials in een lokale `.env`. De providerstatus meldt expliciet wanneer een provider niet is ingesteld; er is geen stille fallback of gesimuleerde AI. De runner voert in deze fase nog geen gegenereerde code uit.
+
+### Geisoleerde Odoo 20-integratietest
+
+De addon-tests kunnen lokaal worden uitgevoerd in een aparte Compose-stack. Deze
+stack gebruikt een eigen database, volumes en netwerk en verwijdert die na afloop.
+Er worden geen providercredentials of echte AI-aanroepen gebruikt:
+
+```bash
+sh scripts/run-dig-builder-integration.sh
+```
+
+De huidige omgeving bevat geen Docker/Odoo-runner, dus deze controle is alleen
+geschreven en niet hier uitgevoerd. De hoofdstack en bestaande databases worden
+door dit script niet gebruikt.
