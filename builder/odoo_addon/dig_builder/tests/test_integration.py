@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import requests
 from odoo.exceptions import UserError
-from odoo.tests.common import TransactionCase, tagged
+from odoo.tests.common import BlockedRequest, TransactionCase, tagged
 
 from ..models import builder_project
 
@@ -23,7 +23,7 @@ class TestDigBuilderServiceIntegration(TransactionCase):
         })
 
     @staticmethod
-    def _request_handler(original_request, service_url):
+    def _make_internal_request_wrapper(original_request, service_url):
         configured = urlsplit(service_url)
 
         def request(method, url, **kwargs):
@@ -94,7 +94,7 @@ class TestDigBuilderServiceIntegration(TransactionCase):
             "model": "integration-test-model",
         })
         original_request = builder_project.requests.request
-        handler = self._request_handler(original_request, service_url)
+        handler = self._make_internal_request_wrapper(original_request, service_url)
         with patch.object(builder_project.requests, "request", side_effect=handler):
             response = project._builder_service_request("/api/providers", method="GET")
             self.assertIn("providers", response)
@@ -105,8 +105,9 @@ class TestDigBuilderServiceIntegration(TransactionCase):
                     project._builder_service_request("/api/providers", method="GET")
 
                 params.set_str("dig_builder.service_url", "http://outside.invalid:8080")
-                with self.assertRaisesRegex(Exception, "External requests verboten"):
+                with self.assertRaises(UserError) as blocked:
                     project._builder_service_request("/api/providers", method="GET")
+                self.assertIsInstance(blocked.exception.__cause__, BlockedRequest)
             finally:
                 params.set_str("dig_builder.service_url", service_url)
                 params.set_str("dig_builder.service_token", service_token)
