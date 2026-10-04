@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "generate-routes": "tsr generate",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --fix"
+    "lint": "oxlint --fix",
+    "start": "drizzle-kit migrate && vite dev"
   },
   "dependencies": {
     "@helloleo/runtime": "0.1.6",
