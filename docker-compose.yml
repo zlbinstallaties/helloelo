@@ -10,8 +10,8 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     volumes:
       - builder-data:/data
     depends_on:

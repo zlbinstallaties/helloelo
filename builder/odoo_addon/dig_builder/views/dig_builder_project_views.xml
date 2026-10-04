@@ -19,8 +19,11 @@
         <field name="arch" type="xml">
             <form>
                 <header>
+                    <button name="action_refresh_metadata" type="object" string="Refresh metadata" class="btn-secondary"/>
+                    <button name="action_generate_proposal" type="object" string="Generate proposal" class="btn-primary" invisible="state != 'draft'"/>
                     <button name="action_approve" type="object" string="Approve proposal" class="btn-primary" invisible="state != 'proposed'"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,proposed,approved,built"/>
+                    <field name="phase" widget="statusbar" statusbar_visible="connect,describe,build,publish"/>
                 </header>
                 <sheet>
                     <group>
@@ -30,9 +33,12 @@
                         <field name="model"/>
                         <field name="company_id"/>
                         <field name="owner_id"/>
+                        <field name="service_project_id" readonly="1"/>
+                        <field name="phase"/>
                     </group>
                     <group>
                         <field name="proposal" readonly="1"/>
+                        <field name="metadata_summary" readonly="1"/>
                     </group>
                 </sheet>
             </form>

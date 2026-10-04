@@ -8,7 +8,8 @@
 | Geen berichten | Geslaagd voor huidige code | Geen mail-, chatter- of notificatiecall in de dashboardcode. |
 | Odoo-configuratie niet wijzigen | Geslaagd voor huidige code | De dashboardroute leest geen configuratiemodel en schrijft niets. |
 | Bedrijfsafscherming | Gedeeltelijk geslaagd | Serverroute en beide Odoo-reads gebruiken `company_id = 2`. Dit is geen vervanging voor gebruikersauthenticatie. |
-| Applicatie-authenticatie | Mislukt / ontbreekt | Er is geen login, sessiecontrole of gebruikersrolcontrole in deze repository. Preview-authenticatie wordt buiten deze code door HelloLeo beheerd. |
+| Dashboard-app-authenticatie | Niet van toepassing op builder | Het bestaande read-only dashboard blijft zonder eigen login. De DIG Builder-authenticatie zit in de Odoo-addon en gebruikt `auth="user"` plus `dig_builder.group_dig_builder_admin`. |
+| DIG Builder-authenticatie | Code toegevoegd, integratietest open | Odoo-routes controleren bij iedere aanvraag de expliciete admin-groep; niet-ingelogde en niet-beheerders worden geweigerd. Dit is nog niet tegen de echte Odoo-testserver uitgevoerd. |
 | Geheimen in browsercode | Geslaagd op code-inspectie | Proxy en `HELLOLEO_API_KEY` staan in server-only code. Geen sleutelwaarde staat in broncode. |
 | Secretbestanden | Gedeeltelijk geslaagd | `.env` is aanwezig en wordt door `.gitignore` uitgesloten; er is een lokale `HELLOLEO_API_KEY` aangetroffen. De waarde is niet in documentatie of nieuwe bestanden gekopieerd. Git-tracking van dit bestand is niet met `git status` geverifieerd. |
 | Many2many-monteurs | Gedeeltelijk / niet volledig bewezen | `employee_ids` en `user_ids` worden gelezen en defensief naar namen omgezet. De previewrecords hadden geen toegewezen medewerkers, waardoor een echte toegewezen many2many-case niet is getest. De filter is naamgebaseerd en kan bij gelijke namen botsen. |
@@ -22,7 +23,7 @@
 | Backend previewlogs | Geslaagd voor runtimefouten | Geen backend-runtimefout aangetroffen. Historische iframe/HMR-meldingen blijven in de loghistorie staan. |
 | Typecheck | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run typecheck` uit te voeren. |
 | Build/lint | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run build` of lint uit te voeren. |
-| Geautomatiseerde tests | Niet toegevoegd | Er is geen test runner dependency of testsuite in dit scaffold aanwezig. Een testlaag is nodig voor de tekortkomingen hierboven. |
+| Builder-tests | Toegevoegd, niet uitgevoerd | Addon-tests en service-tests dekken sessie/groep, company-isolatie, service-authenticatie en secretvrije antwoorden. Odoo, Docker en providercredentials waren in deze sessie niet uitvoerbaar. |
 | Git-status | Niet uitvoerbaar via Git-tool | Er is geen Git-status/commit/push-tool beschikbaar in deze sessie. Er is niet gecommit en niet gepusht. |
 
 ## Aanbevolen vervolgreparaties
