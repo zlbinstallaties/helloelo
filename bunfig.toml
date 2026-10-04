@@ -1,0 +1,11 @@
+# Supply-chain guard: refuse npm package versions published less than 3 days
+# ago (compromised-release window). Versions already in bun.lock install
+# normally. Escape hatch: minimumReleaseAgeExcludes = ["pkg"].
+#
+# First-party @helloleo packages are excluded. The guard exists to blunt a
+# compromised third-party release, and we publish these ourselves, so the only
+# thing the window buys here is three days during which a project cannot
+# install the runtime it was just scaffolded against.
+[install]
+minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = ["@helloleo/runtime", "@helloleo/vite-config", "@helloleo/plugins"]
