@@ -66,7 +66,7 @@ class DigBuilderProject(models.Model):
     NORMAL_INPUT_FIELDS = {"name", "description", "provider", "model"}
     SERVER_FIELDS = {"revision", "create_request_id"}
 
-    create_request_unique = models.Constraint(
+    _create_request_unique = models.Constraint(
         "UNIQUE(company_id, create_request_id)",
         "Dit projectverzoek is al aangemaakt.",
     )

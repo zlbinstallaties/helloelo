@@ -9,7 +9,7 @@ class DigBuilderTask(models.Model):
     _description = "DIG Builder Async Task"
     _order = "create_date desc, id desc"
 
-    project_request_unique = models.Constraint(
+    _project_request_unique = models.Constraint(
         "UNIQUE(project_id, client_request_id)",
         "Dit verzoek is al aangemaakt.",
     )
@@ -103,6 +103,8 @@ class DigBuilderTask(models.Model):
                 payload={
                     "description": task.description_snapshot,
                     "client_request_id": task.client_request_id,
+                    "company_id": task.company_id.id,
+                    "project_id": task.project_id.id,
                     "provider": task.provider,
                     "model": task.model,
                     "metadata": json.loads(task.metadata_json),

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import secrets
 import tempfile
@@ -80,24 +81,65 @@ class Store:
             self._write(data)
             return project
 
-    def create_task(self, payload: dict) -> dict:
+    @staticmethod
+    def _task_key(payload: dict) -> str:
+        environment = os.environ.get("BUILDER_ENVIRONMENT", "default")
+        return ":".join([
+            environment,
+            str(payload.get("company_id", "")),
+            str(payload.get("project_id", "")),
+            str(payload.get("client_request_id", "")),
+        ])
+
+    @staticmethod
+    def _input_digest(payload: dict) -> str:
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    def create_task(self, payload: dict) -> tuple[dict, bool]:
         with self._lock:
             data = self._read()
-            request_id = payload.get("client_request_id")
-            if request_id:
-                existing = next((item for item in data.get("tasks", []) if item.get("payload", {}).get("client_request_id") == request_id), None)
-                if existing is not None:
-                    return existing
+            task_key = self._task_key(payload)
+            input_digest = self._input_digest(payload)
+            existing = next((item for item in data.get("tasks", []) if item.get("task_key") == task_key), None)
+            if existing is not None:
+                if existing.get("input_digest") != input_digest:
+                    raise ValueError("idempotency_key_reused_with_different_input")
+                return existing, False
             task = {
                 "id": secrets.token_urlsafe(12),
                 "state": "queued",
                 "payload": payload,
+                "task_key": task_key,
+                "input_digest": input_digest,
                 "result": None,
                 "error": None,
             }
             data.setdefault("tasks", []).append(task)
             self._write(data)
-        return task
+        return task, True
+
+    def claim_task(self, task_id: str) -> dict | None:
+        with self._lock:
+            data = self._read()
+            task = next((item for item in data.get("tasks", []) if item["id"] == task_id), None)
+            if task is None or task.get("state") != "queued":
+                return None
+            task["state"] = "running"
+            self._write(data)
+            return task
+
+    def interrupt_tasks(self, task_ids: list[str]) -> None:
+        with self._lock:
+            data = self._read()
+            changed = False
+            for task in data.get("tasks", []):
+                if task["id"] in task_ids and task.get("state") == "running":
+                    task["state"] = "interrupted"
+                    task["error"] = "builder_service_restarted_request_status_unknown"
+                    changed = True
+            if changed:
+                self._write(data)
 
     def get_task(self, task_id: str) -> dict | None:
         with self._lock:

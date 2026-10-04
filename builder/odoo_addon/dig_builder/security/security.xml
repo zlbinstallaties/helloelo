@@ -9,18 +9,4 @@
         <field name="privilege_id" ref="dig_builder.privilege_dig_builder"/>
     </record>
 
-    <record id="rule_dig_builder_message_company" model="ir.rule">
-        <field name="name">DIG Builder messages: current companies</field>
-        <field name="model_id" ref="model_dig_builder_message"/>
-        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
-        <field name="global" eval="True"/>
-    </record>
-
-    <record id="rule_dig_builder_task_company" model="ir.rule">
-        <field name="name">DIG Builder tasks: current companies</field>
-        <field name="model_id" ref="model_dig_builder_task"/>
-        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
-        <field name="global" eval="True"/>
-    </record>
-
 </odoo>

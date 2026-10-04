@@ -11,6 +11,7 @@ from store import Store
 
 store = Store()
 ALLOWED_METADATA_MODELS = {"planning.slot", "svs.tech.visit", "project.task", "sale.order", "crm.lead"}
+provider_slots = threading.BoundedSemaphore(max(1, int(os.environ.get("BUILDER_MAX_CONCURRENT_PROVIDERS", "2"))))
 
 
 def validated_metadata(metadata: object) -> dict:
@@ -100,27 +101,27 @@ def proposal_prompt(project: dict) -> str:
 
 
 def run_task(task_id: str) -> None:
-    task = store.get_task(task_id)
-    if task is None or task.get("state") != "queued":
-        return
-    store.update_task(task_id, state="running")
-    payload = task["payload"]
-    project = {
-        "description": payload["description"],
-        "metadata": payload["metadata"],
-        "conversation": payload["conversation"],
-        "provider": payload["provider"],
-        "model": payload["model"],
-    }
-    try:
-        result = test(project["provider"], project["model"], proposal_prompt(project))
-        if not result.get("ok") or not result.get("complete") or not result.get("text"):
-            raise ProviderError("provider_empty_or_incomplete_response")
-        store.update_task(task_id, state="succeeded", result={"proposal": result["text"]})
-    except ProviderError as error:
-        store.update_task(task_id, state="failed", error=str(error))
-    except Exception:
-        store.update_task(task_id, state="failed", error="builder_task_failed")
+    with provider_slots:
+        task = store.claim_task(task_id)
+        if task is None:
+            return
+        payload = task["payload"]
+        project = {
+            "description": payload["description"],
+            "metadata": payload["metadata"],
+            "conversation": payload["conversation"],
+            "provider": payload["provider"],
+            "model": payload["model"],
+        }
+        try:
+            result = test(project["provider"], project["model"], proposal_prompt(project))
+            if not result.get("ok") or not result.get("complete") or not result.get("text"):
+                raise ProviderError("provider_empty_or_incomplete_response")
+            store.update_task(task_id, state="succeeded", result={"proposal": result["text"]})
+        except ProviderError as error:
+            store.update_task(task_id, state="failed", error=str(error))
+        except Exception:
+            store.update_task(task_id, state="failed", error="builder_task_failed")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -214,16 +215,26 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(model, str) or not model.strip() or len(model) > 200:
                 json_response(self, 400, {"error": "model_required"})
                 return
-            task = store.create_task({
-                "description": description.strip(),
-                "client_request_id": payload.get("client_request_id"),
-                "provider": provider,
-                "model": model.strip(),
-                "metadata": metadata,
-                "conversation": conversation,
-            })
-            threading.Thread(target=run_task, args=(task["id"],), daemon=True).start()
-            json_response(self, 202, {"task": {"id": task["id"], "state": task["state"]}})
+            if not isinstance(payload.get("client_request_id"), str) or not payload["client_request_id"].strip() or not isinstance(payload.get("company_id"), int) or not isinstance(payload.get("project_id"), int):
+                json_response(self, 400, {"error": "scoped_request_id_required"})
+                return
+            try:
+                task, created = store.create_task({
+                    "description": description.strip(),
+                    "client_request_id": payload.get("client_request_id"),
+                    "company_id": payload.get("company_id"),
+                    "project_id": payload.get("project_id"),
+                    "provider": provider,
+                    "model": model.strip(),
+                    "metadata": metadata,
+                    "conversation": conversation,
+                })
+            except ValueError as error:
+                json_response(self, 409, {"error": str(error)})
+                return
+            if created:
+                threading.Thread(target=run_task, args=(task["id"],), daemon=True).start()
+            json_response(self, 202 if created else 200, {"task": {"id": task["id"], "state": task["state"]}})
             return
 
         if path == "/api/projects":
@@ -270,8 +281,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    for interrupted_task_id in store.task_ids_in_states({"running"}):
-        store.update_task(interrupted_task_id, state="queued", error=None)
+    # A running provider request has unknown external side effects after a
+    # restart, so it is surfaced as interrupted and never retried automatically.
+    store.interrupt_tasks(store.task_ids_in_states({"running"}))
     for pending_task_id in store.task_ids_in_states({"queued"}):
         threading.Thread(target=run_task, args=(pending_task_id,), daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

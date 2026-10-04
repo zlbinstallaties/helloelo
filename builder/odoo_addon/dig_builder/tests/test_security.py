@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 from odoo.exceptions import AccessError, UserError
@@ -180,6 +181,14 @@ class TestDigBuilderSecurity(TransactionCase):
                 "role": "assistant",
                 "body": "Forged response",
             })
+
+    def test_security_files_do_not_reference_removed_rule_model(self):
+        addon_root = Path(__file__).resolve().parents[1]
+        security_xml = (addon_root / "security" / "security.xml").read_text(encoding="utf-8")
+        access_csv = (addon_root / "security" / "ir.access.csv").read_text(encoding="utf-8")
+        self.assertNotIn('model="ir.rule"', security_xml)
+        self.assertIn("dig.builder.message,,crud,\"[('company_id', 'in', company_ids)]\"", access_csv)
+        self.assertIn("dig.builder.task,,crud,\"[('company_id', 'in', company_ids)]\"", access_csv)
 
     def test_queued_task_creates_server_assistant_message(self):
         project = self._project()
