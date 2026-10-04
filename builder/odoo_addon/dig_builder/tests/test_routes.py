@@ -43,6 +43,33 @@ class TestDigBuilderRoutes(HttpCase):
             allow_redirects=False,
         )
 
+    def _bootstrap(self):
+        return self.url_open(
+            "/dig_builder/app/bootstrap",
+            data=json.dumps({"jsonrpc": "2.0", "method": "call", "params": {}, "id": 1}),
+            headers={"Content-Type": "application/json", "X-CSRFToken": self.csrf_token()},
+            allow_redirects=False,
+        )
+
+    def _create_project(self):
+        return self.url_open(
+            "/dig_builder/app/project/create",
+            data=json.dumps({
+                "jsonrpc": "2.0",
+                "method": "call",
+                "params": {
+                    "name": "Unauthorized project",
+                    "description": "Should not be created",
+                    "provider": "openai",
+                    "model": "test-model",
+                    "client_request_id": "unauthorized-client-request",
+                },
+                "id": 1,
+            }),
+            headers={"Content-Type": "application/json", "X-CSRFToken": self.csrf_token()},
+            allow_redirects=False,
+        )
+
     def test_not_logged_in_is_rejected(self):
         response = self._metadata(csrf=False)
         self.assertEqual(response.status_code, 200)
@@ -62,6 +89,18 @@ class TestDigBuilderRoutes(HttpCase):
         self.assertIn("error", body)
         self.assertNotIn("result", body)
         self.assertNotIn("readable_models", body)
+
+    def test_direct_client_action_cannot_read_or_use_builder_data(self):
+        self.authenticate(self.user.login, "route-password")
+        bootstrap_body = self._bootstrap().json()
+        self.assertIn("error", bootstrap_body)
+        self.assertNotIn("result", bootstrap_body)
+        self.assertNotIn("projects", bootstrap_body)
+        self.assertNotIn("providers", bootstrap_body)
+
+        create_body = self._create_project().json()
+        self.assertIn("error", create_body)
+        self.assertNotIn("result", create_body)
 
     def test_builder_only_admin_does_not_receive_ungranted_models(self):
         self.authenticate(self.builder_only_admin.login, "route-password")
