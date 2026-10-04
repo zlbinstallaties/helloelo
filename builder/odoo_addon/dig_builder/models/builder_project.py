@@ -28,11 +28,13 @@ class DigBuilderProject(models.Model):
         ],
         default="draft",
         required=True,
+        readonly=True,
     )
     phase = fields.Selection(
         [("connect", "Connect"), ("describe", "Describe"), ("build", "Build"), ("publish", "Publish")],
         default="describe",
         required=True,
+        readonly=True,
     )
     proposal = fields.Text(readonly=True)
     service_project_id = fields.Char(readonly=True, copy=False)
@@ -52,6 +54,11 @@ class DigBuilderProject(models.Model):
         "sale.order": ["name", "state", "partner_id", "date_order", "amount_total"],
         "crm.lead": ["name", "type", "stage_id", "user_id", "partner_id"],
     }
+    PROTECTED_FIELDS = {
+        "state", "phase", "proposal", "service_project_id", "metadata_summary",
+        "metadata_json", "metadata_version", "description_hash", "metadata_hash",
+    }
+    NORMAL_INPUT_FIELDS = {"name", "description", "provider", "model"}
 
     def _check_builder_admin(self):
         if not self.env.user.has_group("dig_builder.group_dig_builder_admin"):
@@ -89,34 +96,70 @@ class DigBuilderProject(models.Model):
     def _current_description_hash(self):
         return self._digest(self.description or "")
 
+    def _write_workflow(self, vals):
+        """Write protected fields only from a checked workflow method."""
+        self._check_builder_admin()
+        if not vals or not set(vals).issubset(self.PROTECTED_FIELDS):
+            raise UserError(_("Invalid internal builder workflow update."))
+        for project in self:
+            if project.company_id != self.env.company:
+                raise AccessError(_("The project belongs to another company."))
+        return super().write(vals)
+
     @api.model_create_multi
     def create(self, vals_list):
         self._check_builder_admin()
         for vals in vals_list:
+            if (self.PROTECTED_FIELDS - {"state", "phase"}).intersection(vals):
+                raise UserError(_("New builder projects must start as an unapproved description draft."))
+            if vals.get("state", "draft") != "draft" or vals.get("phase", "describe") != "describe":
+                raise UserError(_("New builder projects must start in draft/describe."))
+            vals["state"] = "draft"
+            vals["phase"] = "describe"
             if vals.get("company_id", self.env.company.id) != self.env.company.id:
                 raise AccessError(_("A builder project must belong to the active company."))
+            if vals.get("owner_id", self.env.user.id) != self.env.user.id:
+                raise AccessError(_("A builder project must be owned by the current user."))
         return super().create(vals_list)
+
+    def copy(self, default=None):
+        self.ensure_one()
+        self._check_builder_admin()
+        if self.company_id != self.env.company:
+            raise AccessError(_("The project belongs to another company."))
+        requested = default or {}
+        if self.PROTECTED_FIELDS.intersection(requested) or {"company_id", "owner_id"}.intersection(requested):
+            raise UserError(_("A copied project cannot supply workflow fields."))
+        return self.create({
+            "name": requested.get("name", _("%s (copy)") % self.name),
+            "description": requested.get("description", self.description),
+            "provider": requested.get("provider", self.provider),
+            "model": requested.get("model", self.model),
+        })
 
     def write(self, vals):
         self._check_builder_admin()
-        relevant_change = {"description", "provider", "model", "metadata_json"}.intersection(vals)
+        if self.PROTECTED_FIELDS.intersection(vals):
+            raise UserError(_("Workflow fields may only be changed by the DIG Builder workflow."))
+        if not set(vals).issubset(self.NORMAL_INPUT_FIELDS | {"company_id", "owner_id"}):
+            raise UserError(_("Only builder description fields may be edited."))
+        if "company_id" in vals or "owner_id" in vals:
+            raise UserError(_("Company and owner cannot be changed after project creation."))
+        relevant_change = {"description", "provider", "model"}.intersection(vals)
         for project in self:
             if project.company_id != self.env.company:
                 raise AccessError(_("The project belongs to another company."))
-            target = vals.get("state")
-            if target and target != project.state:
-                allowed = {"draft": {"proposed"}, "proposed": {"approved"}, "approved": {"built"}, "failed": {"draft"}}
-                if target not in allowed.get(project.state, set()):
-                    raise UserError(_("Invalid builder status transition."))
-                if target == "proposed" and (not (vals.get("proposal") or project.proposal) or not (vals.get("service_project_id") or project.service_project_id) or not (vals.get("metadata_json") or project.metadata_json)):
-                    raise UserError(_("A generated proposal is required before entering the build phase."))
-                if target == "approved":
-                    if not project.proposal or project.description_hash != project._current_description_hash() or project.metadata_hash != project._current_metadata_hash():
-                        raise UserError(_("Approval is invalid because the proposal inputs changed."))
-            if relevant_change and project.state in {"proposed", "approved", "built"}:
-                vals = dict(vals)
-                vals.update({"state": "draft", "phase": "describe", "proposal": False, "service_project_id": False, "description_hash": False, "metadata_hash": False})
-        return super().write(vals)
+        result = super().write(vals)
+        if relevant_change:
+            self._write_workflow({
+                "state": "draft",
+                "phase": "describe",
+                "proposal": False,
+                "service_project_id": False,
+                "description_hash": False,
+                "metadata_hash": False,
+            })
+        return result
 
     def action_approve(self):
         self._check_builder_admin()
@@ -125,7 +168,9 @@ class DigBuilderProject(models.Model):
                 raise AccessError(_("The project belongs to another company."))
             if not project.proposal:
                 raise UserError(_("A proposal is required before approval."))
-            project.write({"state": "approved", "phase": "build"})
+            if project.state != "proposed" or not project.proposal or project.description_hash != project._current_description_hash() or project.metadata_hash != project._current_metadata_hash():
+                raise UserError(_("Only a current proposal can be approved."))
+            project._write_workflow({"state": "approved", "phase": "build"})
         return True
 
     def _builder_service_request(self, path, method="POST", payload=None):
@@ -154,6 +199,8 @@ class DigBuilderProject(models.Model):
             project._check_builder_admin()
             if project.company_id != self.env.company:
                 raise AccessError(_("The project belongs to another company."))
+            if project.state != "draft" or project.phase != "describe":
+                raise UserError(_("Only an unapproved description draft can generate a proposal."))
             if not project.metadata_json or project.metadata_version != self.METADATA_VERSION:
                 raise UserError(_("Refresh Odoo metadata before generating a proposal."))
             created = project._builder_service_request(
@@ -167,12 +214,19 @@ class DigBuilderProject(models.Model):
             proposal = project._builder_service_request(f"/api/projects/{service_id}/proposal").get("project") or {}
             if proposal.get("metadata_version") != project.metadata_version:
                 raise UserError(_("The proposal metadata version does not match the Odoo metadata."))
-            project.write({"service_project_id": service_id, "proposal": proposal.get("proposal"), "state": "proposed", "phase": "describe", "description_hash": project._current_description_hash(), "metadata_hash": project._current_metadata_hash()})
+            project._write_workflow({"service_project_id": service_id, "proposal": proposal.get("proposal"), "state": "proposed", "phase": "describe", "description_hash": project._current_description_hash(), "metadata_hash": project._current_metadata_hash()})
         return True
 
     def action_refresh_metadata(self):
         self._check_builder_admin()
         for project in self:
             metadata = project._metadata_contract()
-            project.write({"metadata_json": json.dumps(metadata, sort_keys=True), "metadata_version": metadata["version"], "metadata_summary": _("%s models available in company %s") % (len(metadata["models"]), self.env.company.display_name)})
+            values = {
+                "metadata_json": json.dumps(metadata, sort_keys=True),
+                "metadata_version": metadata["version"],
+                "metadata_summary": _("%s models available in company %s") % (len(metadata["models"]), self.env.company.display_name),
+            }
+            if project.state != "draft":
+                values.update({"state": "draft", "phase": "describe", "proposal": False, "service_project_id": False, "description_hash": False, "metadata_hash": False})
+            project._write_workflow(values)
         return True

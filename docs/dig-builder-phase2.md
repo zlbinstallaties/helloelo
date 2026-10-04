@@ -9,6 +9,7 @@
 - `builder/odoo_addon/dig_builder/security/security.xml`: Odoo 20 privilege/group en company record rule.
 - `builder/odoo_addon/dig_builder/views/dig_builder_project_views.xml`: beheerinterface en expliciete unavailable-status voor bouwen/publiceren.
 - `builder/odoo_addon/dig_builder/tests/`: addon security-, metadata- en HTTP-tests.
+- `builder/odoo_addon/dig_builder/tests/test_security.py`: create/write/copy rejection and mocked service workflow regressions.
 - `docker-compose.yml`, `.env.example`, `docs/verification.md`: bounded providerconfiguratie, interne servicegrens en verificatiestatus.
 
 ## Geimplementeerd
@@ -30,11 +31,12 @@
 - Odoo 20 metadata contract `odoo20-v1` contains only an allowlisted model/field schema, current company id, field types, and relations; it never contains records or secrets.
 - Metadata is included in the provider prompt as data, validated again by the builder service, and its version is stored with the project.
 - Proposal approval is invalidated when description, provider/model selection, or metadata changes. Build execution and publishing remain unavailable.
+- Public ORM `create`, `write`, and `copy` cannot set workflow-managed fields. Protected fields are written only by private, checked workflow methods; context values cannot bypass this boundary.
 
 ## API-flow
 
 1. `GET /api/providers` reports whether each provider has both a server-side credential and model configured.
-2. `POST /api/projects` with `description`, `provider`, and `model` creates a draft.
+2. `POST /api/projects` with `description`, `provider`, `model`, and validated `odoo20-v1` metadata creates a draft.
 3. `POST /api/projects/{id}/proposal` asks only the selected provider for a planning proposal and stores it.
 4. `GET /api/projects/{id}` reads the draft or proposal state.
 

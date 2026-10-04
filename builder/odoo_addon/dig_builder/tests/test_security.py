@@ -1,7 +1,10 @@
 import json
+from unittest.mock import patch
 
 from odoo.exceptions import AccessError, UserError
 from odoo.tests.common import TransactionCase, tagged
+
+from ..models.builder_project import DigBuilderProject
 
 
 @tagged("post_install", "-at_install")
@@ -46,6 +49,72 @@ class TestDigBuilderSecurity(TransactionCase):
         with self.assertRaises(AccessError):
             self._project(company=company).with_user(self.builder_user).action_approve()
 
+    def test_create_only_allows_a_clean_draft(self):
+        model = self.env["dig.builder.project"].with_user(self.builder_user)
+        base = {"name": "Create test", "description": "Describe", "provider": "openai", "model": "test-model"}
+        for bad in (
+            {"state": "approved"},
+            {"state": "built"},
+            {"proposal": "forged"},
+            {"service_project_id": "forged"},
+            {"metadata_json": "forged"},
+            {"description_hash": "forged"},
+        ):
+            with self.assertRaises(UserError):
+                model.create([dict(base, **bad)])
+        with self.assertRaises(UserError):
+            model.create([dict(base, state="approved"), dict(base, state="built")])
+
+    def test_direct_protected_writes_and_context_flags_are_rejected(self):
+        project = self._project()
+        for field, value in (("state", "approved"), ("state", "built"), ("phase", "build"), ("proposal", "forged"), ("service_project_id", "forged"), ("metadata_summary", "forged"), ("metadata_json", "forged"), ("metadata_version", "forged"), ("description_hash", "forged"), ("metadata_hash", "forged")):
+            with self.assertRaises(UserError):
+                project.with_context(dig_builder_workflow=True).write({field: value})
+        with self.assertRaises(UserError):
+            project.write({"company_id": self.env.company.id})
+        with self.assertRaises(UserError):
+            project.write({"owner_id": self.builder_user.id})
+
+    def _generate(self, project):
+        project.action_refresh_metadata()
+
+        def service_response(_record, path, method="POST", payload=None):
+            if path == "/api/projects":
+                return {"project": {"id": "service-1", "metadata_version": "odoo20-v1"}}
+            return {"project": {"proposal": "Generated proposal", "metadata_version": "odoo20-v1"}}
+
+        with patch.object(DigBuilderProject, "_builder_service_request", autospec=True, side_effect=service_response):
+            project.action_generate_proposal()
+        return project
+
+    def test_admin_uses_service_workflow_then_explicit_approval(self):
+        project = self._generate(self._project())
+        self.assertEqual(project.state, "proposed")
+        self.assertEqual(project.phase, "describe")
+        project.action_approve()
+        self.assertEqual(project.state, "approved")
+        self.assertEqual(project.phase, "build")
+
+    def test_relevant_input_change_invalidates_approval(self):
+        project = self._generate(self._project())
+        project.action_approve()
+        project.write({"description": "Changed after approval"})
+        self.assertEqual(project.state, "draft")
+        self.assertEqual(project.phase, "describe")
+        self.assertFalse(project.proposal)
+
+    def test_copy_is_a_clean_new_draft(self):
+        project = self._generate(self._project())
+        project.action_approve()
+        copy_project = project.copy()
+        self.assertNotEqual(project.id, copy_project.id)
+        self.assertEqual(copy_project.state, "draft")
+        self.assertEqual(copy_project.phase, "describe")
+        self.assertFalse(copy_project.proposal)
+        self.assertFalse(copy_project.service_project_id)
+        self.assertFalse(copy_project.description_hash)
+        self.assertFalse(copy_project.metadata_hash)
+
     def test_metadata_contract_excludes_unlisted_models_and_records(self):
         metadata = self._project().with_user(self.builder_user)._metadata_contract()
         names = {model["name"] for model in metadata["models"]}
@@ -57,7 +126,3 @@ class TestDigBuilderSecurity(TransactionCase):
         project = self._project()
         with self.assertRaises(UserError):
             project.action_approve()
-        project.action_refresh_metadata()
-        project.write({"proposal": "Generated", "service_project_id": "service-1", "state": "proposed", "description_hash": project._current_description_hash(), "metadata_hash": project._current_metadata_hash()})
-        project.write({"description": "Changed after proposal"})
-        self.assertEqual(project.state, "draft")
