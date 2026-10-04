@@ -22,8 +22,8 @@ class TestDigBuilderServiceIntegration(TransactionCase):
             self.skipTest("integration service is not configured")
 
         params = self.env["ir.config_parameter"].sudo()
-        service_url = params.get_param("dig_builder.service_url")
-        service_token = params.get_param("dig_builder.service_token")
+        service_url = params.get_str("dig_builder.service_url")
+        service_token = params.get_str("dig_builder.service_token")
         self.assertTrue(service_url)
         self.assertTrue(service_token)
 
@@ -36,9 +36,9 @@ class TestDigBuilderServiceIntegration(TransactionCase):
         response = project._builder_service_request("/api/providers", method="GET")
         self.assertIn("providers", response)
 
-        params.set_param("dig_builder.service_token", "wrong-token")
+        params.set_str("dig_builder.service_token", "wrong-token")
         try:
             with self.assertRaises(UserError):
                 project._builder_service_request("/api/providers", method="GET")
         finally:
-            params.set_param("dig_builder.service_token", service_token)
+            params.set_str("dig_builder.service_token", service_token)

@@ -21,28 +21,52 @@ class TestDigBuilderRoutes(HttpCase):
             "password": "route-password",
         })
 
-    def _metadata(self):
+    def _metadata(self, csrf=True):
+        headers = {"Content-Type": "application/json"}
+        if csrf:
+            headers["X-CSRFToken"] = self.csrf_token()
         return self.url_open(
             "/dig_builder/metadata",
             data=json.dumps({"jsonrpc": "2.0", "method": "call", "params": {}, "id": 1}),
-            headers={"Content-Type": "application/json", "X-CSRFToken": self.csrf_token()},
+            headers=headers,
             allow_redirects=False,
         )
 
     def test_not_logged_in_is_rejected(self):
-        response = self._metadata()
-        self.assertIn(response.status_code, (302, 303, 401))
+        response = self._metadata(csrf=False)
+        self.assertIn(response.status_code, (302, 303, 400, 401, 403))
+        if response.headers.get("content-type", "").startswith("application/json"):
+            body = response.json()
+            self.assertNotIn("result", body)
+            self.assertNotIn("readable_models", body)
 
     def test_logged_in_non_admin_is_rejected(self):
         self.authenticate(self.user.login, "route-password")
         response = self._metadata()
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("error", body)
+        self.assertNotIn("result", body)
+        self.assertNotIn("readable_models", body)
 
     def test_builder_admin_is_allowed_without_secrets(self):
         self.authenticate(self.admin.login, "route-password")
         response = self._metadata()
         self.assertEqual(response.status_code, 200)
-        body = response.text
-        self.assertNotIn("BUILDER_ADMIN_TOKEN", body)
-        self.assertNotIn("OPENAI_API_KEY", body)
-        self.assertNotIn("ANTHROPIC_API_KEY", body)
+        body = response.json()
+        self.assertNotIn("error", body)
+        result = body.get("result")
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result.get("version"), "odoo20-v1")
+        self.assertEqual(result.get("company_id"), self.admin.company_id.id)
+        self.assertIsInstance(result.get("models"), list)
+        model_names = {model["name"] for model in result["models"]}
+        self.assertIn("planning.slot", model_names)
+        self.assertTrue(model_names.issubset({
+            "planning.slot", "svs.tech.visit", "project.task", "sale.order", "crm.lead",
+        }))
+        planning = next(model for model in result["models"] if model["name"] == "planning.slot")
+        self.assertIn("name", {field["name"] for field in planning["fields"]})
+        self.assertNotIn("BUILDER_ADMIN_TOKEN", response.text)
+        self.assertNotIn("OPENAI_API_KEY", response.text)
+        self.assertNotIn("ANTHROPIC_API_KEY", response.text)

@@ -7,7 +7,7 @@
     "depends": ["base", "planning", "sale_management"],
     "data": [
         "security/security.xml",
-        "security/ir.model.access.csv",
+        "security/ir.access.csv",
         "views/dig_builder_project_views.xml",
     ],
     "installable": True,

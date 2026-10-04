@@ -9,10 +9,4 @@
         <field name="privilege_id" ref="dig_builder.privilege_dig_builder"/>
     </record>
 
-    <record id="rule_dig_builder_project_company" model="ir.rule">
-        <field name="name">DIG Builder projects: current companies</field>
-        <field name="model_id" ref="model_dig_builder_project"/>
-        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
-        <field name="groups" eval="[(4, ref('dig_builder.group_dig_builder_admin'))]"/>
-    </record>
 </odoo>

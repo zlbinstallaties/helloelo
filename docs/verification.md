@@ -27,7 +27,7 @@
 | OpenAI nested output extraction | Toegevoegd, niet uitgevoerd | Regressietests dekken nested `output_text`, meerdere blokken, lege/afgebroken antwoorden en providerfouten. |
 | Metadata-to-proposal contract | Code toegevoegd, niet uitgevoerd | Odoo maakt `odoo20-v1` met allowlisted models/fields en de service valideert en gebruikt dit in de providerprompt. |
 | Protected ORM workflow fields | Code toegevoegd, niet uitgevoerd | `create`, `write` en `copy` weigeren directe state-, phase-, proposal-, metadata-, hash- en servicevelden; alleen private workflowmethoden schrijven ze. |
-| Odoo 20 field compatibility | MCP-schema gecontroleerd | Deze sessie bevestigde `res.groups.privilege_id`, `res.users.group_ids`, `res.users.all_group_ids` en model `has_access("read")`; addon-installatie is nog niet uitgevoerd. |
+| Odoo 20 field compatibility | MCP-schema gecontroleerd | Deze sessie bevestigde `res.groups.privilege_id`, `res.users.group_ids`, `res.users.all_group_ids`, model `has_access("read")`, model `ir.access` en `ir.config_parameter.get_str()`/`set_str()`; addon-installatie is nog niet uitgevoerd. |
 | Git-status | Niet uitvoerbaar via Git-tool | Er is geen Git-status/commit/push-tool beschikbaar in deze sessie. Er is niet gecommit en niet gepusht. |
 
 ## Aanbevolen vervolgreparaties

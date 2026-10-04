@@ -62,8 +62,8 @@ if [ "$status" -eq 0 ]; then
 import os
 
 params = env["ir.config_parameter"].sudo()
-params.set_param("dig_builder.service_url", os.environ["DIG_BUILDER_SERVICE_URL"])
-params.set_param("dig_builder.service_token", os.environ["DIG_BUILDER_SERVICE_TOKEN"])
+params.set_str("dig_builder.service_url", os.environ["DIG_BUILDER_SERVICE_URL"])
+params.set_str("dig_builder.service_token", os.environ["DIG_BUILDER_SERVICE_TOKEN"])
 env.cr.commit()
 PY
 fi
@@ -71,8 +71,8 @@ fi
 if [ "$status" -eq 0 ]; then
     compose run --rm odoo odoo shell --no-http -d dig_builder_ci <<'PY' >"$artifact_dir/verify-odoo-config.log" 2>&1 || status=$?
 params = env["ir.config_parameter"].sudo()
-service_url = params.get_param("dig_builder.service_url")
-service_token = params.get_param("dig_builder.service_token")
+service_url = params.get_str("dig_builder.service_url")
+service_token = params.get_str("dig_builder.service_token")
 assert service_url, "service URL is missing"
 assert service_token, "service token is missing"
 print("builder_service_url_configured=true")

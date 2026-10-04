@@ -209,8 +209,8 @@ class DigBuilderProject(models.Model):
         self.ensure_one()
         self._check_builder_admin()
         params = self.env["ir.config_parameter"].sudo()
-        base_url = (params.get_param("dig_builder.service_url") or "").rstrip("/")
-        token = params.get_param("dig_builder.service_token") or ""
+        base_url = (params.get_str("dig_builder.service_url") or "").rstrip("/")
+        token = params.get_str("dig_builder.service_token") or ""
         if not base_url or not token:
             raise UserError(_("The DIG Builder service is not configured."))
         try:

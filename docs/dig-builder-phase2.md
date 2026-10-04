@@ -6,7 +6,7 @@
 - `builder/build-service/test_providers.py`, `test_service.py`: provider- en service-regressietests.
 - `builder/odoo_addon/dig_builder/models/builder_project.py`: Odoo 20-model, metadata-contract, workflowtransities en server-side builder-servicecall.
 - `builder/odoo_addon/dig_builder/controllers/builder.py`: Odoo `jsonrpc`-routes voor metadata en projecten.
-- `builder/odoo_addon/dig_builder/security/security.xml`: Odoo 20 privilege/group en company record rule.
+- `builder/odoo_addon/dig_builder/security/security.xml`, `security/ir.access.csv`: Odoo 20 privilege/group en beperkte company-scoped toegang.
 - `builder/odoo_addon/dig_builder/views/dig_builder_project_views.xml`: beheerinterface en expliciete unavailable-status voor bouwen/publiceren.
 - `builder/odoo_addon/dig_builder/tests/`: addon security-, metadata- en HTTP-tests.
 - `builder/odoo_addon/dig_builder/tests/test_security.py`: create/write/copy rejection and mocked service workflow regressions.
@@ -32,6 +32,7 @@
 - Metadata is included in the provider prompt as data, validated again by the builder service, and its version is stored with the project.
 - Proposal approval is invalidated when description, provider/model selection, or metadata changes. Build execution and publishing remain unavailable.
 - Public ORM `create`, `write`, and `copy` cannot set workflow-managed fields. Protected fields are written only by private, checked workflow methods; context values cannot bypass this boundary.
+- Odoo 20 Enterprise-beveiliging gebruikt `ir.access` met alleen de DIG Builder-beheerdersgroep en de company-domain `[('company_id', 'in', company_ids)]`; de serviceconfiguratie gebruikt server-side `get_str()`/`set_str()`.
 
 ## API-flow
 
@@ -53,7 +54,7 @@ Every endpoint except `/healthz` requires `Authorization: Bearer $BUILDER_ADMIN_
 - Geïsoleerde code-uitvoering.
 - Bestandsdiffs, testsandbox, preview en installatiepakket.
 - Echte OpenAI- of Anthropic-end-to-endtest; credentials ontbreken.
-- Odoo-addon-installatie en Odoo-testservercontrole.
+- Odoo-addon-installatie en Odoo-testservercontrole zijn afhankelijk van de lokale Odoo 20 Enterprise-integratierun.
 - Database-backed auditlog met redactie van gevoelige waarden.
 - Testexecution in this workspace; the addon requires an actual Odoo 20 test database and the service tests require the Python test runner.
 
