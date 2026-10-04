@@ -42,12 +42,15 @@ class Store:
         with self._lock:
             return next((project for project in self._read()["projects"] if project["id"] == project_id), None)
 
-    def create_project(self, description: str, provider: str, model: str) -> dict:
+    def create_project(self, description: str, provider: str, model: str, metadata: dict | None = None) -> dict:
+        metadata = metadata or {"version": "odoo20-v1", "company_id": None, "models": []}
         project = {
             "id": secrets.token_urlsafe(12),
             "description": description,
             "provider": provider,
             "model": model,
+            "metadata": metadata,
+            "metadata_version": metadata["version"],
             "state": "draft",
             "proposal": None,
             "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),

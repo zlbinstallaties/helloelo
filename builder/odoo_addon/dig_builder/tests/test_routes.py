@@ -13,7 +13,7 @@ class TestDigBuilderRoutes(HttpCase):
             "name": "DIG Builder Route Admin",
             "login": "dig-builder-route-admin",
             "password": "route-password",
-            "groups_id": [(4, group.id)],
+            "group_ids": [(4, group.id)],
         })
         cls.user = cls.env["res.users"].create({
             "name": "DIG Builder Route User",
@@ -24,8 +24,8 @@ class TestDigBuilderRoutes(HttpCase):
     def _metadata(self):
         return self.url_open(
             "/dig_builder/metadata",
-            data=json.dumps({}),
-            headers={"Content-Type": "application/json"},
+            data=json.dumps({"jsonrpc": "2.0", "method": "call", "params": {}, "id": 1}),
+            headers={"Content-Type": "application/json", "X-CSRFToken": self.csrf_token()},
             allow_redirects=False,
         )
 

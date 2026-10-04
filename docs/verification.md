@@ -24,6 +24,9 @@
 | Typecheck | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run typecheck` uit te voeren. |
 | Build/lint | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run build` of lint uit te voeren. |
 | Builder-tests | Toegevoegd, niet uitgevoerd | Addon-tests en service-tests dekken sessie/groep, company-isolatie, service-authenticatie en secretvrije antwoorden. Odoo, Docker en providercredentials waren in deze sessie niet uitvoerbaar. |
+| OpenAI nested output extraction | Toegevoegd, niet uitgevoerd | Regressietests dekken nested `output_text`, meerdere blokken, lege/afgebroken antwoorden en providerfouten. |
+| Metadata-to-proposal contract | Code toegevoegd, niet uitgevoerd | Odoo maakt `odoo20-v1` met allowlisted models/fields en de service valideert en gebruikt dit in de providerprompt. |
+| Odoo 20 field compatibility | MCP-schema gecontroleerd | Deze sessie bevestigde `res.groups.privilege_id`, `res.users.group_ids`, `res.users.all_group_ids` en model `has_access("read")`; addon-installatie is nog niet uitgevoerd. |
 | Git-status | Niet uitvoerbaar via Git-tool | Er is geen Git-status/commit/push-tool beschikbaar in deze sessie. Er is niet gecommit en niet gepusht. |
 
 ## Aanbevolen vervolgreparaties

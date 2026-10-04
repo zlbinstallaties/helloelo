@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from providers import ProviderError, test
-from server import is_admin
+from server import is_admin, proposal_prompt, validated_metadata
 from store import Store
 
 
@@ -20,10 +20,19 @@ class BuilderServiceContractTests(unittest.TestCase):
     def test_store_does_not_return_provider_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             os.environ["BUILDER_DATA_DIR"] = directory
-            project = Store().create_project("Read-only overview", "openai", "test-model")
+            project = Store().create_project("Read-only overview", "openai", "test-model", {"version": "odoo20-v1", "company_id": 2, "models": []})
             serialized = json.dumps(project)
             self.assertNotIn("API_KEY", serialized)
             self.assertNotIn("secret", serialized.lower())
+
+    def test_metadata_is_validated_and_reaches_the_proposal_prompt(self):
+        metadata = {"version": "odoo20-v1", "company_id": 2, "models": [{"name": "planning.slot", "fields": [{"name": "name", "type": "char", "relation": None}]}]}
+        project = {"description": "Show planning", "metadata": validated_metadata(metadata)}
+        prompt = proposal_prompt(project)
+        self.assertIn("planning.slot", prompt)
+        self.assertIn('"name": "name"', prompt)
+        with self.assertRaises(ValueError):
+            validated_metadata({"version": "odoo20-v1", "company_id": 2, "models": [{"name": "res.partner", "fields": []}]})
 
     @patch("providers._post", side_effect=ProviderError("provider returned HTTP 401"))
     def test_invalid_provider_authentication_is_not_silently_accepted(self, _post):

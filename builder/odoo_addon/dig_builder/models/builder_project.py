@@ -1,7 +1,8 @@
 import json
+import hashlib
 import requests
 
-from odoo import _, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 
 
@@ -36,13 +37,86 @@ class DigBuilderProject(models.Model):
     proposal = fields.Text(readonly=True)
     service_project_id = fields.Char(readonly=True, copy=False)
     metadata_summary = fields.Text(readonly=True)
+    metadata_json = fields.Text(readonly=True, copy=False)
+    metadata_version = fields.Char(readonly=True, copy=False)
+    description_hash = fields.Char(readonly=True, copy=False)
+    metadata_hash = fields.Char(readonly=True, copy=False)
     company_id = fields.Many2one("res.company", required=True, default=lambda self: self.env.company)
     owner_id = fields.Many2one("res.users", required=True, default=lambda self: self.env.user)
+
+    METADATA_VERSION = "odoo20-v1"
+    METADATA_FIELDS = {
+        "planning.slot": ["name", "start_datetime", "end_datetime", "state", "partner_id", "employee_ids", "user_ids"],
+        "svs.tech.visit": ["name", "visit_date", "state", "partner_id", "technician_id", "slot_id"],
+        "project.task": ["name", "stage_id", "user_ids", "project_id", "date_deadline"],
+        "sale.order": ["name", "state", "partner_id", "date_order", "amount_total"],
+        "crm.lead": ["name", "type", "stage_id", "user_id", "partner_id"],
+    }
 
     def _check_builder_admin(self):
         if not self.env.user.has_group("dig_builder.group_dig_builder_admin"):
             raise AccessError(_("Only DIG Builder administrators may use this project."))
         return True
+
+    @staticmethod
+    def _digest(value):
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _metadata_contract(self):
+        self._check_builder_admin()
+        models = []
+        field_model = self.env["ir.model.fields"]
+        for model_name, field_names in self.METADATA_FIELDS.items():
+            try:
+                model = self.env[model_name]
+            except KeyError:
+                continue
+            if model is None or not model.has_access("read"):
+                continue
+            fields = field_model.search([("model", "=", model_name), ("name", "in", field_names)])
+            models.append({
+                "name": model_name,
+                "fields": [
+                    {"name": field.name, "type": field.ttype, "relation": field.relation or None}
+                    for field in fields.sorted("name")
+                ],
+            })
+        return {"version": self.METADATA_VERSION, "company_id": self.env.company.id, "models": models}
+
+    def _current_metadata_hash(self):
+        return self._digest(self.metadata_json or "")
+
+    def _current_description_hash(self):
+        return self._digest(self.description or "")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        self._check_builder_admin()
+        for vals in vals_list:
+            if vals.get("company_id", self.env.company.id) != self.env.company.id:
+                raise AccessError(_("A builder project must belong to the active company."))
+        return super().create(vals_list)
+
+    def write(self, vals):
+        self._check_builder_admin()
+        relevant_change = {"description", "provider", "model", "metadata_json"}.intersection(vals)
+        for project in self:
+            if project.company_id != self.env.company:
+                raise AccessError(_("The project belongs to another company."))
+            target = vals.get("state")
+            if target and target != project.state:
+                allowed = {"draft": {"proposed"}, "proposed": {"approved"}, "approved": {"built"}, "failed": {"draft"}}
+                if target not in allowed.get(project.state, set()):
+                    raise UserError(_("Invalid builder status transition."))
+                if target == "proposed" and (not (vals.get("proposal") or project.proposal) or not (vals.get("service_project_id") or project.service_project_id) or not (vals.get("metadata_json") or project.metadata_json)):
+                    raise UserError(_("A generated proposal is required before entering the build phase."))
+                if target == "approved":
+                    if not project.proposal or project.description_hash != project._current_description_hash() or project.metadata_hash != project._current_metadata_hash():
+                        raise UserError(_("Approval is invalid because the proposal inputs changed."))
+            if relevant_change and project.state in {"proposed", "approved", "built"}:
+                vals = dict(vals)
+                vals.update({"state": "draft", "phase": "describe", "proposal": False, "service_project_id": False, "description_hash": False, "metadata_hash": False})
+        return super().write(vals)
 
     def action_approve(self):
         self._check_builder_admin()
@@ -51,7 +125,7 @@ class DigBuilderProject(models.Model):
                 raise AccessError(_("The project belongs to another company."))
             if not project.proposal:
                 raise UserError(_("A proposal is required before approval."))
-            project.state = "approved"
+            project.write({"state": "approved", "phase": "build"})
         return True
 
     def _builder_service_request(self, path, method="POST", payload=None):
@@ -80,26 +154,25 @@ class DigBuilderProject(models.Model):
             project._check_builder_admin()
             if project.company_id != self.env.company:
                 raise AccessError(_("The project belongs to another company."))
+            if not project.metadata_json or project.metadata_version != self.METADATA_VERSION:
+                raise UserError(_("Refresh Odoo metadata before generating a proposal."))
             created = project._builder_service_request(
                 "/api/projects",
-                payload={"description": project.description, "provider": project.provider, "model": project.model},
+                payload={"description": project.description, "provider": project.provider, "model": project.model, "metadata": json.loads(project.metadata_json)},
             )
             service_project = created.get("project") or {}
             service_id = service_project.get("id")
             if not service_id:
                 raise UserError(_("The builder service returned no project id."))
             proposal = project._builder_service_request(f"/api/projects/{service_id}/proposal").get("project") or {}
-            project.write({"service_project_id": service_id, "proposal": proposal.get("proposal"), "state": "proposed", "phase": "build"})
+            if proposal.get("metadata_version") != project.metadata_version:
+                raise UserError(_("The proposal metadata version does not match the Odoo metadata."))
+            project.write({"service_project_id": service_id, "proposal": proposal.get("proposal"), "state": "proposed", "phase": "describe", "description_hash": project._current_description_hash(), "metadata_hash": project._current_metadata_hash()})
         return True
 
     def action_refresh_metadata(self):
         self._check_builder_admin()
-        models_with_access = self.env["ir.model"].search([])
-        visible = []
-        for model in models_with_access:
-            if not model.model or not self.env[model.model].check_access_rights("read", raise_exception=False):
-                continue
-            visible.append(model.model)
-        summary = _("Readable models in company %s:\n%s") % (self.env.company.display_name, "\n".join(sorted(visible)))
-        self.write({"metadata_summary": summary})
+        for project in self:
+            metadata = project._metadata_contract()
+            project.write({"metadata_json": json.dumps(metadata, sort_keys=True), "metadata_version": metadata["version"], "metadata_summary": _("%s models available in company %s") % (len(metadata["models"]), self.env.company.display_name)})
         return True

@@ -8,6 +8,33 @@ class ProviderError(Exception):
     pass
 
 
+DEFAULT_PROPOSAL_OUTPUT_TOKENS = 2048
+MAX_PROPOSAL_OUTPUT_TOKENS = 8192
+
+
+def proposal_output_tokens() -> int:
+    try:
+        configured = int(os.environ.get("PROPOSAL_MAX_OUTPUT_TOKENS", DEFAULT_PROPOSAL_OUTPUT_TOKENS))
+    except ValueError:
+        configured = DEFAULT_PROPOSAL_OUTPUT_TOKENS
+    return max(256, min(configured, MAX_PROPOSAL_OUTPUT_TOKENS))
+
+
+def extract_openai_response(data: dict) -> tuple[str, bool]:
+    blocks = []
+    for output_item in data.get("output", []):
+        for content_item in output_item.get("content", []):
+            if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
+                blocks.append(content_item["text"])
+    return "\n".join(blocks).strip(), data.get("status", "completed") == "completed"
+
+
+def extract_anthropic_response(data: dict) -> tuple[str, bool]:
+    blocks = [item.get("text", "") for item in data.get("content", []) if item.get("type") == "text"]
+    stop_reason = data.get("stop_reason")
+    return "\n".join(block for block in blocks if isinstance(block, str)).strip(), stop_reason in (None, "end_turn", "stop_sequence")
+
+
 def _config() -> dict[str, dict[str, str]]:
     return {
         "openai": {
@@ -63,21 +90,15 @@ def test(provider: str, requested_model: str | None, prompt: str) -> dict:
         data = _post(
             "https://api.openai.com/v1/responses",
             {"authorization": f"Bearer {config['key']}"},
-            {"model": model, "input": prompt, "max_output_tokens": 128},
+            {"model": model, "input": prompt, "max_output_tokens": proposal_output_tokens()},
         )
-        output = "\n".join(
-            item.get("text", "")
-            for item in data.get("output", [])
-            for content in item.get("content", [])
-            if (content.get("type") == "output_text")
-        ).strip()
-        return {"provider": provider, "model": model, "ok": bool(data.get("id")), "text": output}
+        output, complete = extract_openai_response(data)
+        return {"provider": provider, "model": model, "ok": bool(data.get("id")) and complete and bool(output), "complete": complete, "text": output}
 
     data = _post(
         "https://api.anthropic.com/v1/messages",
         {"x-api-key": config["key"], "anthropic-version": "2023-06-01"},
-        {"model": model, "max_tokens": 128, "messages": [{"role": "user", "content": prompt}]},
+        {"model": model, "max_tokens": proposal_output_tokens(), "messages": [{"role": "user", "content": prompt}]},
     )
-    content = data.get("content", [])
-    output = "\n".join(item.get("text", "") for item in content if item.get("type") == "text").strip()
-    return {"provider": provider, "model": model, "ok": bool(data.get("id")), "text": output}
+    output, complete = extract_anthropic_response(data)
+    return {"provider": provider, "model": model, "ok": bool(data.get("id")) and complete and bool(output), "complete": complete, "text": output}
