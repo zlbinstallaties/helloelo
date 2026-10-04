@@ -23,7 +23,7 @@
 | Backend previewlogs | Geslaagd voor runtimefouten | Geen backend-runtimefout aangetroffen. Historische iframe/HMR-meldingen blijven in de loghistorie staan. |
 | Typecheck | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run typecheck` uit te voeren. |
 | Build/lint | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run build` of lint uit te voeren. |
-| Builder-tests | Toegevoegd, niet uitgevoerd | Addon-tests en service-tests dekken sessie/groep, company-isolatie, service-authenticatie en secretvrije antwoorden. Odoo, Docker en providercredentials waren in deze sessie niet uitvoerbaar. |
+| Builder-tests | Lokale run rapporteerde 17 tests, 1 failure en 2 errors; reparatie voorbereid | De testopzet gebruikt uitsluitend de geconfigureerde interne builder-service, geeft de positieve routegebruiker Planning-leesrechten en controleert JSON-RPC-authenticatiefouten. Deze workspace heeft Docker/Odoo niet beschikbaar; de reparatie is hier niet uitgevoerd. |
 | OpenAI nested output extraction | Toegevoegd, niet uitgevoerd | Regressietests dekken nested `output_text`, meerdere blokken, lege/afgebroken antwoorden en providerfouten. |
 | Metadata-to-proposal contract | Code toegevoegd, niet uitgevoerd | Odoo maakt `odoo20-v1` met allowlisted models/fields en de service valideert en gebruikt dit in de providerprompt. |
 | Protected ORM workflow fields | Code toegevoegd, niet uitgevoerd | `create`, `write` en `copy` weigeren directe state-, phase-, proposal-, metadata-, hash- en servicevelden; alleen private workflowmethoden schrijven ze. |

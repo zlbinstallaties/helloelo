@@ -83,6 +83,8 @@ fi
 if [ "$status" -eq 0 ]; then
     compose run --rm \
         -e DIG_BUILDER_INTEGRATION=1 \
+        -e DIG_BUILDER_SERVICE_URL=http://builder-api:8080 \
+        -e DIG_BUILDER_INTERNAL_HOSTS=builder-api \
         odoo odoo -d dig_builder_ci -i dig_builder -u dig_builder \
         --test-enable --test-tags /dig_builder --stop-after-init \
         --addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons \

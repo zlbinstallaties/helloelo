@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit
 
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
@@ -24,8 +25,17 @@ class TestDigBuilderServiceIntegration(TransactionCase):
         params = self.env["ir.config_parameter"].sudo()
         service_url = params.get_str("dig_builder.service_url")
         service_token = params.get_str("dig_builder.service_token")
+        expected_url = os.environ.get("DIG_BUILDER_SERVICE_URL")
         self.assertTrue(service_url)
         self.assertTrue(service_token)
+        self.assertEqual(service_url, expected_url)
+        parsed_url = urlsplit(service_url)
+        self.assertEqual(parsed_url.scheme, "http")
+        allowed_hosts = set(filter(None, os.environ.get("DIG_BUILDER_INTERNAL_HOSTS", "builder,builder-api").split(",")))
+        self.assertIn(parsed_url.hostname, allowed_hosts)
+        self.assertEqual(parsed_url.port, 8080)
+        self.assertIsNone(parsed_url.username)
+        self.assertIsNone(parsed_url.password)
 
         project = self.env["dig.builder.project"].with_user(self.builder_user).create({
             "name": "Builder service integration",
