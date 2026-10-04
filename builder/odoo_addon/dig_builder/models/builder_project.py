@@ -1,6 +1,7 @@
 import json
 import hashlib
 import requests
+from psycopg2 import IntegrityError
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
@@ -128,27 +129,34 @@ class DigBuilderProject(models.Model):
             return existing
         if self.state not in {"draft", "proposed"} or self.phase != "describe":
             raise UserError(_("Dit project kan nu geen beschrijving verwerken."))
-        self.write({"description": body})
         metadata = self._metadata_contract()
+        conversation = self._conversation_payload() + [{"role": "user", "content": body}]
+        try:
+            with self.env.cr.savepoint():
+                task = self.env["dig.builder.task"].create({
+                    "project_id": self.id,
+                    "company_id": self.company_id.id,
+                    "requested_by": self.env.user.id,
+                    "client_request_id": client_request_id,
+                    "provider": self.provider,
+                    "model": self.model,
+                    "metadata_json": json.dumps(metadata, sort_keys=True),
+                    "conversation_json": json.dumps(conversation, ensure_ascii=True),
+                })
+        except IntegrityError:
+            return self.env["dig.builder.task"].search([
+                ("project_id", "=", self.id),
+                ("client_request_id", "=", client_request_id),
+            ], limit=1)
+        self.write({"description": body})
         message = self.env["dig.builder.message"].create({
             "project_id": self.id,
             "company_id": self.company_id.id,
             "role": "user",
             "body": body,
             "client_request_id": client_request_id,
+            "task_id": task.id,
         })
-        conversation = self._conversation_payload()
-        task = self.env["dig.builder.task"].create({
-            "project_id": self.id,
-            "company_id": self.company_id.id,
-            "requested_by": self.env.user.id,
-            "client_request_id": client_request_id,
-            "provider": self.provider,
-            "model": self.model,
-            "metadata_json": json.dumps(metadata, sort_keys=True),
-            "conversation_json": json.dumps(conversation, ensure_ascii=True),
-        })
-        message.task_id = task.id
         return task
 
     def _write_workflow(self, vals):

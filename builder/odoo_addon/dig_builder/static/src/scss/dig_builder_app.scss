@@ -13,12 +13,19 @@
 }
 
 .o_dig_builder_brand { font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; }
+.o_dig_builder_projects { margin-top: 28px; display: grid; gap: 6px; }
+.o_dig_builder_sidebar-heading { color: #91a1ad; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.o_dig_builder_projects button { display: grid; gap: 3px; padding: 10px; border: 0; border-radius: 6px; text-align: left; background: transparent; color: #dce5ea; }
+.o_dig_builder_projects button:hover, .o_dig_builder_projects button.is-selected { background: #263a48; }
+.o_dig_builder_projects small { color: #91a1ad; }
 .o_dig_builder_phase-list { margin: 44px 0 32px; display: grid; gap: 14px; color: #91a1ad; }
 .o_dig_builder_phase-list .is-active { color: #fff; font-weight: 700; }
 .o_dig_builder_phase-list .is-disabled { opacity: .55; }
 .o_dig_builder_workspace { min-width: 0; }
 .o_dig_builder_header { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 28px 36px; border-bottom: 1px solid #e1e5e9; background: #fff; }
 .o_dig_builder_header h1 { margin: 4px 0 0; font-size: 1.55rem; }
+.o_dig_builder_project-settings { display: flex; gap: 6px; margin-top: 10px; }
+.o_dig_builder_project-settings input { max-width: 180px; }
 .o_dig_builder_kicker { color: #657583; font-size: .72rem; font-weight: 700; letter-spacing: .12em; }
 .o_dig_builder_content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); min-height: calc(100vh - 145px); }
 .o_dig_builder_chat, .o_dig_builder_preview { padding: 28px 36px; }
@@ -43,7 +50,7 @@
 @media (max-width: 900px) {
     .o_dig_builder_app { grid-template-columns: 1fr; }
     .o_dig_builder_sidebar { display: flex; align-items: center; gap: 20px; padding: 16px 20px; }
-    .o_dig_builder_phase-list { display: none; }
+    .o_dig_builder_projects, .o_dig_builder_phase-list { display: none; }
     .o_dig_builder_content { grid-template-columns: 1fr; }
     .o_dig_builder_chat { border-right: 0; }
     .o_dig_builder_preview { border-top: 1px solid #e1e5e9; }

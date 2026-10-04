@@ -1,5 +1,5 @@
 from odoo import fields, http
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 from odoo.http import request
 
 
@@ -58,7 +58,9 @@ class DigBuilderController(http.Controller):
     @http.route("/dig_builder/app/bootstrap", type="jsonrpc", auth="user", methods=["POST"], csrf=True)
     def app_bootstrap(self):
         self._admin()
-        projects = request.env["dig.builder.project"].search([], order="write_date desc, id desc")
+        projects = request.env["dig.builder.project"].search(
+            [("company_id", "=", request.env.company.id)], order="write_date desc, id desc"
+        )
         return {
             "user": {"id": request.env.user.id, "name": request.env.user.name},
             "providers": [
@@ -90,6 +92,14 @@ class DigBuilderController(http.Controller):
         task = project.enqueue_description(body, client_request_id)
         return {"project": self._project_data(project), "task": self._task_data(task)}
 
+    @http.route("/dig_builder/app/project/<int:project_id>/settings", type="jsonrpc", auth="user", methods=["POST"], csrf=True)
+    def app_project_settings(self, project_id, provider, model):
+        project = self._project(project_id)
+        if provider not in {"openai", "anthropic"} or not (model or "").strip():
+            raise UserError("Een geldige provider en model zijn verplicht.")
+        project.write({"provider": provider, "model": model.strip()})
+        return self._project_data(project)
+
     @http.route("/dig_builder/app/project/<int:project_id>/approve", type="jsonrpc", auth="user", methods=["POST"], csrf=True)
     def app_approve(self, project_id):
         project = self._project(project_id)
@@ -104,7 +114,9 @@ class DigBuilderController(http.Controller):
     @http.route("/dig_builder/projects", type="jsonrpc", auth="user", methods=["POST"], csrf=True)
     def projects(self):
         self._admin()
-        projects = request.env["dig.builder.project"].search([])
+        projects = request.env["dig.builder.project"].search([
+            ("company_id", "=", request.env.company.id),
+        ])
         return {"projects": [{"id": project.id, "name": project.name, "state": project.state, "company_id": project.company_id.id} for project in projects]}
 
     @http.route("/dig_builder/project/<int:project_id>/metadata", type="jsonrpc", auth="user", methods=["POST"], csrf=True)

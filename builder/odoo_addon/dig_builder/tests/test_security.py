@@ -185,3 +185,17 @@ class TestDigBuilderSecurity(TransactionCase):
         assistant_messages = project.message_ids.filtered(lambda message: message.role == "assistant")
         self.assertEqual(len(assistant_messages), 1)
         self.assertEqual(assistant_messages.body, "Voorstel vanuit service")
+
+    def test_provider_failure_is_a_visible_recoverable_task_failure(self):
+        project = self._project()
+        task = project.enqueue_description("Test providerfout", "request-failure")
+
+        def failing_request(*args, **kwargs):
+            raise UserError("The DIG Builder service is not configured.")
+
+        with patch.object(DigBuilderProject, "_builder_service_request", autospec=True, side_effect=failing_request):
+            task._run()
+
+        self.assertEqual(task.state, "failed")
+        self.assertIn("not configured", task.error_message)
+        self.assertFalse(project.message_ids.filtered(lambda message: message.role == "assistant"))

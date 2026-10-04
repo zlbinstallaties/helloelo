@@ -17,6 +17,7 @@ export class DigBuilderApp extends Component {
             loading: true,
             sending: false,
             error: null,
+            pollCount: 0,
         });
         onWillStart(() => this.loadBootstrap());
         onMounted(() => this.poll());
@@ -38,9 +39,25 @@ export class DigBuilderApp extends Component {
 
     async loadProject(id) {
         this.state.project = await jsonrpc(`/dig_builder/app/project/${id}`, {});
+        this.state.provider = this.state.project.provider;
+        this.state.model = this.state.project.model;
+    }
+
+    async selectProject(id) {
+        this.state.error = null;
+        this.state.pollCount = 0;
+        await this.loadProject(id);
+    }
+
+    startNewProject() {
+        this.state.project = null;
+        this.state.body = "";
+        this.state.error = null;
+        this.state.pollCount = 0;
     }
 
     async createProject() {
+        if (this.state.sending) return;
         this.state.sending = true;
         this.state.error = null;
         try {
@@ -63,6 +80,7 @@ export class DigBuilderApp extends Component {
 
     async sendMessage() {
         if (!this.state.body.trim()) return;
+        if (this.state.sending) return;
         if (!this.state.project) return this.createProject();
         this.state.sending = true;
         this.state.error = null;
@@ -84,6 +102,11 @@ export class DigBuilderApp extends Component {
     async poll() {
         const project = this.state.project;
         if (!project?.task || ["succeeded", "failed"].includes(project.task.state)) return;
+        if (this.state.pollCount >= 60) {
+            this.state.error = "De taak duurt langer dan verwacht. Je kunt later opnieuw laden.";
+            return;
+        }
+        this.state.pollCount += 1;
         await new Promise((resolve) => setTimeout(resolve, 1000));
         try {
             await this.loadProject(project.id);
@@ -100,6 +123,17 @@ export class DigBuilderApp extends Component {
             this.state.project = await jsonrpc(`/dig_builder/app/project/${this.state.project.id}/approve`, {});
         } catch (error) {
             this.state.error = error.message || "Het voorstel kon niet worden goedgekeurd.";
+        }
+    }
+
+    async saveSettings() {
+        try {
+            this.state.project = await jsonrpc(`/dig_builder/app/project/${this.state.project.id}/settings`, {
+                provider: this.state.provider,
+                model: this.state.model,
+            });
+        } catch (error) {
+            this.state.error = error.message || "De providerinstellingen konden niet worden opgeslagen.";
         }
     }
 }

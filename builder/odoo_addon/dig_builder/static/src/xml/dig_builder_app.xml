@@ -4,18 +4,31 @@
         <main class="o_dig_builder_app">
             <aside class="o_dig_builder_sidebar">
                 <div class="o_dig_builder_brand">DIG Builder</div>
-                <div class="o_dig_builder_phase-list">
-                    <div class="is-active">1. Beschrijven</div>
-                    <div class="is-disabled">2. Bouwen</div>
-                    <div class="is-disabled">3. Publiceren</div>
+                <button class="btn btn-primary" t-on-click="startNewProject">Nieuw gesprek</button>
+                <div class="o_dig_builder_projects">
+                    <div class="o_dig_builder_sidebar-heading">Projecten</div>
+                    <button t-foreach="state.bootstrap?.projects || []" t-as="project" t-key="project.id" t-on-click="() => this.selectProject(project.id)" t-att-class="state.project?.id === project.id ? 'is-selected' : ''">
+                        <strong t-esc="project.name"/>
+                        <small t-esc="project.state === 'proposed' ? 'Voorstel beschikbaar' : 'Beschrijven'"/>
+                    </button>
                 </div>
-                <button class="btn btn-primary" t-on-click="() => this.state.project = null">Nieuw project</button>
+                <div class="o_dig_builder_phase-list">
+                    <div class="is-disabled">1. Verbinden</div>
+                    <div class="is-active">2. Beschrijven</div>
+                    <div class="is-disabled">3. Bouwen</div>
+                    <div class="is-disabled">4. Publiceren</div>
+                </div>
             </aside>
             <section class="o_dig_builder_workspace">
                 <header class="o_dig_builder_header">
                     <div>
                         <span class="o_dig_builder_kicker">BESCHRIJVEN</span>
                         <h1 t-esc="state.project?.name || 'Nieuw project'"/>
+                        <div class="o_dig_builder_project-settings" t-if="state.project">
+                            <select t-model="state.provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>
+                            <input t-model="state.model" aria-label="Model"/>
+                            <button class="btn btn-sm btn-outline-secondary" t-on-click="saveSettings">Opslaan</button>
+                        </div>
                     </div>
                     <div class="o_dig_builder_header-actions">
                         <button class="btn btn-outline-secondary" disabled="true">Bouwen</button>
@@ -51,7 +64,7 @@
                         <div class="alert alert-danger" t-if="state.error" t-esc="state.error"/>
                     </section>
                     <aside class="o_dig_builder_preview">
-                        <div class="o_dig_builder_preview-tabs"><span class="is-active">Voorstel</span><span>Bestanden</span><span>Wijzigingen</span><span>Tests</span></div>
+                        <div class="o_dig_builder_preview-tabs"><span class="is-active">Preview</span><span>Bestanden</span><span>Wijzigingen</span><span>Tests</span></div>
                         <div class="o_dig_builder_proposal" t-if="state.project?.proposal">
                             <h2>Voorstel</h2>
                             <pre t-esc="state.project.proposal"/>
