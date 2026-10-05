@@ -2,6 +2,9 @@
 # Proefrun van de DIG Builder-agent op het monteursdashboard.
 #
 #   ANTHROPIC_API_KEY=sk-ant-... scripts/proefrun.sh "<opdracht>"
+#   ANTHROPIC_API_KEY=sk-ant-... scripts/proefrun.sh zoekveld | kaart | monteur | alles
+#
+# Een vaste opdracht kies je op naam; "alles" draait ze na elkaar en maakt één rapport (zie docs/proefrun.md).
 #
 # Zet een schone kopie van het dashboard klaar, start een demo-Odoo en de gateway
 # lokaal, laat de agent de opdracht uitvoeren en toont het resultaat. Er wordt niets
@@ -13,11 +16,23 @@
 #            PROEFRUN_HOST_TESTS=1 (tests en build ook zonder Docker, op deze computer).
 set -euo pipefail
 
-TASK="${1:-}"
-if [ -z "$TASK" ]; then
-  echo "gebruik: scripts/proefrun.sh \"<opdracht>\"   (voorbeelden: docs/proefrun.md)" >&2
+ARG="${1:-}"
+if [ -z "$ARG" ]; then
+  echo "gebruik: scripts/proefrun.sh \"<opdracht>\" | zoekveld | kaart | monteur | alles   (zie docs/proefrun.md)" >&2
   exit 1
 fi
+TASK_ZOEKVELD="Voeg boven de lijst met afspraken een zoekveld toe waarmee je afspraken kunt filteren op klantnaam of adres, zonder op hoofdletters te letten. Het filter werkt in de browser op de afspraken die al getoond worden; een lege zoekterm toont alles. Laat een duidelijke melding zien als er niets gevonden is."
+TASK_KAART="Voeg bij het overzicht bovenaan een kaart toe met het aantal DIG-bezoeken per status (concept, in uitvoering, afgerond), voor de afspraken die getoond worden. Gebruik alleen gegevens die het dashboard al ophaalt."
+TASK_MONTEUR="Het monteursfilter werkt nu op naam, waardoor twee monteurs met dezelfde naam door elkaar lopen. Laat het filter werken op een stabiel id van de monteur in plaats van op de naam. In de keuzelijst blijft de naam staan, en ook bij gelijke namen moet elke keuze afzonderlijk te kiezen zijn."
+LABELS=()
+TASKS=()
+case "$ARG" in
+  zoekveld) LABELS=(zoekveld); TASKS=("$TASK_ZOEKVELD") ;;
+  kaart)    LABELS=(kaart);    TASKS=("$TASK_KAART") ;;
+  monteur)  LABELS=(monteur);  TASKS=("$TASK_MONTEUR") ;;
+  alles)    LABELS=(zoekveld kaart monteur); TASKS=("$TASK_ZOEKVELD" "$TASK_KAART" "$TASK_MONTEUR") ;;
+  *)        LABELS=(eigen);    TASKS=("$ARG") ;;
+esac
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] && [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
   echo "ANTHROPIC_API_KEY is niet ingesteld. Zet hem in je shell, niet in een bestand in de repo." >&2
   exit 1
@@ -55,7 +70,7 @@ if [ ! -d "$APP/.git" ]; then
   mkdir -p "$APP"
   (cd "$REPO" && git ls-files -z -- . \
     ':!agent' ':!sandbox' ':!gateway' ':!docs' ':!builder' ':!deploy' \
-    ':!docker-compose*.yml' ':!scripts/proefrun.sh' ':!scripts/demo-odoo.mjs' \
+    ':!docker-compose*.yml' ':!scripts/proefrun.sh' ':!scripts/proefrun-report.mjs' ':!scripts/demo-odoo.mjs' \
     ':!scripts/test-odoo-client.mjs' ':!scripts/run-dig-builder-integration.sh' ':!src/lib/odoo-client.ts' ':!.env.example' ':!README.md' \
     | tar --null -T - -cf - | tar -xf - -C "$APP")
   node -e '
@@ -110,24 +125,42 @@ if [ -z "$SANDBOX" ] && [ "${PROEFRUN_HOST_TESTS:-}" = "1" ]; then
   echo "== LET OP: tests en build draaien op deze computer (PROEFRUN_HOST_TESTS=1), niet in een container."
 fi
 
-# 4. De agent.
-echo "== agent starten (limiet: \$$MAX_COST, ${PROEFRUN_MAX_TURNS:-40} beurten)"
-set +e
-DIG_GATEWAY_URL="http://127.0.0.1:$GW_PORT" DIG_GATEWAY_TOKEN="$TOKEN" \
-  node --experimental-strip-types --no-warnings "$REPO/agent/src/cli.ts" \
-  --workdir "$APP" --task "$TASK" --out "$RUNS" $SANDBOX ${CHECKS_FLAG[@]+"${CHECKS_FLAG[@]}"} \
-  --max-cost-usd "$MAX_COST" --effort "${PROEFRUN_EFFORT:-high}" --max-turns "${PROEFRUN_MAX_TURNS:-40}" \
-  --keep-branch
-STATUS=$?
-set -e
+# 4. De agent, één run per opdracht. Elke run begint op master van de kopie.
+SESSION="$WORK/sessie-$(date +%Y%m%d-%H%M%S).tsv"
+: > "$SESSION"
+OVERALL=0
+for index in "${!TASKS[@]}"; do
+  LABEL="${LABELS[$index]}"; TASK="${TASKS[$index]}"
+  git -C "$APP" checkout -q master
+  git -C "$APP" clean -fdq
+  if [ -n "$(git -C "$APP" status --porcelain)" ]; then
+    echo "de dashboard-kopie heeft wijzigingen op master; gebruik PROEFRUN_FRESH=1" >&2
+    exit 1
+  fi
+  echo
+  echo "== opdracht $((index + 1)) van ${#TASKS[@]}: $LABEL (limiet: \$$MAX_COST, ${PROEFRUN_MAX_TURNS:-40} beurten)"
+  BEFORE="$(ls -1 "$RUNS" 2>/dev/null | sort | tr '\n' ' ')"
+  set +e
+  DIG_GATEWAY_URL="http://127.0.0.1:$GW_PORT" DIG_GATEWAY_TOKEN="$TOKEN" \
+    node --experimental-strip-types --no-warnings "$REPO/agent/src/cli.ts" \
+    --workdir "$APP" --task "$TASK" --out "$RUNS" $SANDBOX ${CHECKS_FLAG[@]+"${CHECKS_FLAG[@]}"} \
+    --max-cost-usd "$MAX_COST" --effort "${PROEFRUN_EFFORT:-high}" --max-turns "${PROEFRUN_MAX_TURNS:-40}" \
+    --keep-branch
+  STATUS=$?
+  set -e
+  [ "$STATUS" -gt "$OVERALL" ] && OVERALL=$STATUS
+  for run in $(ls -1 "$RUNS" | sort); do
+    case " $BEFORE " in *" $run "*) ;; *) printf '%s\t%s\n' "$LABEL" "$run" >> "$SESSION" ;; esac
+  done
+done
 
-LATEST="$(ls -1t "$RUNS" | head -1 || true)"
+# 5. Eén rapport om terug te sturen.
+REPORT="$WORK/rapport-$(date +%Y%m%d-%H%M%S).md"
+node "$REPO/scripts/proefrun-report.mjs" "$RUNS" "$SESSION" > "$REPORT"
 echo
-echo "== klaar (exitcode $STATUS)"
-if [ -n "$LATEST" ]; then
-  echo "Stuur deze twee bestanden terug om het resultaat te laten beoordelen:"
-  echo "  $RUNS/$LATEST/run.json"
-  echo "  $RUNS/$LATEST/changes.diff"
-  echo "De wijzigingen staan op de branch in $APP (git -C $APP log --oneline)."
-fi
-exit "$STATUS"
+echo "== klaar (exitcode $OVERALL)"
+echo "Rapport met resultaten en wijzigingen: $REPORT"
+echo "Kopieer het naar je klembord om het hier te plakken:"
+echo "  cat \"$REPORT\" | pbcopy        (Mac)"
+echo "De wijzigingen per opdracht staan op branches in $APP (git -C $APP branch)."
+exit "$OVERALL"
