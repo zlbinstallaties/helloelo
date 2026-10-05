@@ -12,4 +12,4 @@
   bewerk dat bestand niet met de hand.
 - Bestaand gedrag blijft werken: cache van 5 minuten, periodes dag/komend/alle, filter op monteur,
   het detailpaneel en de vernieuwknop.
-- Je bent pas klaar als `typecheck`, `lint` en `build` slagen.
+- Je bent pas klaar als alle beschikbare checks slagen (`typecheck`, `lint` en, als die beschikbaar is, `build`).

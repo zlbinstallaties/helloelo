@@ -21,14 +21,19 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] && [ -z
   echo "ANTHROPIC_API_KEY is niet ingesteld. Zet hem in je shell, niet in een bestand in de repo." >&2
   exit 1
 fi
+case "${ANTHROPIC_API_KEY:-}" in
+  *...) echo "ANTHROPIC_API_KEY is nog het voorbeeld (sk-ant-...). Zet je echte sleutel erin." >&2; exit 1 ;;
+esac
 if [ "$(id -u)" = "0" ]; then
   echo "Draai dit als gewone gebruiker, niet als root: de sandbox draait nooit als root." >&2
   exit 1
 fi
-for tool in node bun git; do
-  command -v "$tool" >/dev/null || { echo "$tool ontbreekt" >&2; exit 1; }
-done
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' || { echo "Node 22 of nieuwer is nodig" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || { echo "$1 ontbreekt. $2" >&2; exit 1; }; }
+need node "Installeer Node 22 of nieuwer via https://nodejs.org (de LTS-versie) en open Terminal opnieuw."
+need bun "Installeer met: curl -fsSL https://bun.sh/install | bash   en open Terminal daarna opnieuw."
+need git "Installeer Git (op een Mac: xcode-select --install)."
+need tar "tar ontbreekt."
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' || { echo "Node 22 of nieuwer is nodig (nu: $(node --version)). Installeer de LTS-versie via https://nodejs.org" >&2; exit 1; }
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="${PROEFRUN_DIR:-$HOME/dig-proefrun}"
@@ -46,7 +51,7 @@ if [ ! -d "$APP/.git" ]; then
     ':!agent' ':!sandbox' ':!gateway' ':!docs' ':!builder' ':!deploy' \
     ':!docker-compose*.yml' ':!scripts/proefrun.sh' ':!scripts/demo-odoo.mjs' \
     ':!scripts/test-odoo-client.mjs' ':!scripts/run-dig-builder-integration.sh' ':!src/lib/odoo-client.ts' ':!.env.example' ':!README.md' \
-    | xargs -0 -I{} cp --parents {} "$APP/")
+    | tar --null -T - -cf - | tar -xf - -C "$APP")
   node -e '
     const fs = require("fs"), p = process.argv[1] + "/package.json", d = JSON.parse(fs.readFileSync(p, "utf8"))
     const keep = ["dev", "build", "start", "preview", "generate-routes", "typecheck", "lint", "test:app"]
