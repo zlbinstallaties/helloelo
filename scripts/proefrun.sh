@@ -21,9 +21,14 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] && [ -z
   echo "ANTHROPIC_API_KEY is niet ingesteld. Zet hem in je shell, niet in een bestand in de repo." >&2
   exit 1
 fi
-case "${ANTHROPIC_API_KEY:-}" in
-  *...) echo "ANTHROPIC_API_KEY is nog het voorbeeld (sk-ant-...). Zet je echte sleutel erin." >&2; exit 1 ;;
-esac
+if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+  case "$ANTHROPIC_API_KEY" in
+    *[[:space:]]*) echo "ANTHROPIC_API_KEY bevat een spatie of regeleinde. Zet hem opnieuw, zonder aanhalingstekens of spaties eromheen." >&2; exit 1 ;;
+    sk-ant-*...|*"("*|*"jouw"*) echo "ANTHROPIC_API_KEY is nog een voorbeeld. Zet je echte sleutel erin (begint met sk-ant-)." >&2; exit 1 ;;
+    sk-ant-*) ;;
+    *) echo "ANTHROPIC_API_KEY begint niet met sk-ant-. Controleer of je de sleutel van console.anthropic.com hebt gekopieerd." >&2; exit 1 ;;
+  esac
+fi
 if [ "$(id -u)" = "0" ]; then
   echo "Draai dit als gewone gebruiker, niet als root: de sandbox draait nooit als root." >&2
   exit 1
