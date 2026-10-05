@@ -54,6 +54,7 @@ services:
     environment:
       ODOO_BASE_URL: ${ODOO_BASE_URL:?ODOO_BASE_URL must be set}
       ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY must be set}
+      ODOO_ALLOWED_HOSTS: ${ODOO_ALLOWED_HOSTS:?ODOO_ALLOWED_HOSTS must list the Odoo test host}
       ODOO_DATABASE: ${ODOO_DATABASE:-}
       GATEWAY_PROJECTS_FILE: /config/projects.json
       GATEWAY_PORT: "8070"
