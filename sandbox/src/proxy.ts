@@ -138,6 +138,14 @@ export function createPreviewProxy(options: ProxyOptions) {
     return `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${cookieDomain}${options.secureCookies ? '; Secure' : ''}`
   }
 
+  /** Caddy on-demand TLS "ask": only hostnames of configured projects get a certificate. */
+  function allowedHostname(res: ServerResponse, url: URL) {
+    const host = (url.searchParams.get('domain') ?? '').toLowerCase()
+    const known = host.endsWith(`.${domain}`) && projects.has(host.slice(0, -(domain.length + 1)))
+    res.writeHead(known ? 200 : 404, { 'content-type': 'text/plain', 'cache-control': 'no-store' })
+    res.end(known ? 'ok' : 'unknown')
+  }
+
   async function login(req: IncomingMessage, res: ServerResponse, url: URL) {
     if (req.method === 'GET') return loginPage(res, safeNext(url.searchParams.get('next')))
     if (req.method !== 'POST') return page(res, 405, 'Niet toegestaan', '<p>Methode niet toegestaan.</p>')
@@ -163,6 +171,7 @@ export function createPreviewProxy(options: ProxyOptions) {
   async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://preview.local')
     try {
+      if (url.pathname === '/_dig/allowed') return allowedHostname(res, url)
       if (url.pathname === '/_dig/login') return await login(req, res, url)
       if (url.pathname === '/_dig/logout') {
         res.writeHead(303, { location: '/_dig/login', 'set-cookie': cookie('', 0) })

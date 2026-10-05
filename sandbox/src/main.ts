@@ -14,6 +14,8 @@ import { createPreviewProxy } from './proxy.ts'
  *   PREVIEW_PROJECTS_FILE   JSON: {"projects": [{"id", "workdir", "command"?, "port"?, "env"?}]}
  *   PREVIEW_NETWORK         internal Docker network, default dig-preview
  *   PREVIEW_PORT            default 8090
+ *   PREVIEW_HOST            address to listen on, default 0.0.0.0 (on a server: the docker
+ *                           bridge address, so only the TLS proxy container can reach it)
  *   PREVIEW_SECURE_COOKIES  "false" only for local http testing
  *   PREVIEW_IDLE_MINUTES    default 30
  *
@@ -60,7 +62,8 @@ await previews.ensureNetwork()
 const server = createServer(proxy.handleRequest)
 server.on('upgrade', proxy.handleUpgrade)
 const port = Number(process.env.PREVIEW_PORT ?? 8090)
-server.listen(port, () => console.log(JSON.stringify({ event: 'listening', port, domain, projects: [...projects.keys()] })))
+const host = process.env.PREVIEW_HOST || '0.0.0.0'
+server.listen(port, host, () => console.log(JSON.stringify({ event: 'listening', host, port, domain, projects: [...projects.keys()] })))
 
 const reaper = setInterval(() => {
   previews.reap().then(

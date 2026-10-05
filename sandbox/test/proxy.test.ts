@@ -233,3 +233,19 @@ test('websocket upgrades need a session and are tunneled', async () => {
     await env.close()
   }
 })
+
+test('certificate ask: only hostnames of configured projects are allowed, without a session', async () => {
+  const env = await setup(() => ({ state: 'starting' }))
+  try {
+    const ask = (domain: string) => call(env.port, `/_dig/allowed?domain=${encodeURIComponent(domain)}`, { host: 'anything' })
+    assert.equal((await ask('dashboard.preview.test')).status, 200)
+    assert.equal((await ask('Dashboard.Preview.Test')).status, 200)
+    assert.equal((await ask('other.preview.test')).status, 404)
+    assert.equal((await ask('preview.test')).status, 404)
+    assert.equal((await ask('dashboard.preview.test.evil.com')).status, 404)
+    assert.equal((await call(env.port, '/_dig/allowed')).status, 404)
+    assert.deepEqual(env.ensured, [])
+  } finally {
+    await env.close()
+  }
+})

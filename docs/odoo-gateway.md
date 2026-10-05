@@ -42,6 +42,10 @@ alleen de hash komt in de config. `id` is altijd toegestaan.
 
 ## Veiligheidsregels
 
+- Doelserver: de gateway start alleen als de host van `ODOO_BASE_URL` in `ODOO_ALLOWED_HOSTS`
+  staat (de Odoo-**testserver**), en weigert hosts onder `*.odoo.sh` en `*.odoo.com` altijd, zodat
+  de productie-Odoo niet bereikt kan worden.
+
 - Alleen-lezen: alleen `search_read` en `search_count` zijn configureerbaar. Andere methoden
   (`write`, `create`, `unlink`, `execute_kw`, ...) worden al bij het laden geweigerd.
 - Bedrijf komt uit de projectconfig en wordt aan zowel het domain als de context toegevoegd.

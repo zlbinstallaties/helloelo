@@ -1,0 +1,17 @@
+# TLS front for the DIG Builder previews. Certificates are requested on demand,
+# but only for hostnames of configured projects (the preview proxy answers the
+# "ask" question), so you only need a wildcard DNS record, no DNS API key.
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://host.docker.internal:8090/_dig/allowed
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	reverse_proxy host.docker.internal:8090
+}

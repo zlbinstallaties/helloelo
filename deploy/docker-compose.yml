@@ -1,0 +1,58 @@
+# Production stack on the Hostinger VPS: Odoo gateway + TLS front.
+# The preview proxy runs as a systemd service on the host (see dig-preview.service)
+# because it needs the Docker daemon; it is not put in a container.
+#
+#   cp deploy/env.example /etc/dig-builder/stack.env   (fill in, chmod 600)
+#   docker compose -f deploy/docker-compose.yml --env-file /etc/dig-builder/stack.env up -d --build
+services:
+  odoo-gateway:
+    build:
+      context: ..
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      ODOO_BASE_URL: ${ODOO_BASE_URL:?ODOO_BASE_URL must be set}
+      ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY must be set}
+      ODOO_ALLOWED_HOSTS: ${ODOO_ALLOWED_HOSTS:?ODOO_ALLOWED_HOSTS must list the Odoo test host}
+      ODOO_DATABASE: ${ODOO_DATABASE:-}
+      GATEWAY_PROJECTS_FILE: /config/projects.json
+      GATEWAY_PORT: "8070"
+    volumes:
+      - ${GATEWAY_PROJECTS_FILE:-/etc/dig-builder/gateway-projects.json}:/config/projects.json:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      default: {}
+      # Internal network of the previews: previews reach the gateway here as http://odoo-gateway:8070
+      previews:
+        aliases:
+          - odoo-gateway
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  previews:
+    external: true
+    name: dig-preview
+
+volumes:
+  caddy-data:
+  caddy-config:

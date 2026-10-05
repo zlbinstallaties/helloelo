@@ -1,0 +1,26 @@
+# systemd unit for the preview proxy. Install as /etc/systemd/system/dig-preview.service.
+# The service user must be in the "docker" group, which is root-equivalent on this
+# server: keep the machine dedicated to the builder and only expose ports 80/443/22.
+[Unit]
+Description=DIG Builder preview proxy
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+User=dig-builder
+Group=docker
+WorkingDirectory=/srv/dig-builder/app
+EnvironmentFile=/etc/dig-builder/preview.env
+# Listen on the docker bridge address so only containers (the TLS front) can reach it.
+Environment=PREVIEW_HOST=172.17.0.1 PREVIEW_PORT=8090
+ExecStart=/usr/bin/node --experimental-strip-types --no-warnings sandbox/src/main.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/dig-builder
+
+[Install]
+WantedBy=multi-user.target

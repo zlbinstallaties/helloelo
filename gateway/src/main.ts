@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createOdooClient } from '../../src/lib/odoo-client.ts'
+import { checkOdooHost, parseAllowedHosts } from './hosts.ts'
 import { allModels, parseProjects } from './projects.ts'
 import { createGateway } from './server.ts'
 
 /*
  * Entry point. Server secrets come from the environment and stay here:
  *   ODOO_BASE_URL, ODOO_API_KEY, ODOO_DATABASE (optional)
+ *   ODOO_ALLOWED_HOSTS     comma-separated hostnames the gateway may call (the Odoo
+ *                          test server). Odoo.sh / odoo.com hosts are always refused.
  *   GATEWAY_PROJECTS_FILE  JSON with per-project allowlists and token hashes
  *   GATEWAY_PORT           default 8070
  */
@@ -20,9 +23,17 @@ function required(name: string): string {
   return value
 }
 
+const baseUrl = required('ODOO_BASE_URL')
+try {
+  checkOdooHost(baseUrl, parseAllowedHosts(process.env.ODOO_ALLOWED_HOSTS))
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+}
+
 const projects = parseProjects(JSON.parse(readFileSync(required('GATEWAY_PROJECTS_FILE'), 'utf8')))
 const odoo = createOdooClient({
-  baseUrl: required('ODOO_BASE_URL'),
+  baseUrl,
   apiKey: required('ODOO_API_KEY'),
   database: process.env.ODOO_DATABASE || undefined,
   allowedModels: allModels(projects),
