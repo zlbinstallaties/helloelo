@@ -19,7 +19,7 @@ Opties: `--task-file`, `--run <id>`, `--out <map>` (standaard `.dig-builder-runs
 de werkmap liggen), `--model` (standaard `claude-opus-5-5`), `--effort`
 (`low|medium|high|xhigh|max`, standaard `high`), `--max-turns` (standaard 40),
 `--max-cost-usd` (standaard 5; stopt vóór het volgende verzoek als de geschatte kosten de limiet bereiken, status `budget`), `--keep-branch`, `--sandbox` (installatie en alle checks in een container, zie
-`docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks; in `--sandbox`-modus wordt een `dig-checks.json` in het project automatisch gebruikt, zodat tests en build mee kunnen draaien; zonder sandbox alleen met een expliciete `--checks`) (eigen checks, `{"naam": ["commando", ...]}`).
+`docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks, `{"naam": ["commando", ...]}`; in `--sandbox`-modus wordt een `dig-checks.json` in het project automatisch gebruikt, zodat tests en build mee kunnen draaien; zonder sandbox alleen met een expliciete `--checks`).
 
 Uitvoer in `<out>/<run-id>/`: `changes.diff` en `run.json` (status, beurten, tokengebruik,
 branch, basis-commit, gewijzigde bestanden, samenvatting, tool-events zonder bestandsinhoud).
