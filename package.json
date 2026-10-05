@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "generate-routes": "tsr generate",
     "typecheck": "tsc --noEmit",
+    "test:odoo": "node --experimental-strip-types scripts/test-odoo-client.mjs",
     "lint": "oxlint --fix",
     "start": "drizzle-kit migrate && vite dev"
   },
