@@ -133,7 +133,12 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
       onEvent({
         type: 'tool',
         turn,
-        detail: { name: use.name, path: typeof input?.path === 'string' ? input.path : undefined, ok: !outcome.isError },
+        detail: {
+          name: use.name,
+          path: typeof input?.path === 'string' ? input.path : undefined,
+          check: use.name === 'run_check' && typeof input?.name === 'string' ? input.name : undefined,
+          ok: !outcome.isError,
+        },
       })
       results.push({ type: 'tool_result', tool_use_id: use.id, content: outcome.content, is_error: outcome.isError })
     }

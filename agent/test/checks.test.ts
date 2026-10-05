@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { chmod } from 'node:fs/promises'
 import path from 'node:path'
-import { createCheckRunner } from '../src/checks.ts'
+import { createCheckRunner, createSandboxCheckRunner, parseChecks } from '../src/checks.ts'
 import { tempProject } from './helpers.ts'
 
 test('runs only named checks, without secrets in the environment', async () => {
@@ -37,4 +37,27 @@ test('missing binary is a failed check, not a crash', async () => {
   const result = await createCheckRunner(root).run('typecheck')
   assert.equal(result.ok, false)
   assert.match(result.output, /kon niet starten: ENOENT/)
+})
+
+test('sandbox runner sends the named command to a network-less sandbox', async () => {
+  const calls: unknown[] = []
+  const runner = createSandboxCheckRunner('/srv/app', {
+    async exec(root, command, opts) {
+      calls.push({ root, command, opts })
+      return { ok: false, exitCode: 1, timedOut: false, output: 'error TS1' }
+    },
+  })
+  assert.deepEqual(runner.names, ['typecheck', 'lint', 'build'])
+  assert.deepEqual(await runner.run('build'), { name: 'build', ok: false, exitCode: 1, timedOut: false, output: 'error TS1' })
+  assert.deepEqual(calls, [{ root: '/srv/app', command: ['node_modules/.bin/vite', 'build'], opts: { network: 'none', timeoutMs: 300_000 } }])
+  await assert.rejects(runner.run('deploy'), /unknown check/)
+})
+
+test('checks file is validated', () => {
+  assert.deepEqual(parseChecks({ test: ['bun', 'test'] }), { test: ['bun', 'test'] })
+  assert.throws(() => parseChecks({ 'Bad Name': ['x'] }), /invalid check name/)
+  assert.throws(() => parseChecks({ test: 'bun test' }), /list of strings/)
+  assert.throws(() => parseChecks({ test: [] }), /list of strings/)
+  assert.throws(() => parseChecks({}), /no checks/)
+  assert.throws(() => parseChecks([]), /object/)
 })

@@ -47,6 +47,7 @@ De serverroute beperkt de data tot `company_id = 2`, `De Installatiegroep B.V. [
 - `docs/extern-platform-plan.md`: plan voor het eigen builder-platform
 - `docs/odoo-gateway.md`: Odoo-gateway met allowlist per project (fase 1)
 - `docs/dig-builder-agent.md`: agent-loop die een app aanpast en het resultaat als branch en diff oplevert (fase 2)
+- `docs/dig-builder-sandbox.md`: sandbox-containers en previews achter login (fase 3)
 
 ## Export en veiligheid
 

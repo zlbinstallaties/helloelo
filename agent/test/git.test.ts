@@ -51,5 +51,19 @@ test('commits on the run branch, returns the diff, master untouched, hooks off',
 test('no changes means no commit', async () => {
   const root = await repo()
   const run = await startBranch(root, 'builder/run-2')
-  assert.deepEqual(await finishBranch(root, run, 'x'), { commit: null, stat: '', diff: '' })
+  assert.deepEqual(await finishBranch(root, run, 'x'), { commit: null, stat: '', diff: '', excluded: [] })
+})
+
+test('generated directories are never committed', async () => {
+  const root = await repo()
+  const run = await startBranch(root, 'builder/run-3')
+  await mkdir(path.join(root, 'node_modules/pkg'), { recursive: true })
+  await writeFile(path.join(root, 'node_modules/pkg/index.js'), 'x')
+  await mkdir(path.join(root, 'web/dist'), { recursive: true })
+  await writeFile(path.join(root, 'web/dist/app.js'), 'x')
+  await writeFile(path.join(root, 'distance.ts'), 'export {}\n')
+  const done = await finishBranch(root, run, 'x')
+  assert.deepEqual(done.excluded.sort(), ['node_modules', 'web/dist'])
+  const files = (await git(root, ['show', '--name-only', '--format=', 'HEAD'])).trim().split('\n')
+  assert.deepEqual(files, ['distance.ts'])
 })

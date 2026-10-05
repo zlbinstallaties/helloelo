@@ -18,6 +18,11 @@
     "gateway:token": "node --experimental-strip-types gateway/src/token.ts",
     "test:agent": "cd agent && bun install --frozen-lockfile && bun run test",
     "typecheck:agent": "cd agent && tsc -p .",
+    "test:sandbox": "node --experimental-strip-types --no-warnings --test sandbox/test/*.test.ts",
+    "typecheck:sandbox": "tsc -p sandbox",
+    "sandbox:image": "docker build -t dig-sandbox:1 sandbox",
+    "preview:start": "node --experimental-strip-types --no-warnings sandbox/src/main.ts",
+    "preview:password": "node --experimental-strip-types --no-warnings sandbox/src/hash-password.ts",
     "lint": "oxlint --fix",
     "start": "drizzle-kit migrate && vite dev"
   },

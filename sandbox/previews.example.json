@@ -1,0 +1,13 @@
+{
+  "projects": [
+    {
+      "id": "monteursdashboard",
+      "workdir": "/srv/dig-builder/apps/monteursdashboard",
+      "port": 5173,
+      "env": {
+        "DIG_GATEWAY_URL": "http://odoo-gateway:8070",
+        "DIG_GATEWAY_TOKEN": "<preview-token van de gateway, alleen-lezen>"
+      }
+    }
+  ]
+}

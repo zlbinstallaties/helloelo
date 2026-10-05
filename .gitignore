@@ -104,6 +104,7 @@ dist
 
 # Odoo gateway: real per-project config (contains token hashes)
 gateway/projects.json
+sandbox/previews.json
 
 # DIG Builder agent run output (diffs and run logs)
 .dig-builder-runs/
