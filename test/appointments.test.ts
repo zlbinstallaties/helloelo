@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { amsterdamDate, buildAppointments, filterByTechnician, inScope } from '../src/lib/appointments.ts'
+import { amsterdamDate, appointmentState, buildAppointments, filterByTechnician, inScope } from '../src/lib/appointments.ts'
 import type { DashboardData, DashboardSlot, DashboardVisit } from '../src/lib/dashboard-types.ts'
 
 const BASE = 'https://odoo.example'
@@ -207,4 +207,16 @@ test('the technician filter keeps appointments of that person only', () => {
   )
   assert.deepEqual(filterByTechnician(list, 'Sanne').map((a) => a.id), ['slot-2'])
   assert.equal(filterByTechnician(list, '').length, 2)
+})
+
+test('the status of an appointment is that of its first unfinished visit, done only when all are done', () => {
+  const state = (visits: Array<[number, string]>, slotState = 'published') =>
+    buildAppointments(data([slot(1, { state: slotState })], visits.map(([id, s]) => visit(id, { slot_id: [1, 'Slot 1'], state: s }))), BASE)[0].state
+  assert.equal(state([[100, 'done'], [101, 'in_progress']]), 'in_progress')
+  assert.equal(state([[100, 'in_progress'], [101, 'done']]), 'in_progress')
+  assert.equal(state([[100, 'done'], [101, 'draft'], [102, 'in_progress']]), 'draft')
+  assert.equal(state([[100, 'done'], [101, 'done']]), 'done')
+  assert.equal(state([[100, 'in_progress']]), 'in_progress')
+  assert.equal(state([], 'published'), 'published')
+  assert.equal(appointmentState([]), undefined)
 })

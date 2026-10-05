@@ -81,6 +81,14 @@ export function groupVisitsBySlot(data: DashboardData) {
   return visitsBySlot
 }
 
+/*
+ * Status of an appointment with visits: the status of the first visit that is not finished yet, so an
+ * appointment never reads "done" while a visit is still open. Only when every visit is done is it done.
+ */
+export function appointmentState(visits: Pick<DashboardAppointmentVisit, 'state'>[]): string | undefined {
+  return (visits.find((visit) => visit.state !== 'done') ?? visits[0])?.state
+}
+
 export function buildAppointments(data: DashboardData, odooBaseUrl: string): DashboardAppointment[] {
   const makeOdooUrl = (model: string, id: number) => `${odooBaseUrl}/web#id=${id}&model=${model}&view_type=form`
 
@@ -121,7 +129,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
       address: slot.partner_address || 'Adres ontbreekt',
       role: tupleName(slot.role_id) || 'Geen rol toegewezen',
       people: peopleUnique,
-      state: visit?.state ?? slot.state,
+      state: appointmentState(visits) ?? slot.state,
       missingRequired: total(visits, (item) => item.missingRequired),
       missingInputs: total(visits, (item) => item.missingInputs),
       photoCount: total(visits, (item) => item.photoCount),
