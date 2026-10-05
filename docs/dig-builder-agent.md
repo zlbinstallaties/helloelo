@@ -18,7 +18,7 @@ node --experimental-strip-types src/cli.ts \
 Opties: `--task-file`, `--run <id>`, `--out <map>` (standaard `.dig-builder-runs/`, moet buiten
 de werkmap liggen), `--model` (standaard `claude-opus-5-5`), `--effort`
 (`low|medium|high|xhigh|max`, standaard `high`), `--max-turns` (standaard 40),
-`--keep-branch`, `--sandbox` (installatie en alle checks in een container, zie
+`--max-cost-usd` (standaard 5; stopt vóór het volgende verzoek als de geschatte kosten de limiet bereiken, status `budget`), `--keep-branch`, `--sandbox` (installatie en alle checks in een container, zie
 `docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks, `{"naam": ["commando", ...]}`).
 
 Uitvoer in `<out>/<run-id>/`: `changes.diff` en `run.json` (status, beurten, tokengebruik,
@@ -36,6 +36,8 @@ Exitcode 0 = klaar, 2 = gestopt zonder `done` (bijv. `max_turns`), 1 = afgebroke
 
 Tools: `list_files`, `read_file`, `write_file`, `edit_file` (precies één vervanging),
 `run_check` (op naam) en, als de gateway is ingesteld, `odoo_schema` (alleen metadata).
+
+Na een fallback midden in een antwoord worden `thinking`- en `tool_use`-blokken vóór de fallback niet teruggestuurd en hun tools niet uitgevoerd. `run.json` bevat `estimatedCostUsd` (schatting uit tokentellingen en lijstprijzen).
 
 API-instellingen: model `claude-opus-5-5`, adaptief denken (standaard), `effort` instelbaar,
 prompt caching op de vaste prefix, en server-side fallback (`fallbacks: "default"`) zodat een
@@ -68,11 +70,11 @@ noemt ze onder `excluded`.
 - Zonder `--sandbox` draait alles op de host en zijn alleen checks toegestaan die geen
   projectcode uitvoeren. Gebruik `--sandbox` voor builds en tests.
 - Geen chat-UI en geen publicatie. De mens beoordeelt de diff en merget zelf.
-- Geen afgedwongen kostenlimiet per run behalve `--max-turns`; tokengebruik staat in `run.json`.
+- De kostenlimiet is een schatting uit tokentellingen en lijstprijzen; de factuur is leidend.
 
 ## Verificatie
 
-- 21 tests (`bun run test:agent`): padbeveiliging incl. symlinks, edit-regels, checks
+- 27 tests (`bun run test:agent`): padbeveiliging incl. symlinks, edit-regels, checks
   (allowlist, kale omgeving, time-out), git (branchregels, vuile tree, hooks staan uit, master
   onaangeroerd), en de loop met een gescripte client (toolresultaten in één bericht,
   append-only geschiedenis, stabiele request-vorm, `max_tokens`/`refusal`/`pause_turn`,
