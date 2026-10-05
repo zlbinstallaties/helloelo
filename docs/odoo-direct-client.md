@@ -12,7 +12,7 @@
 | `ODOO_API_KEY` | ja | API-key van een aparte Odoo-gebruiker met alleen leesrechten |
 | `ODOO_DATABASE` | optioneel | `X-Odoo-Database`, nodig bij meerdere databases op één server |
 
-Zijn `ODOO_BASE_URL` en `ODOO_API_KEY` niet gezet, dan gebruikt `cache.ts` nog de HelloLeo-proxy.
+Het dashboard gebruikt deze client niet zelf meer; alleen de gateway (`gateway/`) gebruikt hem. Het dashboard leest via de gateway (`src/lib/gateway.server.ts`).
 
 ## Veiligheid
 

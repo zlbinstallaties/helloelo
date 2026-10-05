@@ -1,41 +1,15 @@
-import { withCache } from '@helloleo/runtime'
-import { callIntegration } from '#/lib/proxy.server'
-import { getOdooClient } from '#/lib/odoo.server'
 import type { DashboardData } from '#/lib/dashboard-types'
+import { searchRead } from '#/lib/gateway.server'
+import { withCache } from '#/lib/ttl-cache'
 
+// Display only: the gateway project config enforces the company on every read.
 const TEST_COMPANY_ID = 2
-
-async function readOdoo<T>(model: string, fields: string[]) {
-  // Direct Odoo JSON-2 client when ODOO_BASE_URL + ODOO_API_KEY are set;
-  // otherwise fall back to the HelloLeo Integration Proxy.
-  const direct = getOdooClient()
-  if (direct) {
-    return direct.searchRead<T>({ model, fields, companyId: TEST_COMPANY_ID, limit: 500 })
-  }
-
-  const response = await callIntegration<{ result: T[] }>({
-    integration: 'odoo',
-    endpoint: '/jsonrpc',
-    body: {
-      model,
-      method: 'search_read',
-      args: [[['company_id', '=', TEST_COMPANY_ID]]],
-      kwargs: { fields, limit: 500, offset: 0 },
-    },
-  })
-
-  if (!response.success) {
-    throw new Error(`Odoo ${model} read failed (${response.status})`)
-  }
-
-  return response.data?.result ?? []
-}
 
 export const getDigDashboardData = withCache(
   'odoo:dig-dashboard',
   300,
   async (): Promise<DashboardData> => {
-    const slots = await readOdoo<DashboardData['slots'][number]>('planning.slot', [
+    const slots = await searchRead<DashboardData['slots'][number]>('planning.slot', [
         'id',
         'name',
         'start_datetime',
@@ -55,7 +29,7 @@ export const getDigDashboardData = withCache(
         'travel_time_out',
         'travel_times_up_to_date',
       ])
-    const visits = await readOdoo<DashboardData['visits'][number]>('svs.tech.visit', [
+    const visits = await searchRead<DashboardData['visits'][number]>('svs.tech.visit', [
         'id',
         'name',
         'state',

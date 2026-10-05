@@ -5,9 +5,9 @@
 1. **Gebruikersactie**: een gebruiker opent het dashboard, kiest een datum/periode/monteur, opent details of drukt op `Ververs Odoo-data`.
 2. **Browser**: `src/routes/index.tsx` rendert de filters en roept met React Query `GET /api/dashboard` aan. De refreshknop roept dezelfde route met `POST` aan.
 3. **Serverroute**: `src/routes/api/dashboard.ts` leest alleen vaste queryparameters, haalt de gecachte Odoo-data op, filtert server-side op periode en monteur en bouwt het dashboardantwoord.
-4. **Cache**: `src/lib/cache.ts` gebruikt `withCache('odoo:dig-dashboard', 300, ...)`. De eerste lezing of een verlopen cache voert de Odoo-leesacties uit; `POST` gebruikt `.refresh()`.
-5. **HelloLeo Proxy**: `src/lib/proxy.server.ts` stuurt server-side een vaste request naar de Odoo Integration Proxy. De browser ziet de API-sleutel niet.
-6. **Odoo**: de proxy voert `search_read` uit op `planning.slot` en `svs.tech.visit`.
+4. **Cache**: `src/lib/cache.ts` gebruikt `withCache('odoo:dig-dashboard', 300, ...)` uit `src/lib/ttl-cache.ts` (in het geheugen van het serverproces). De eerste lezing of een verlopen cache voert de Odoo-leesacties uit; `POST` gebruikt `.refresh()`.
+5. **Odoo-gateway**: `src/lib/gateway.server.ts` roept server-side `POST /v1/models/<model>/search_read` aan met het projecttoken (`DIG_GATEWAY_URL`, `DIG_GATEWAY_TOKEN`). De browser ziet geen token, en alleen de gateway kent de Odoo-sleutel.
+6. **Odoo**: de gateway voert `search_read` uit op `planning.slot` en `svs.tech.visit`, beperkt tot `company_id = 2` en de toegestane velden van dit project.
 7. **Antwoord**: de route combineert slots en bezoeken, zet Odoo-relaties om naar namen en geeft een beperkt JSON-resultaat terug.
 8. **Scherm**: React Query levert het antwoord aan `src/routes/index.tsx`, dat kaarten, lege toestanden, foutmeldingen en het detailpaneel rendert.
 
@@ -18,10 +18,10 @@
 | UI en browserfetch | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link |
 | HTTP API | `src/routes/api/dashboard.ts` | vaste route, server-side filtering, samenvoegen van records |
 | Odoo-leeslaag/cache | `src/lib/cache.ts` | vaste Odoo-modellen, velden, company-domain, TTL |
-| Proxy en serversecret | `src/lib/proxy.server.ts` | HelloLeo Proxy, `HELLOLEO_API_KEY` uitsluitend server-side |
+| Gateway-client en serversecret | `src/lib/gateway.server.ts` | gateway-URL en projecttoken uitsluitend server-side |
 | Datatypen | `src/lib/dashboard-types.ts` | interne TypeScript-vormen |
-| Runtime-entry | `src/server.ts` | TanStack Start Worker-entry en foutgrens |
-| Build | `vite.config.ts`, `package.json` | HelloLeo Vite-config, scripts en dependencies |
+| Productieserver | `scripts/serve.mjs` | serveert `dist/client` en de TanStack Start server-entry op Node |
+| Build | `vite.config.ts`, `package.json` | Vite 8, TanStack Start, Tailwind; geen platformplugins |
 
 ## Odoo-modellen en relaties
 
@@ -39,10 +39,10 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 
 ## Filters en methoden
 
-- Odoo endpoint: `/jsonrpc` via HelloLeo Proxy.
-- Odoo-methode: uitsluitend `search_read`.
-- Vast bedrijfsfilter: `company_id = 2`, met de naam `De Installatiegroep B.V. [TEST]`.
-- Odoo-readlimiet: `500` per model, met `offset: 0`.
+- Odoo-toegang: Odoo-gateway, `POST /v1/models/<model>/search_read` (Odoo JSON-2 API achter de gateway).
+- Methode: uitsluitend `search_read`; de gateway staat geen schrijfmethoden toe.
+- Vast bedrijfsfilter: `company_id = 2`, afgedwongen door de gateway-projectconfig (de naam `De Installatiegroep B.V. [TEST]` staat alleen in de weergave).
+- Readlimiet: `500` per model (de gateway begrenst met `maxLimit`).
 - Dashboardfilters (datum, periode, monteur) worden na de gecachte leesactie in de serverroute toegepast.
 - Periode: `day`, `upcoming` of `all`.
 - Tijden worden voor weergave naar `Europe/Amsterdam` geïnterpreteerd.
@@ -51,15 +51,14 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 
 **In deze repository:**
 
-- `HELLOLEO_API_KEY` wordt in `src/lib/proxy.server.ts` uit server-environment gelezen.
-- Het bestand heeft een server-only import en mag niet vanuit browsercode worden geïmporteerd.
-- De company-afscherming is server-side en niet afhankelijk van browserfilters.
+- `DIG_GATEWAY_TOKEN` wordt in `src/lib/gateway.server.ts` uit de server-omgeving gelezen; het bestand heeft een server-only import en mag niet vanuit browsercode worden geïmporteerd.
+- De company-afscherming zit in de gateway-projectconfig, niet in de browser of in dit dashboard.
 - De route accepteert geen model, endpoint of raw Odoo-body vanuit de browser.
 
 **Buiten deze repository:**
 
-- HelloLeo injecteert project-/omgevingstoegang en beschermt de preview volgens het platform; de concrete middleware en preview-authenticatie staan niet in deze code.
-- Odoo-credentials worden door de verbonden HelloLeo-integratie beheerd; ze staan niet in de repository.
+- De Odoo-sleutel staat alleen bij de gateway (`ODOO_API_KEY`), voor een aparte Odoo-gebruiker met leesrechten.
+- Toegang tot de preview wordt geregeld door de preview-proxy van de DIG Builder (`sandbox/`).
 
 **Belangrijke beperking:** de applicatie zelf heeft geen gebruikerslogin, sessiecontrole of Odoo-gebruikersautorisatie in deze code. Een productieversie heeft een eigen server-side auth-laag nodig.
 

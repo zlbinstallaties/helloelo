@@ -1,12 +1,13 @@
-import { defineConfig } from '@helloleo/vite-config'
+import tailwindcss from '@tailwindcss/vite'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import viteReact from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
-// @helloleo/vite-config owns the whole build/dev/sandbox pipeline: in dev it
-// aliases `cloudflare:workers` -> @helloleo/runtime/cf-shim (libsql .dev.db for
-// D1+KV, local disk for R2) and runs plain Vite SSR; at build it adds
-// @cloudflare/vite-plugin to emit a workerd Worker bound to wrangler.jsonc. It
-// also binds host:true/port:5173 itself (>=0.1.2) and blocks *.server.* files
-// from the client bundle (>=0.1.7).
-//
-// No HMR override: with no clientPort set, the Vite client connects back to the
-// page's own origin, which is wss://…:443 behind the preview proxy.
-export default defineConfig()
+// Standalone build: TanStack Start SSR on Node, no platform-specific runtime.
+// Dev: `vite dev` (also used by DIG Builder previews, which reach it as
+// localhost:5173). Production: `vite build`, then `node scripts/serve.mjs`.
+export default defineConfig({
+  resolve: { tsconfigPaths: true },
+  server: { host: true, port: 5173, strictPort: true },
+  plugins: [tailwindcss(), tanstackStart(), viteReact()],
+})
