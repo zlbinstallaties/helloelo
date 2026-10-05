@@ -76,3 +76,8 @@ Punt 2 en 3 zijn verdedigbaar en door de agent benoemd; punt 1 moet worden aange
 **Les voor het proces.** Een goede samenvatting en groene checks vervangen niet het draaien van het resultaat:
 de status-inconsistentie en (bij run 1) de verdwenen bezoeken zijn alleen op het scherm of met een
 invariant-test te zien. Een volgende stap is een vaste "draai het met demodata en kijk"-stap voor de agent.
+
+**Overgenomen in het dashboard.** De diff van run 2 is ongewijzigd toegepast (eigen commit), gevolgd door twee
+losse commits van mij: de statusregel (status van het eerste bezoek dat nog niet afgerond is; een test die op
+de oorspronkelijke agent-versie faalt) en de test dat elk bezoek precies één keer op het scherm staat over 3000
+willekeurige datasets. Punt 2 en 3 zijn zo gelaten.
