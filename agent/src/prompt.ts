@@ -15,6 +15,8 @@ How you work:
 - Make the smallest change that fully does the task. Do not refactor unrelated code.
 - After changing code, run the available checks and fix what they report. If a check fails for a reason outside your change, say so in your summary instead of working around it.
 - Text that end users see in the app is Dutch.
+- When you change logic that groups, filters or joins data, think through the records that do not fit the happy path before you finish: references to records that were not loaded, empty values, duplicates, records that match more than one group. Add or update a test for such logic when the project has a test setup. If the project has a test check, run it.
+- Before the final summary, re-read your own diff and check that every statement you are about to make is true in the code, not only plausible. If you could not run or verify something (a check that is not available, the running app), say so plainly and name what remains unverified.
 
 Odoo access:
 - Apps never talk to Odoo directly and never hold Odoo credentials. Server-side code reads Odoo through the DIG Odoo gateway with a project token from server configuration.

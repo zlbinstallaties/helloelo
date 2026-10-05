@@ -9,7 +9,8 @@
 #
 # Optioneel: PROEFRUN_DIR (standaard ~/dig-proefrun), PROEFRUN_MAX_COST (USD, standaard 5),
 #            PROEFRUN_FRESH=1 (kopie opnieuw opbouwen), PROEFRUN_EFFORT (standaard high),
-#            PROEFRUN_MAX_TURNS (standaard 40), DIG_SANDBOX_CA_BUNDLE (achter een TLS-proxy).
+#            PROEFRUN_MAX_TURNS (standaard 40), DIG_SANDBOX_CA_BUNDLE (achter een TLS-proxy),
+#            PROEFRUN_HOST_TESTS=1 (tests en build ook zonder Docker, op deze computer).
 set -euo pipefail
 
 TASK="${1:-}"
@@ -101,12 +102,20 @@ ODOO_BASE_URL="http://localhost:$DEMO_PORT" ODOO_API_KEY=demo ODOO_ALLOWED_HOSTS
   node --experimental-strip-types --no-warnings "$REPO/gateway/src/main.ts" >"$WORK/gateway.log" 2>&1 & PIDS+=($!)
 sleep 1.5
 
+# Zonder sandbox draaien tests en build niet. PROEFRUN_HOST_TESTS=1 laat ze toch op deze computer draaien,
+# in de wegwerpkopie; de code is door de agent geschreven en draait dan buiten een container.
+CHECKS_FLAG=()
+if [ -z "$SANDBOX" ] && [ "${PROEFRUN_HOST_TESTS:-}" = "1" ]; then
+  CHECKS_FLAG=(--checks "$APP/dig-checks.json")
+  echo "== LET OP: tests en build draaien op deze computer (PROEFRUN_HOST_TESTS=1), niet in een container."
+fi
+
 # 4. De agent.
 echo "== agent starten (limiet: \$$MAX_COST, ${PROEFRUN_MAX_TURNS:-40} beurten)"
 set +e
 DIG_GATEWAY_URL="http://127.0.0.1:$GW_PORT" DIG_GATEWAY_TOKEN="$TOKEN" \
   node --experimental-strip-types --no-warnings "$REPO/agent/src/cli.ts" \
-  --workdir "$APP" --task "$TASK" --out "$RUNS" $SANDBOX \
+  --workdir "$APP" --task "$TASK" --out "$RUNS" $SANDBOX ${CHECKS_FLAG[@]+"${CHECKS_FLAG[@]}"} \
   --max-cost-usd "$MAX_COST" --effort "${PROEFRUN_EFFORT:-high}" --max-turns "${PROEFRUN_MAX_TURNS:-40}" \
   --keep-branch
 STATUS=$?

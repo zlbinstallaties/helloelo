@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
@@ -21,7 +22,8 @@ import { Workspace } from './workspace.ts'
  * that branch and writes the diff plus a run log to --out. Never pushes.
  *
  * --sandbox: install dependencies and run every check (including the build)
- * in a throwaway container without network or secrets. Needs Docker and the
+ * in a throwaway container without network or secrets. A dig-checks.json in
+ * the project (named checks such as test and build) is used in this mode. Needs Docker and the
  * dig-sandbox image (see sandbox/Dockerfile).
  *
  * Env: ANTHROPIC_API_KEY (or another SDK credential source),
@@ -71,7 +73,11 @@ if (outDir === workspace.root || outDir.startsWith(workspace.root + path.sep)) {
   fail('--out must be outside the working directory')
 }
 
-const customChecks = values.checks ? parseChecks(JSON.parse(await readFile(values.checks, 'utf8'))) : undefined
+// The project's own dig-checks.json (tests, build, ...) runs only in the sandbox: it can execute
+// project code. On the host it needs an explicit --checks <file>.
+const projectChecksFile = path.join(workspace.root, 'dig-checks.json')
+const checksFile = values.checks ?? (values.sandbox && existsSync(projectChecksFile) ? projectChecksFile : undefined)
+const customChecks = checksFile ? parseChecks(JSON.parse(await readFile(checksFile, 'utf8'))) : undefined
 const sandbox = values.sandbox
   ? createSandbox({ cli: createDockerCli(), caBundle: process.env.DIG_SANDBOX_CA_BUNDLE || undefined })
   : null

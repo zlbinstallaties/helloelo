@@ -13,7 +13,7 @@
     "generate-routes": "tsr generate",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "test:app": "node --experimental-strip-types --test test/*.test.ts",
+    "test:app": "node --experimental-strip-types --no-warnings --test-reporter=spec --test test/*.test.ts",
     "test:odoo": "node --experimental-strip-types scripts/test-odoo-client.mjs",
     "test:gateway": "node --experimental-strip-types --test gateway/test/*.test.ts",
     "typecheck:gateway": "tsc -p gateway",

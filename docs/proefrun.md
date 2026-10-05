@@ -26,6 +26,10 @@ werken (met live voortgang) en toont het resultaat. Standaard geldt een **kosten
 maximaal 40 beurten; de run stopt zelf vóór het volgende verzoek als de schatting de limiet bereikt.
 Reken op ongeveer $1 tot $3 voor een opdracht als hieronder, afhankelijk van hoeveel de agent leest.
 
+Zonder Docker draaien alleen `typecheck` en `lint`. Wil je dat de agent ook `test` en `build` draait zonder Docker, zet dan
+`PROEFRUN_HOST_TESTS=1`: die checks draaien dan op je eigen computer, in de wegwerpkopie. Met Docker (`bun run sandbox:image`)
+draaien ze altijd in een container.
+
 Opties via omgevingsvariabelen: `PROEFRUN_MAX_COST`, `PROEFRUN_EFFORT` (`low` tot `max`, standaard
 `high`), `PROEFRUN_MAX_TURNS`, `PROEFRUN_DIR`, `PROEFRUN_FRESH=1` (kopie opnieuw opbouwen).
 
@@ -62,6 +66,8 @@ Je kunt de wijziging ook zelf bekijken: `git -C ~/dig-proefrun/dashboard log --o
 - Kosten per run, en of de `effort`-instelling bij de opdracht past.
 
 Op basis daarvan pas ik de prompt, de tools en de limieten aan.
+
+Eerdere resultaten staan in `docs/proefrun-resultaten.md`.
 
 ## Problemen
 

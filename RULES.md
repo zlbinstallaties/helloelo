@@ -12,4 +12,8 @@
   bewerk dat bestand niet met de hand.
 - Bestaand gedrag blijft werken: cache van 5 minuten, periodes dag/komend/alle, filter op monteur,
   het detailpaneel en de vernieuwknop.
-- Je bent pas klaar als alle beschikbare checks slagen (`typecheck`, `lint` en, als die beschikbaar is, `build`).
+- De logica die Odoo-gegevens omzet naar afspraken staat in `src/lib/appointments.ts` (zonder I/O) met tests in
+  `test/appointments.test.ts`. Pas je die logica aan, werk dan de tests bij of voeg tests toe, ook voor
+  randgevallen zoals een bezoek dat naar een niet-geladen planning verwijst.
+- Je bent pas klaar als alle beschikbare checks slagen (`typecheck`, `lint` en, als ze beschikbaar zijn,
+  `build` en `test`). Is een check niet beschikbaar, zeg dat dan in je samenvatting.
