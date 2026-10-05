@@ -20,7 +20,7 @@ Keuze: losse web-apps die via een eigen gateway met Odoo praten, geen Odoo-addon
 - Nooit pushen naar `main`/`master`; alleen feature- of staging-branches.
 
 ## Fasering
-1. Gateway met allowlist per project en schema-endpoint, met tests.
+1. Gateway met allowlist per project en schema-endpoint, met tests. **Gebouwd:** `gateway/`, zie `docs/odoo-gateway.md`.
 2. Agent-loop op een lokale werkmap; resultaat is een diff op een branch.
 3. Sandbox en live preview.
 4. Publiceren en login.

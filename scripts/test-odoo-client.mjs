@@ -102,3 +102,25 @@ test('config validation: https required, key required', () => {
   assert.throws(() => createOdooClient({ ...base, apiKey: '' }), OdooError)
   assert.doesNotThrow(() => createOdooClient({ ...base, baseUrl: 'http://localhost:8069' }))
 })
+
+test('searchCount sends company filter and returns the integer', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, 7, calls) })
+  assert.equal(await client.searchCount({ model: 'planning.slot', companyId: 2, domain: [['state', '=', 'x']] }), 7)
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/planning.slot/search_count')
+  const body = JSON.parse(calls[0].init.body)
+  assert.deepEqual(body.domain, [['company_id', '=', 2], ['state', '=', 'x']])
+  assert.deepEqual(body.context, { allowed_company_ids: [2] })
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, [1]) })
+  await assert.rejects(odd.searchCount({ model: 'planning.slot', companyId: 2 }), OdooError)
+})
+
+test('fieldsGet asks for attributes only and respects the allowlist', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, { name: { type: 'char' } }, calls) })
+  assert.deepEqual(await client.fieldsGet('svs.tech.visit'), { name: { type: 'char' } })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/svs.tech.visit/fields_get')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { attributes: ['type', 'string', 'relation', 'required', 'readonly'] })
+  await assert.rejects(client.fieldsGet('res.users'), OdooError)
+  assert.equal(calls.length, 1)
+})
