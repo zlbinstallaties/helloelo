@@ -37,3 +37,42 @@ onderdelen, foto's en Odoo-link; bij één bezoek blijft het oude uiterlijk.
 
 **Open.** Een tweede run met dezelfde opdracht, met tests aan, laat zien of de agent het geval nu zelf
 vindt.
+
+## Run 2: dezelfde opdracht, met tests en strengere instructies (2026-10-05)
+
+Zelfde opdracht, `claude-opus-5-5`, effort `high`, host-modus met `PROEFRUN_HOST_TESTS=1`. 11 beurten, geschatte
+kosten $0.49. Alle vier de checks draaiden: typecheck, lint, test (22) en build.
+
+**Wat beter ging dan run 1.**
+
+- De agent vond het geval van de niet-geladen planning zelf. De nieuwe functie `groupVisitsBySlot` koppelt een
+  bezoek alleen aan een planning die echt geladen is; verwijst `slot_id` naar een niet-geladen planning, dan
+  telt een planning die het bezoek zelf opsomt, en anders blijft het bezoek "Niet gepland".
+- Hij schreef 7 nieuwe tests (meerdere bezoeken, koppeling via de lijst van de planning, dubbele records,
+  niet-geladen bezoeken, lege lijst) en liet alle checks slagen.
+- De samenvatting klopt met de code, ook op de punten die hij zelf als randgeval noemt, en benoemt wat hij niet
+  heeft kunnen controleren (de draaiende app).
+
+**Mijn controle (diff letterlijk toegepast op een schone kopie, demodata).**
+
+- 22 van 22 tests, typecheck, lint en build slagen; mijn test van run 1 voor de niet-geladen planning slaagt nu.
+- Een willekeurige controle over 5000 datasets (elke bezoek-id moet precies één keer op het scherm staan) slaagt;
+  dezelfde controle faalt op de oorspronkelijke code.
+- In de browser: "Alle" toont 6 kaarten en alle 5 bezoeken, TV/0005 staat weer als "Niet gepland" en
+  "Mevrouw Peters" toont beide bezoeken met een eigen kaartje.
+
+**Wat overblijft, en vooral een productkeuze is.**
+
+1. **De status van de afspraak komt van het eerste bezoek (laagste id).** Bij "Mevrouw Peters" is TV/0002 afgerond
+   en TV/0003 nog in uitvoering met 2 ontbrekende onderdelen; de kaart en het paneel tonen "Afgerond". Dat is
+   misleidend en slechter dan vóór de wijziging (toen de laatste, openstaande). De agent noemde dit zelf als open
+   punt. Voorstel: de status van het eerste bezoek dat nog niet afgerond is; pas als alle bezoeken klaar zijn
+   "Afgerond".
+2. **Opgetelde aantallen** ontbrekende onderdelen en foto's op de kaart en in het paneel, met "(totaal)".
+3. **De teller "DIG-bezoeken"** telt nu bezoeken in plaats van afspraken met een bezoek.
+
+Punt 2 en 3 zijn verdedigbaar en door de agent benoemd; punt 1 moet worden aangepast.
+
+**Les voor het proces.** Een goede samenvatting en groene checks vervangen niet het draaien van het resultaat:
+de status-inconsistentie en (bij run 1) de verdwenen bezoeken zijn alleen op het scherm of met een
+invariant-test te zien. Een volgende stap is een vaste "draai het met demodata en kijk"-stap voor de agent.
