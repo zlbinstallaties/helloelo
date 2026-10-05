@@ -44,6 +44,8 @@ De serverroute beperkt de data tot `company_id = 2`, `De Installatiegroep B.V. [
 - `docs/build-workflow.md`: uitgevoerde en voorgestelde overdrachtswerkwijze
 - `docs/dig-builder-design.md`: ontwerp voor een toekomstige beheerdergerichte Odoo-module
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
+- `docs/extern-platform-plan.md`: plan voor het eigen builder-platform
+- `docs/odoo-gateway.md`: Odoo-gateway met allowlist per project (fase 1)
 
 ## Export en veiligheid
 

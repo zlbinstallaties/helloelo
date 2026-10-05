@@ -102,6 +102,9 @@ dist
 *.sqlite
 *.sqlite3
 
+# Odoo gateway: real per-project config (contains token hashes)
+gateway/projects.json
+
 # Local exports, customer data and archives
 customer-data/
 exports/

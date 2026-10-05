@@ -47,5 +47,25 @@ services:
       timeout: 3s
       retries: 5
 
+  odoo-gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      ODOO_BASE_URL: ${ODOO_BASE_URL:?ODOO_BASE_URL must be set}
+      ODOO_API_KEY: ${ODOO_API_KEY:?ODOO_API_KEY must be set}
+      ODOO_DATABASE: ${ODOO_DATABASE:-}
+      GATEWAY_PROJECTS_FILE: /config/projects.json
+      GATEWAY_PORT: "8070"
+    expose:
+      - "8070"
+    volumes:
+      - ${GATEWAY_PROJECTS_FILE:-./gateway/projects.json}:/config/projects.json:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
   builder-data:

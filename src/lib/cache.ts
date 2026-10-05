@@ -1,10 +1,18 @@
 import { withCache } from '@helloleo/runtime'
 import { callIntegration } from '#/lib/proxy.server'
+import { getOdooClient } from '#/lib/odoo.server'
 import type { DashboardData } from '#/lib/dashboard-types'
 
 const TEST_COMPANY_ID = 2
 
 async function readOdoo<T>(model: string, fields: string[]) {
+  // Direct Odoo JSON-2 client when ODOO_BASE_URL + ODOO_API_KEY are set;
+  // otherwise fall back to the HelloLeo Integration Proxy.
+  const direct = getOdooClient()
+  if (direct) {
+    return direct.searchRead<T>({ model, fields, companyId: TEST_COMPANY_ID, limit: 500 })
+  }
+
   const response = await callIntegration<{ result: T[] }>({
     integration: 'odoo',
     endpoint: '/jsonrpc',
