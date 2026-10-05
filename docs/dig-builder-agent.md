@@ -18,7 +18,8 @@ node --experimental-strip-types src/cli.ts \
 Opties: `--task-file`, `--run <id>`, `--out <map>` (standaard `.dig-builder-runs/`, moet buiten
 de werkmap liggen), `--model` (standaard `claude-opus-5-5`), `--effort`
 (`low|medium|high|xhigh|max`, standaard `high`), `--max-turns` (standaard 40),
-`--keep-branch`.
+`--keep-branch`, `--sandbox` (installatie en alle checks in een container, zie
+`docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks, `{"naam": ["commando", ...]}`).
 
 Uitvoer in `<out>/<run-id>/`: `changes.diff` en `run.json` (status, beurten, tokengebruik,
 branch, basis-commit, gewijzigde bestanden, samenvatting, tool-events zonder bestandsinhoud).
@@ -58,11 +59,15 @@ weigering door een veiligheidsfilter automatisch op een ander model wordt herhaa
 - **Odoo:** de agent ziet alleen het schema van de gateway (modellen, velden, types), nooit
   records of de Odoo-key. De instructies laten gegenereerde code Odoo alleen via de gateway lezen.
 
-## Bewust nog niet (fase 3 en later)
+Gegenereerde mappen (`node_modules`, `dist`, `.output`, `.wrangler`, `.vite`, `coverage`)
+komen nooit in de commit, ook niet als het project ze vergeten is te negeren; `run.json`
+noemt ze onder `excluded`.
 
-- Geen sandbox: de agent draait op de host. Daarom geen checks die projectcode uitvoeren
-  (`vite build`, tests, package-scripts). Die komen in de sandbox van fase 3.
-- Geen live preview, geen chat-UI, geen publicatie. De mens beoordeelt de diff en merget zelf.
+## Bewust nog niet
+
+- Zonder `--sandbox` draait alles op de host en zijn alleen checks toegestaan die geen
+  projectcode uitvoeren. Gebruik `--sandbox` voor builds en tests.
+- Geen chat-UI en geen publicatie. De mens beoordeelt de diff en merget zelf.
 - Geen afgedwongen kostenlimiet per run behalve `--max-turns`; tokengebruik staat in `run.json`.
 
 ## Verificatie

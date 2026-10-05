@@ -67,14 +67,30 @@ export interface FinishedRun {
   commit: string | null
   stat: string
   diff: string
+  /** Generated paths that were left out of the commit. */
+  excluded: string[]
 }
+
+/** Never committed, even when a project forgot to ignore them. */
+const GENERATED = /(^|\/)(node_modules|dist|\.output|\.wrangler|\.vite|\.turbo|coverage)(\/|$)/
 
 export async function finishBranch(root: string, run: StartedRun, message: string): Promise<FinishedRun> {
   const current = (await git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
   if (current !== run.branch) throw new GitError(`expected to be on ${run.branch}, found ${current}`)
   await git(root, ['add', '-A'])
-  if (!(await git(root, ['status', '--porcelain'])).trim()) {
-    return { commit: null, stat: '', diff: '' }
+  const staged = (await git(root, ['diff', '--cached', '--name-only', '-z'])).split('\0').filter(Boolean)
+  // Unstage whole generated directories (back to HEAD), not file by file.
+  const excluded = [
+    ...new Set(
+      staged.flatMap((file) => {
+        const match = GENERATED.exec(file)
+        return match ? [file.slice(0, match.index + match[1].length + match[2].length)] : []
+      }),
+    ),
+  ]
+  if (excluded.length) await git(root, ['reset', '-q', '--', ...excluded])
+  if (!(await git(root, ['diff', '--cached', '--name-only'])).trim()) {
+    return { commit: null, stat: '', diff: '', excluded }
   }
   await git(root, [
     '-c', 'user.name=DIG Builder',
@@ -84,5 +100,5 @@ export async function finishBranch(root: string, run: StartedRun, message: strin
   const commit = (await git(root, ['rev-parse', 'HEAD'])).trim()
   const stat = await git(root, ['diff', '--stat', run.base, commit])
   const diff = await git(root, ['diff', run.base, commit])
-  return { commit, stat, diff }
+  return { commit, stat, diff, excluded }
 }

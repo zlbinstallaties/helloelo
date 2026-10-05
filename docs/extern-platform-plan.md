@@ -22,7 +22,7 @@ Keuze: losse web-apps die via een eigen gateway met Odoo praten, geen Odoo-addon
 ## Fasering
 1. Gateway met allowlist per project en schema-endpoint, met tests. **Gebouwd:** `gateway/`, zie `docs/odoo-gateway.md`.
 2. Agent-loop op een lokale werkmap; resultaat is een diff op een branch. **Gebouwd:** `agent/`, zie `docs/dig-builder-agent.md`.
-3. Sandbox en live preview.
+3. Sandbox en live preview. **Gebouwd:** `sandbox/`, zie `docs/dig-builder-sandbox.md`.
 4. Publiceren en login.
 5. Schrijfacties naar Odoo.
 
