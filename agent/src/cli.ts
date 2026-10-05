@@ -39,6 +39,7 @@ const { values } = parseArgs({
     model: { type: 'string', default: DEFAULT_MODEL },
     effort: { type: 'string', default: 'high' },
     'max-turns': { type: 'string', default: '40' },
+    'max-cost-usd': { type: 'string', default: '5' },
     'keep-branch': { type: 'boolean', default: false },
     sandbox: { type: 'boolean', default: false },
     checks: { type: 'string' },
@@ -60,6 +61,8 @@ const effort = values.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) fail('--effort must be low|medium|high|xhigh|max')
 const maxTurns = Number(values['max-turns'])
 if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 200) fail('--max-turns must be 1..200')
+const maxCostUsd = Number(values['max-cost-usd'])
+if (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0) fail('--max-cost-usd must be a positive number')
 
 const runId = values.run ?? `${new Date().toISOString().slice(0, 10)}-${randomBytes(3).toString('hex')}`
 const outDir = path.resolve(values.out, runId)
@@ -101,6 +104,7 @@ try {
     model: values.model,
     effort,
     maxTurns,
+    maxCostUsd,
     onEvent(event) {
       log.push(event)
       if (event.type === 'tool') console.error(`  [${event.turn}] ${event.detail.name} ${event.detail.path ?? event.detail.check ?? ''} ${event.detail.ok ? 'ok' : 'FOUT'}`)
@@ -126,6 +130,8 @@ try {
         status: result.status,
         turns: result.turns,
         usage: result.usage,
+        estimatedCostUsd: Number(result.estimatedCostUsd.toFixed(4)),
+        maxCostUsd,
         sandbox: Boolean(sandbox),
         branch: started.branch,
         base: started.base,
@@ -142,6 +148,7 @@ try {
 
   console.log(`status:  ${result.status}`)
   console.log(`branch:  ${started.branch}${finished.commit ? ` @ ${finished.commit.slice(0, 7)}` : ' (geen wijzigingen)'}`)
+  console.log(`kosten:  ca. $${result.estimatedCostUsd.toFixed(2)} (schatting, limiet $${maxCostUsd})`)
   console.log(`output:  ${outDir}`)
   if (finished.stat) console.log(`\n${finished.stat.trimEnd()}`)
   console.log(`\n${result.summary}`)
