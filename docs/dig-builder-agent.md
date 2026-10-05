@@ -35,7 +35,10 @@ Exitcode 0 = klaar, 2 = gestopt zonder `done` (bijv. `max_turns`), 1 = afgebroke
 4. Commit alle wijzigingen op de run-branch en schrijft diff en runlog.
 
 Tools: `list_files`, `read_file`, `write_file`, `edit_file` (precies één vervanging),
-`run_check` (op naam) en, als de gateway is ingesteld, `odoo_schema` (alleen metadata).
+`run_check` (op naam), als de gateway is ingesteld `odoo_schema` (alleen metadata) en, als het project een `probe`
+in `dig-checks.json` heeft en code mag draaien (sandbox of opt-in), `probe_app`: bouwt de app, start hem op nagebootste
+gegevens met lastige gevallen en geeft status en body van maximaal vijf GET-paden terug. De opdracht komt uit
+`dig-checks.json`, het model kiest alleen de paden (gecontroleerd op vorm); in de sandbox zonder netwerk.
 
 Na een fallback midden in een antwoord worden `thinking`- en `tool_use`-blokken vóór de fallback niet teruggestuurd en hun tools niet uitgevoerd. `run.json` bevat `estimatedCostUsd` (schatting uit tokentellingen en lijstprijzen).
 
