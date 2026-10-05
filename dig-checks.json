@@ -2,5 +2,6 @@
   "typecheck": ["node_modules/.bin/tsc", "--noEmit", "--pretty", "false"],
   "lint": ["node_modules/.bin/oxlint"],
   "build": ["node_modules/.bin/vite", "build"],
-  "test": ["node", "--experimental-strip-types", "--no-warnings", "--test-reporter=spec", "--test", "test/*.test.ts"]
+  "test": ["node", "--experimental-strip-types", "--no-warnings", "--test-reporter=spec", "--test", "test/*.test.ts"],
+  "probe": ["node", "scripts/probe.mjs"]
 }

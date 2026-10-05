@@ -179,6 +179,7 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
           name: use.name,
           path: typeof input?.path === 'string' ? input.path : undefined,
           check: use.name === 'run_check' && typeof input?.name === 'string' ? input.name : undefined,
+          paths: use.name === 'probe_app' && Array.isArray(input?.paths) ? input.paths : undefined,
           ok: !outcome.isError,
         },
       })

@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util'
 import { createDockerCli } from '../../sandbox/src/docker.ts'
 import { createSandbox } from '../../sandbox/src/sandbox.ts'
 import { createCheckRunner, createSandboxCheckRunner, DEFAULT_CHECKS, parseChecks, SANDBOX_CHECKS } from './checks.ts'
+import { createHostProbe, createSandboxProbe } from './probe.ts'
 import { createSchemaReader } from './gateway.ts'
 import { branchName, finishBranch, git, startBranch } from './git.ts'
 import { DEFAULT_MODEL, runAgent } from './loop.ts'
@@ -77,7 +78,10 @@ if (outDir === workspace.root || outDir.startsWith(workspace.root + path.sep)) {
 // project code. On the host it needs an explicit --checks <file>.
 const projectChecksFile = path.join(workspace.root, 'dig-checks.json')
 const checksFile = values.checks ?? (values.sandbox && existsSync(projectChecksFile) ? projectChecksFile : undefined)
-const customChecks = checksFile ? parseChecks(JSON.parse(await readFile(checksFile, 'utf8'))) : undefined
+const configured = checksFile ? parseChecks(JSON.parse(await readFile(checksFile, 'utf8'))) : undefined
+// `probe` in the checks file is the command behind the probe_app tool, not a check the model can name.
+const { probe: probeCommand, ...customChecks } = configured ?? {}
+const hasCustomChecks = Object.keys(customChecks).length > 0
 const sandbox = values.sandbox
   ? createSandbox({ cli: createDockerCli(), caBundle: process.env.DIG_SANDBOX_CA_BUNDLE || undefined })
   : null
@@ -86,8 +90,13 @@ const gatewayToken = process.env.DIG_GATEWAY_TOKEN
 const tools = {
   workspace,
   checks: sandbox
-    ? createSandboxCheckRunner(workspace.root, sandbox, customChecks ?? SANDBOX_CHECKS)
-    : createCheckRunner(workspace.root, customChecks ?? DEFAULT_CHECKS),
+    ? createSandboxCheckRunner(workspace.root, sandbox, hasCustomChecks ? customChecks : SANDBOX_CHECKS)
+    : createCheckRunner(workspace.root, hasCustomChecks ? customChecks : DEFAULT_CHECKS),
+  probe: probeCommand
+    ? sandbox
+      ? createSandboxProbe(workspace.root, sandbox, probeCommand)
+      : createHostProbe(workspace.root, probeCommand)
+    : undefined,
   odooSchema: gatewayUrl && gatewayToken ? createSchemaReader(gatewayUrl, gatewayToken) : undefined,
 }
 
@@ -113,7 +122,7 @@ try {
     maxCostUsd,
     onEvent(event) {
       log.push(event)
-      if (event.type === 'tool') console.error(`  [${event.turn}] ${event.detail.name} ${event.detail.path ?? event.detail.check ?? ''} ${event.detail.ok ? 'ok' : 'FOUT'}`)
+      if (event.type === 'tool') console.error(`  [${event.turn}] ${event.detail.name} ${event.detail.path ?? event.detail.check ?? (Array.isArray(event.detail.paths) ? event.detail.paths.join(' ') : '')} ${event.detail.ok ? 'ok' : 'FOUT'}`)
       else if (event.type === 'turn' && event.detail.stop !== 'tool_use') console.error(`  [${event.turn}] stop: ${event.detail.stop}`)
     },
   })
@@ -131,6 +140,7 @@ try {
     JSON.stringify(
       {
         runId,
+        task: task!.slice(0, 2000),
         model: values.model,
         effort,
         status: result.status,

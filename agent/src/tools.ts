@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import type { CheckRunner } from './checks.ts'
+import { MAX_PROBE_PATHS, validateProbePath, type Probe } from './probe.ts'
 import type { Workspace } from './workspace.ts'
 
 /*
@@ -14,6 +15,8 @@ export interface ToolContext {
   checks: CheckRunner
   /** Fetches the gateway schema; absent when no gateway is configured. */
   odooSchema?: () => Promise<unknown>
+  /** Builds and starts the app on fake data and requests paths; absent when the project has no probe. */
+  probe?: Probe
 }
 
 export interface ToolOutcome {
@@ -28,6 +31,7 @@ const schemas = {
   edit_file: z.object({ path: z.string(), old_text: z.string(), new_text: z.string() }).strict(),
   run_check: z.object({ name: z.string() }).strict(),
   odoo_schema: z.object({}).strict(),
+  probe_app: z.object({ paths: z.array(z.string()).min(1).max(MAX_PROBE_PATHS) }).strict(),
 }
 
 export type ToolName = keyof typeof schemas
@@ -95,6 +99,31 @@ export function toolDefinitions(ctx: ToolContext): Anthropic.Beta.BetaTool[] {
       },
     },
   ]
+  if (ctx.probe) {
+    tools.push({
+      name: 'probe_app',
+      description:
+        'Look at the running app: builds it, starts it against realistic fake data (including awkward cases such as ' +
+        'several visits on one appointment, records that point at something not loaded, empty values and different ' +
+        'statuses) and returns status and body of GET requests to the given paths of the app, for example ' +
+        '/api/dashboard?scope=all. Use it after your checks to verify what your change really returns, and look at the ' +
+        'edge cases in the data. It does not render the UI, so never claim that you saw the screen.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          paths: {
+            type: 'array',
+            items: { type: 'string' },
+            minItems: 1,
+            maxItems: MAX_PROBE_PATHS,
+            description: 'Paths of the app, each starting with /, e.g. /api/health or /api/dashboard?scope=all.',
+          },
+        },
+        required: ['paths'],
+        additionalProperties: false,
+      },
+    })
+  }
   if (ctx.odooSchema) {
     tools.push({
       name: 'odoo_schema',
@@ -111,7 +140,7 @@ function isToolName(name: string): name is ToolName {
 }
 
 export async function executeTool(ctx: ToolContext, name: string, rawInput: unknown): Promise<ToolOutcome> {
-  if (!isToolName(name) || (name === 'odoo_schema' && !ctx.odooSchema)) {
+  if (!isToolName(name) || (name === 'odoo_schema' && !ctx.odooSchema) || (name === 'probe_app' && !ctx.probe)) {
     return { content: `unknown tool: ${name}`, isError: true }
   }
   const parsed = schemas[name].safeParse(rawInput)
@@ -138,6 +167,13 @@ export async function executeTool(ctx: ToolContext, name: string, rawInput: unkn
         const result = await ctx.checks.run(input.name)
         const status = result.timedOut ? 'TIMED OUT' : result.ok ? 'PASSED' : `FAILED (exit ${result.exitCode})`
         return { content: `${result.name}: ${status}\n${result.output}`, isError: !result.ok }
+      }
+      case 'probe_app': {
+        const paths = (parsed.data as { paths: string[] }).paths
+        const invalid = paths.map(validateProbePath).find((message) => message !== null)
+        if (invalid) return { content: invalid, isError: true }
+        const result = await ctx.probe!(paths)
+        return { content: result.ok ? result.output : `probe failed:\n${result.output}`, isError: !result.ok }
       }
       case 'odoo_schema':
         return { content: JSON.stringify(await ctx.odooSchema!(), null, 2), isError: false }

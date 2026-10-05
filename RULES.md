@@ -15,5 +15,8 @@
 - De logica die Odoo-gegevens omzet naar afspraken staat in `src/lib/appointments.ts` (zonder I/O) met tests in
   `test/appointments.test.ts`. Pas je die logica aan, werk dan de tests bij of voeg tests toe, ook voor
   randgevallen zoals een bezoek dat naar een niet-geladen planning verwijst.
+- `scripts/demo-data.mjs` bevat de testgegevens voor de tool `probe_app` (met lastige gevallen zoals meerdere
+  bezoeken op één afspraak, een bezoek met een niet-geladen planning en lege velden). Verwerk je een nieuw soort
+  record of veld, voeg dan een voorbeeld toe aan dat bestand, zodat je het resultaat met `probe_app` kunt bekijken.
 - Je bent pas klaar als alle beschikbare checks slagen (`typecheck`, `lint` en, als ze beschikbaar zijn,
   `build` en `test`). Is een check niet beschikbaar, zeg dat dan in je samenvatting.
