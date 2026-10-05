@@ -1,0 +1,27 @@
+# systemd unit for the builder app (chat + review screen). Install as
+# /etc/systemd/system/dig-builder-app.service.
+# Same user and same warning as dig-preview.service: the "docker" group is root-equivalent,
+# because the agent runs installs and checks in sandbox containers.
+[Unit]
+Description=DIG Builder app
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+User=dig-builder
+Group=docker
+WorkingDirectory=/srv/dig-builder/app
+EnvironmentFile=/etc/dig-builder/builder-app.env
+# Listen on the docker bridge address so only containers (the TLS front) can reach it.
+Environment=BUILDER_APP_HOST=172.17.0.1 BUILDER_APP_PORT=8100 BUILDER_APP_TRUST_PROXY=true
+ExecStart=/usr/bin/node --experimental-strip-types --no-warnings builder-app/src/main.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/dig-builder
+
+[Install]
+WantedBy=multi-user.target

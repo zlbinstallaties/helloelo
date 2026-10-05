@@ -83,6 +83,23 @@ docker compose -f deploy/docker-compose.yml --env-file /etc/dig-builder/stack.en
 Controle: `https://dashboard.apps.<jouw-domein>` toont de inlogpagina. Het eerste bezoek duurt een
 paar seconden: Caddy vraagt dan het certificaat aan, en de preview-container start.
 
+### De builder-app (opdrachten geven en beoordelen)
+
+De builder-app is het scherm waar je een opdracht typt, de voortgang ziet, de wijzigingen leest en
+goedkeurt of afwijst (`docs/builder-app.md`). Ze draait net als de preview-proxy als systemd-service.
+
+```bash
+cp builder-app/projects.example.json /etc/dig-builder/builder-projects.json   # pas aan
+bun run preview:password '<ander wachtwoord van minstens 12 tekens>'          # hash + sessiegeheim
+# vul /etc/dig-builder/builder-app.env (zie deploy/env.example), chmod 600
+cp deploy/dig-builder-app.service /etc/systemd/system/ && systemctl daemon-reload
+systemctl enable --now dig-builder-app
+# BUILDER_DOMAIN in stack.env zetten en Caddy opnieuw laden:
+docker compose -f deploy/docker-compose.yml --env-file /etc/dig-builder/stack.env up -d
+```
+
+Controle: `https://<BUILDER_DOMAIN>` toont de inlogpagina; `curl http://<publiek-ip>:8100` werkt niet.
+
 ## De agent op de server
 
 ```bash
@@ -111,4 +128,5 @@ beoordeelt de diff en merget zelf.
 - Een **gepubliceerde** (vaste) versie van een app naast de preview, met een knop "publiceren"
   en terugdraaien. Nu draait alleen de preview (`vite dev`).
 - Login via Odoo-gebruikers in plaats van één gedeeld wachtwoord.
-- De chat-app om runs te starten en diffs te beoordelen; nu gaat dat via de CLI.
+- De builder-app is een eerste versie (opdracht geven, voortgang, diff, goedkeuren/afwijzen). Een
+  echt gesprek met de agent (vervolgvragen op een run) volgt later.

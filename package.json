@@ -25,6 +25,9 @@
     "sandbox:run": "node --experimental-strip-types --no-warnings sandbox/src/cli.ts",
     "sandbox:image": "docker build -t dig-sandbox:1 sandbox",
     "preview:start": "node --experimental-strip-types --no-warnings sandbox/src/main.ts",
+    "test:builder-app": "node --experimental-strip-types --no-warnings --test builder-app/test/*.test.ts",
+    "typecheck:builder-app": "tsc -p builder-app",
+    "builder:start": "node --experimental-strip-types --no-warnings builder-app/src/main.ts",
     "preview:password": "node --experimental-strip-types --no-warnings sandbox/src/hash-password.ts"
   },
   "dependencies": {

@@ -38,6 +38,7 @@ const publicDir = path.join(here, '..', 'public')
 const assets = {
   'index.html': { type: 'text/html; charset=utf-8', body: readFileSync(path.join(publicDir, 'index.html'), 'utf8') },
   'app.js': { type: 'text/javascript; charset=utf-8', body: readFileSync(path.join(publicDir, 'app.js'), 'utf8') },
+  'lib.js': { type: 'text/javascript; charset=utf-8', body: readFileSync(path.join(publicDir, 'lib.js'), 'utf8') },
   'style.css': { type: 'text/css; charset=utf-8', body: readFileSync(path.join(publicDir, 'style.css'), 'utf8') },
 }
 
