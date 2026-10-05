@@ -220,3 +220,26 @@ test('the status of an appointment is that of its first unfinished visit, done o
   assert.equal(state([], 'published'), 'published')
   assert.equal(appointmentState([]), undefined)
 })
+
+test('every visit appears exactly once on screen, whatever the links between slots and visits look like', () => {
+  // Seeded pseudo-random datasets: visits without a slot, pointing at a slot that was not loaded, listed by
+  // several slots, listed but not loaded, and duplicated records.
+  let seed = 42
+  const random = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296
+  for (let round = 0; round < 3000; round++) {
+    const slotIds = Array.from({ length: Math.floor(random() * 4) }, (_, i) => i + 1)
+    const visitIds = Array.from({ length: Math.floor(random() * 6) }, (_, i) => 100 + i)
+    const pickSlot = (): number | false =>
+      slotIds.length && random() < 0.8 ? slotIds[Math.floor(random() * slotIds.length)] : random() < 0.5 ? 99 : false
+    const visits = visitIds.flatMap((id) => {
+      const own = (): DashboardVisit => {
+        const slotId = pickSlot()
+        return visit(id, { slot_id: slotId === false ? false : [slotId, 'Slot'] })
+      }
+      return random() < 0.15 ? [own(), own()] : [own()]
+    })
+    const slots = slotIds.map((id) => slot(id, { svs_tech_visit_ids: visitIds.filter(() => random() < 0.3).concat(random() < 0.1 ? [555] : []) }))
+    const shown = buildAppointments(data(slots, visits), BASE).flatMap((a) => a.visits.map((v) => v.id)).sort()
+    assert.deepEqual(shown, [...new Set(visitIds)].sort(), JSON.stringify({ slots: slots.map((s) => [s.id, s.svs_tech_visit_ids]), visits: visits.map((v) => [v.id, v.slot_id]) }))
+  }
+})
