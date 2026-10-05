@@ -4,7 +4,8 @@ import { useRouterState } from '@tanstack/react-router'
 // Rendered by the router's defaultErrorComponent for any uncaught render or
 // loader error. Per-route `errorComponent` options override it. Keep this
 // component free of app dependencies (toasts, auth, ui components, etc).
-export function DefaultErrorComponent({ error }: { error: Error }) {
+export function DefaultErrorComponent({ error: thrown }: { error: unknown }) {
+  const error = thrown instanceof Error ? thrown : new Error(String(thrown))
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const [copied, setCopied] = useState(false)
 

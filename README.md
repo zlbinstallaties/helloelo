@@ -2,45 +2,41 @@
 
 Nederlandstalig, alleen-lezen dashboard voor `De Installatiegroep B.V. [TEST]`, gebouwd met TanStack Start en de verbonden Odoo 20-testomgeving.
 
-## Bouwen
+## Bouwen en draaien
 
 Vereist:
 
-- Node.js 26+
+- Node.js 22+
 - Bun 1.3+
-- Een geconfigureerde HelloLeo-projectomgeving met Odoo-verbinding
-
-Installeer dependencies en bouw de app:
+- De DIG Odoo-gateway (`gateway/`) met een projecttoken voor dit dashboard
 
 ```bash
 bun install
-bun run build
+bun run build        # TanStack Start SSR voor Node
+bun run start        # node scripts/serve.mjs, PORT (standaard 3000)
+bun run dev          # ontwikkelserver op poort 5173
 ```
 
-Voor lokale ontwikkeling:
+Server-omgeving (geen geheimen in browsercode):
 
-```bash
-bun run dev
-```
+| Variabele | Doel |
+|---|---|
+| `DIG_GATEWAY_URL` | adres van de Odoo-gateway, bijv. `http://odoo-gateway:8070` |
+| `DIG_GATEWAY_TOKEN` | projecttoken voor dit dashboard (alleen-lezen) |
+| `ODOO_PUBLIC_URL` | optioneel, alleen voor links naar Odoo-formulieren |
 
-## HelloLeo-afhankelijkheden
+Het dashboard heeft geen Odoo-sleutel: de gateway bewaart die en geeft dit dashboard alleen
+`planning.slot` en `svs.tech.visit` voor `company_id = 2`, alleen-lezen. Zonder gateway-instelling
+geeft `/api/dashboard` een nette 503 en meldt `/api/health` `degraded`. De cache (5 minuten,
+`POST /api/dashboard` ververst) draait in het geheugen van het serverproces (`src/lib/ttl-cache.ts`).
 
-- `@helloleo/runtime` voor server-runtime en de zichtbare cache met een TTL van 5 minuten
-- HelloLeo Integration Proxy voor server-side Odoo-leesacties
-- `HELLOLEO_API_KEY` blijft server-side en hoort niet in browsercode
-- De app gebruikt geen Odoo-API-sleutel in de bronbestanden
-
-De dashboardroute leest uitsluitend:
-
-- `planning.slot` via `search_read`
-- `svs.tech.visit` via `search_read`
-
-De serverroute beperkt de data tot `company_id = 2`, `De Installatiegroep B.V. [TEST]`. Er worden geen Odoo-records aangemaakt, gewijzigd of verwijderd en er worden geen berichten verstuurd.
+Er zijn geen HelloLeo-, Cloudflare- of Drizzle-afhankelijkheden meer. Een app als deze draait
+in de DIG Builder-sandbox als preview (`docs/dig-builder-sandbox.md`).
 
 ## Documentatie
 
 - `docs/architecture.md`: huidige request- en dataarchitectuur
-- `docs/helloleo-dependencies.md`: aantoonbare HelloLeo-koppelingen en zelfstandige vervangingen
+- `docs/helloleo-dependencies.md`: HelloLeo-koppelingen en hoe ze zijn vervangen
 - `docs/build-workflow.md`: uitgevoerde en voorgestelde overdrachtswerkwijze
 - `docs/dig-builder-design.md`: ontwerp voor een toekomstige beheerdergerichte Odoo-module
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
@@ -51,21 +47,18 @@ De serverroute beperkt de data tot `company_id = 2`, `De Installatiegroep B.V. [
 
 ## Export en veiligheid
 
-Neem bij een handmatige export wel de bronbestanden, `package.json`, `bun.lock`, `tsconfig.json`, `vite.config.ts`, `wrangler`-/Drizzle-configuratie en `src/` mee.
+Neem bij een export de bronbestanden, `package.json`, `bun.lock`, `tsconfig.json`, `vite.config.ts` en `src/` mee.
 
 Sluit altijd uit:
 
 - `.env` en andere bestanden met secrets
 - `node_modules/`
-- lokale build-output
-- cachebestanden
+- lokale build-output (`dist/`)
 - geëxporteerde Odoo-records, klantgegevens en runtime-logs
 
-De onafhankelijke hosting van deze app vereist een vervanging van de HelloLeo Proxy en een eigen server-side Odoo-authenticatie- en cachelaag. Credentials mogen niet naar de browserbundel worden verplaatst.
-
-## Zelfstandige hosting
-
-Zelfstandig hosten is niet direct plug-and-play. Vervang minimaal de HelloLeo Integration Proxy, `@helloleo/runtime`-cache en Cloudflare-runtime door eigen server-side equivalenten. Behoud de Odoo-credentials uitsluitend als serversecret, voeg echte applicatie-authenticatie en autorisatie toe en test de Odoo 20-veldnamen opnieuw in de doelomgeving. Odoo Enterprise-broncode hoort niet in deze repository.
+Credentials mogen niet naar de browserbundel worden verplaatst. De app heeft zelf geen
+gebruikerslogin; zet hem achter de preview-proxy (`sandbox/`) of een eigen login voordat je hem
+breder deelt. Odoo Enterprise-broncode hoort niet in deze repository.
 
 ## DIG Builder (fase 2)
 

@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getDigDashboardData } from '#/lib/cache'
+import { GatewayError } from '#/lib/gateway.server'
 import type {
   DashboardAppointment,
   DashboardData,
@@ -7,7 +8,8 @@ import type {
   OdooMany2One,
 } from '#/lib/dashboard-types'
 
-const ODOO_BASE_URL = 'https://odoo20.srv1938209.hstgr.cloud'
+// Only used to build links to Odoo forms; no credentials involved.
+const ODOO_BASE_URL = process.env.ODOO_PUBLIC_URL ?? 'https://odoo20.srv1938209.hstgr.cloud'
 
 function tupleName(value: OdooMany2One) {
   return value ? value[1] : ''
@@ -58,7 +60,7 @@ function buildAppointments(data: DashboardData): DashboardAppointment[] {
     if (slotId) visitsBySlot.set(slotId, visit)
   }
 
-  const appointments = data.slots.map((slot) => {
+  const appointments: DashboardAppointment[] = data.slots.map((slot) => {
     const visit = visitsBySlot.get(slot.id)
     const peopleUnique = [...new Set([...relationNames(slot.employee_ids), ...relationNames(slot.user_ids)])]
     return {
@@ -152,6 +154,11 @@ async function responseFor(request: Request, refresh = false) {
   } satisfies DashboardResponse)
 }
 
+function errorResponse(error: unknown) {
+  const status = error instanceof GatewayError && error.status === 503 ? 503 : 502
+  return Response.json({ error: error instanceof Error ? error.message : 'Odoo kon niet worden gelezen.' }, { status })
+}
+
 export const Route = createFileRoute('/api/dashboard')({
   server: {
     handlers: {
@@ -159,20 +166,14 @@ export const Route = createFileRoute('/api/dashboard')({
         try {
           return await responseFor(request)
         } catch (error) {
-          return Response.json(
-            { error: error instanceof Error ? error.message : 'Odoo kon niet worden gelezen.' },
-            { status: 502 },
-          )
+          return errorResponse(error)
         }
       },
       POST: async ({ request }) => {
         try {
           return await responseFor(request, true)
         } catch (error) {
-          return Response.json(
-            { error: error instanceof Error ? error.message : 'Odoo kon niet worden gelezen.' },
-            { status: 502 },
-          )
+          return errorResponse(error)
         }
       },
     },

@@ -21,8 +21,9 @@
 | `TV/0001` | Geslaagd | Preview-API gaf `TV/0001`, status `in_progress`, één ontbrekend verplicht onderdeel en nul foto’s terug. |
 | Preview HTTP smoke test | Geslaagd | Hoofdpagina en `/api/dashboard` antwoordden HTTP 200; POST-refresh antwoordde HTTP 200. |
 | Backend previewlogs | Geslaagd voor runtimefouten | Geen backend-runtimefout aangetroffen. Historische iframe/HMR-meldingen blijven in de loghistorie staan. |
-| Typecheck | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run typecheck` uit te voeren. |
-| Build/lint | Niet uitvoerbaar in deze sessie | Geen shell/CLI-tool was beschikbaar om `bun run build` of lint uit te voeren. |
+| Typecheck | Geslaagd | `bun run typecheck` (`tsc --noEmit`) zonder fouten, ook in de sandbox-container zonder netwerk. De eerdere 12 fouten (route-`server`-types, foutcomponent, nulls in `buildAppointments`) zijn opgelost. |
+| Build/lint | Geslaagd | `bun run build` (Vite 8, TanStack Start) lokaal en in de sandbox; oxlint zonder meldingen. De productieserver (`scripts/serve.mjs`) serveert pagina, assets en API. |
+| Zelfstandige draai | Geslaagd | Dashboard zonder HelloLeo/Cloudflare: nep-Odoo → gateway → dashboard op Node en als preview in de sandbox (installatie met `--ignore-scripts`, build zonder netwerk), met data in Chromium. Niet getest tegen de echte Odoo 20-testserver. |
 | Builder-tests | 15 servicetests geslaagd; Odoo-installatie mislukt | De servicetests blijven geslaagd. De echte Odoo 20-installatietest van commit `73c3856` faalde bij `action_dig_builder_app` door `ValueError: Invalid field 'group_ids' in 'ir.actions.client'`. Dat veld is uitsluitend uit de client action verwijderd; Odoo-integratietests zijn daardoor nog niet uitgevoerd. |
 | OpenAI nested output extraction | Toegevoegd, niet uitgevoerd | Regressietests dekken nested `output_text`, meerdere blokken, lege/afgebroken antwoorden en providerfouten. |
 | Metadata-to-proposal contract | Code toegevoegd, niet uitgevoerd | Odoo maakt `odoo20-v1` met allowlisted models/fields en de service valideert en gebruikt dit in de providerprompt. |
@@ -42,7 +43,7 @@ De blokkade is gerepareerd door `group_ids` alleen uit `action_dig_builder_app` 
 
 ## Aanbevolen vervolgreparaties
 
-1. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de HelloLeo-preview wordt gebruikt.
+1. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de DIG Builder-preview wordt gebruikt.
 2. Modelleer monteurselectie met stabiele Odoo-ids en maak een gecontroleerde employee/user-relatie.
 3. Maak een afspraak één-op-veel voor bezoeken en render alle bezoekformulieren.
 4. Voeg server-side paginering of een datumgebonden Odoo-domain toe vóór datasets boven 500 records.
