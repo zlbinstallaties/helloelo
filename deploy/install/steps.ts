@@ -39,6 +39,8 @@ export interface Facts {
   bridgeIp: string | null
   caddy: CaddyFacts | null
   publicIp: string | null
+  /** A CA bundle for installs behind a TLS-intercepting proxy (DIG_SANDBOX_CA_BUNDLE); normally none. */
+  caBundle: string | null
   /** Things that stop the installation, in words a person can act on. */
   problems: string[]
 }
@@ -62,7 +64,7 @@ export function parseCaddyUnit(unitText: string): CaddyFacts | null {
   return { binary, config }
 }
 
-export async function inspect(sys: Sys): Promise<Facts> {
+export async function inspect(sys: Sys, env: Record<string, string | undefined> = process.env): Promise<Facts> {
   const problems: string[] = []
   const osRelease = (await sys.read('/etc/os-release')) ?? ''
   const os = /^PRETTY_NAME="?([^"\n]+)"?/m.exec(osRelease)?.[1] ?? 'onbekend'
@@ -93,7 +95,9 @@ export async function inspect(sys: Sys): Promise<Facts> {
   }
 
   const publicIp = await out(sys, 'curl', ['-s', '-m', '5', 'https://api.ipify.org'])
-  return { os, isRoot, nodeBinary, nodeMajor, docker, compose, git, bridgeIp, caddy, publicIp, problems }
+  const caBundle = env.DIG_SANDBOX_CA_BUNDLE || null
+  if (caBundle && !(await sys.exists(caBundle))) problems.push(`DIG_SANDBOX_CA_BUNDLE wijst naar ${caBundle}, maar dat bestand bestaat niet.`)
+  return { os, isRoot, nodeBinary, nodeMajor, docker, compose, git, bridgeIp, caddy, publicIp, caBundle, problems }
 }
 
 export const STATE_FILE = `${PATHS.etc}/install.json`
@@ -167,9 +171,10 @@ function asUserRun(sys: Sys, cmd: string, args: string[], timeoutMs = 120_000) {
   return sys.run(cmd, args, { ...asUser, timeoutMs })
 }
 
-async function ensureImage({ sys }: Ctx) {
+async function ensureImage({ sys, facts }: Ctx) {
   if (ok(await sys.run('docker', ['image', 'inspect', SANDBOX_IMAGE]))) return `afbeelding ${SANDBOX_IMAGE} bestaat al`
-  must(await sys.run('docker', ['build', '--quiet', '-t', SANDBOX_IMAGE, app('sandbox')], { timeoutMs: 900_000 }), `afbeelding ${SANDBOX_IMAGE} bouwen`)
+  const secret = facts.caBundle ? ['--secret', `id=ca,src=${facts.caBundle}`] : []
+  must(await sys.run('docker', ['build', '--quiet', ...secret, '-t', SANDBOX_IMAGE, app('sandbox')], { timeoutMs: 900_000 }), `afbeelding ${SANDBOX_IMAGE} bouwen`)
   return `afbeelding ${SANDBOX_IMAGE} gebouwd`
 }
 

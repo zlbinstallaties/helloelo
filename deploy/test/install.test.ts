@@ -116,6 +116,27 @@ test('a first installation does every step, writes the right files with the righ
   assert.deepEqual([...s.containers.keys()].sort(), ['dig-builder-test-builder-1', 'dig-platform-odoo-gateway-1', 'odoo20-test-db-1', 'odoo20-test-odoo-1'])
 })
 
+test('behind a TLS-intercepting proxy the image build gets the CA bundle, and a missing bundle is reported', async () => {
+  const before = process.env.DIG_SANDBOX_CA_BUNDLE
+  try {
+    process.env.DIG_SANDBOX_CA_BUNDLE = '/etc/ssl/proxy-ca.pem'
+    const missing = scriptedPrompts([])
+    assert.equal(await check({ sys: server().sys, prompts: missing.prompts }), 1)
+    assert.match(missing.said.join('\n'), /proxy-ca\.pem.*bestaat niet/)
+
+    const s = server({ files: { '/etc/ssl/proxy-ca.pem': 'CERT' } })
+    assert.equal((await install(s)).code, 0)
+    const build = s.calls.find((c) => c.cmd === 'docker' && c.args[0] === 'build')!
+    assert.deepEqual(build.args.slice(build.args.indexOf('--secret'), build.args.indexOf('--secret') + 2), ['--secret', 'id=ca,src=/etc/ssl/proxy-ca.pem'])
+  } finally {
+    if (before === undefined) delete process.env.DIG_SANDBOX_CA_BUNDLE
+    else process.env.DIG_SANDBOX_CA_BUNDLE = before
+  }
+  const plain = server()
+  await install(plain)
+  assert.ok(!plain.calls.find((c) => c.cmd === 'docker' && c.args[0] === 'build')!.args.includes('--secret'), 'no secret without a bundle')
+})
+
 test('the web server: one import line, a separate file, a backup, a validation, and a graceful reload', async () => {
   const s = server()
   assert.equal((await install(s)).code, 0)
