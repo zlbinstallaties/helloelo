@@ -1,5 +1,5 @@
 import {
-  availableActions, decisionInfo, eventLine, firstLine, formatCost, parseDiff, parseMarkdown, relativeTime, statusInfo,
+  availableActions, decisionInfo, eventLine, firstLine, formatCost, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo,
 } from '/lib.js'
 
 const $ = (id) => document.getElementById(id)
@@ -13,6 +13,8 @@ const state = {
   events: [],
   diff: '',
   source: null,
+  publication: null,
+  publicationTimer: null,
 }
 
 /* ---------- small helpers ---------- */
@@ -61,6 +63,13 @@ const ERROR_TEXT = {
   too_many_runs: 'Er lopen al te veel opdrachten tegelijk.',
   not_running: 'Deze opdracht loopt niet meer.',
   already_decided: 'Hierover is al besloten.',
+  publish_busy: 'Er loopt al een publicatie voor dit project.',
+  too_many_publications: 'Er wordt al een ander project gepubliceerd. Probeer het zo opnieuw.',
+  already_current: 'Deze versie is al gepubliceerd.',
+  no_release: 'Er is nog niets gepubliceerd.',
+  unknown_release: 'Die versie is niet meer beschikbaar.',
+  publishing_disabled: 'Dit project kan niet worden gepubliceerd.',
+  invalid_release: 'Ongeldige versie.',
 }
 
 async function api(path, { method = 'GET', body, text = false } = {}) {
@@ -128,7 +137,7 @@ async function loadProjects() {
   state.projectId = projects.some((p) => p.id === saved) ? saved : projects[0]?.id ?? null
   select.value = state.projectId ?? ''
   applyProject()
-  await loadRuns()
+  await Promise.all([loadRuns(), loadPublication()])
   const running = state.runs.find((r) => r.state === 'running')
   if (running && !state.selectedId) await selectRun(running.id)
 }
@@ -153,7 +162,7 @@ $('project').addEventListener('change', async (event) => {
   closeStream()
   applyProject()
   renderDetail()
-  await loadRuns()
+  await Promise.all([loadRuns(), loadPublication()])
 })
 
 async function loadRuns() {
@@ -381,9 +390,124 @@ async function decide(id, kind, base) {
     toast(kind === 'approve' ? `Samengevoegd in ${base}.` : 'Branch verwijderd.')
     if (state.selectedId === id) await refreshRun()
     await loadRuns()
+    if (kind === 'approve') await loadPublication()
   } catch (error) {
     toast(error.message, true)
   }
+}
+
+/* ---------- publication ---------- */
+
+async function loadPublication() {
+  clearTimeout(state.publicationTimer)
+  const project = currentProject()
+  if (!project?.publish) {
+    state.publication = null
+    renderPublication()
+    return
+  }
+  const id = project.id
+  try {
+    const status = await api(`/api/projects/${encodeURIComponent(id)}/publication`)
+    if (state.projectId !== id) return // the person switched project meanwhile
+    const wasRunning = state.publication?.job?.state === 'running'
+    state.publication = status
+    renderPublication()
+    if (status.job?.state === 'running') {
+      state.publicationTimer = setTimeout(loadPublication, 2000)
+    } else if (wasRunning && status.job) {
+      toast(status.job.state === 'done' ? 'Klaar: de nieuwe versie staat live.' : 'Het publiceren is mislukt.', status.job.state !== 'done')
+    }
+  } catch (error) {
+    if (error.status !== 401) toast(error.message, true)
+  }
+}
+
+async function publicationAction(action, body, question) {
+  if (!window.confirm(question)) return
+  const id = state.projectId
+  try {
+    state.publication = await api(`/api/projects/${encodeURIComponent(id)}/publication/${action}`, { method: 'POST', body })
+    renderPublication()
+    clearTimeout(state.publicationTimer)
+    state.publicationTimer = setTimeout(loadPublication, 1500)
+  } catch (error) {
+    toast(error.message, true)
+    await loadPublication()
+  }
+}
+
+function renderPublication() {
+  const box = $('publication')
+  const info = publicationInfo(state.publication)
+  if (info.kind === 'disabled') {
+    box.hidden = true
+    box.replaceChildren()
+    return
+  }
+  box.hidden = false
+  const project = currentProject()
+  const status = state.publication
+  const base = project?.baseBranch ?? 'de hoofdversie'
+  const nodes = [el('h2', {}, 'Gepubliceerde versie')]
+
+  if (info.kind === 'running') {
+    nodes.push(
+      el('p', {}, el('span', { class: 'spinner' }), el('strong', {}, `${info.title}: `), info.detail),
+      el('p', { class: 'hint' }, 'Dit duurt een paar minuten. De versie die nu live staat blijft gewoon werken tot de nieuwe klaar is.'),
+    )
+  } else {
+    nodes.push(el('p', {}, chip(info.headline)))
+    if (status.current) {
+      nodes.push(el('p', { class: 'muted' }, `Versie ${shortCommit(status.current.commit)}, ${relativeTime(status.current.publishedAt)} live gezet.`))
+      if (project?.publish?.url) nodes.push(el('p', {}, el('a', { class: 'link', href: project.publish.url, target: '_blank', rel: 'noreferrer' }, 'Open de live app ↗')))
+    }
+    if (info.error) {
+      const [headline, ...log] = info.error.split('\n')
+      nodes.push(
+        el('div', { class: 'banner bad' },
+          el('p', {}, `Het is mislukt.${status.current ? ' De versie die al live stond is niet aangeraakt.' : ''} ${headline}`),
+          log.length ? el('pre', { class: 'logbox' }, log.join('\n')) : null,
+        ),
+      )
+    }
+    nodes.push(
+      el('div', { class: 'pub-actions' },
+        el('button', {
+          type: 'button', class: 'primary', disabled: !info.canPublish,
+          onclick: () => publicationAction('publish', {}, `De nieuwste versie van "${base}" wordt gebouwd en live gezet voor iedereen die de app gebruikt. Doorgaan?`),
+        }, status.current ? 'Publiceer de nieuwste versie' : 'Publiceren'),
+        info.canRestart ? el('button', {
+          type: 'button', class: 'ghost',
+          onclick: () => publicationAction('restart', {}, 'De live versie wordt opnieuw gestart. Dat duurt even. Doorgaan?'),
+        }, 'Opnieuw starten') : null,
+      ),
+    )
+    if (!info.canPublish && status.upToDate) nodes.push(el('p', { class: 'hint' }, `De nieuwste wijzigingen uit "${base}" staan al live.`))
+    if (status.current && status.upToDate === false) nodes.push(el('p', { class: 'hint' }, `Er zijn wijzigingen in "${base}" die nog niet live staan.`))
+    if (status.releases.length) {
+      nodes.push(
+        el('details', {},
+          el('summary', {}, `Eerdere versies (${status.releases.length})`),
+          el('ul', { class: 'versions' },
+            status.releases.map((release) =>
+              el('li', {},
+                el('code', {}, shortCommit(release.commit)),
+                el('span', { class: 'muted' }, relativeTime(release.createdAt)),
+                release.live ? chip({ label: 'Live', tone: 'good' }) : null,
+                el('span', { class: 'spacer' }),
+                release.live ? null : el('button', {
+                  type: 'button', class: 'ghost',
+                  onclick: () => publicationAction('rollback', { releaseId: release.id }, `Terugdraaien naar versie ${shortCommit(release.commit)}? De versie die nu live staat wordt vervangen.`),
+                }, 'Terugdraaien'),
+              ),
+            ),
+          ),
+        ),
+      )
+    }
+  }
+  box.replaceChildren(...nodes)
 }
 
 /* ---------- start ---------- */

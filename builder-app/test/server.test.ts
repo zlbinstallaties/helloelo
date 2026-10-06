@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createSessions, hashPassword } from '../../sandbox/src/auth.ts'
+import type { PublicationManager } from '../src/publish.ts'
 import { createBuilderServer } from '../src/server.ts'
 import { fakeExecute, setup, waitFor } from './helpers.ts'
 
@@ -13,11 +14,11 @@ const ASSETS = {
   'style.css': { type: 'text/css; charset=utf-8', body: 'body{}' },
 }
 
-async function start(execute = fakeExecute(), opts: { maxConcurrent?: number } = {}) {
+async function start(execute = fakeExecute(), opts: { maxConcurrent?: number; publications?: (s: Awaited<ReturnType<typeof setup>>) => PublicationManager } = {}) {
   const s = await setup(execute, opts)
   const logs: Record<string, unknown>[] = []
   const handler = createBuilderServer({
-    projects: s.projects, runs: s.runs, store: s.store,
+    projects: s.projects, runs: s.runs, store: s.store, publications: opts.publications?.(s),
     passwordHash: hashPassword(PASSWORD), sessions: createSessions({ secret: 'k'.repeat(32) }),
     secureCookies: true, assets: ASSETS, log: (e) => logs.push(e),
   })
@@ -116,7 +117,7 @@ test('projects are listed without paths or tokens', async () => {
   try {
     await t.login()
     const { body } = await t.api('/api/projects')
-    assert.deepEqual(Object.keys(body.projects[0]).sort(), ['baseBranch', 'id', 'name', 'previewUrl', 'runningRunId', 'sandbox'])
+    assert.deepEqual(Object.keys(body.projects[0]).sort(), ['baseBranch', 'id', 'name', 'previewUrl', 'publish', 'runningRunId', 'sandbox'])
     assert.ok(!JSON.stringify(body).includes(t.root))
   } finally {
     await t.close()
@@ -216,6 +217,85 @@ test('stop, reject, validation errors and body limits are reported properly', as
     const rejected = await t.api(`/api/runs/${id}/reject`, { method: 'POST', body: {} })
     assert.deepEqual([rejected.status, rejected.body.decision], [200, 'rejected'])
     assert.equal((await t.api(`/api/runs/${id}/stop`, { method: 'POST', body: {} })).status, 409)
+  } finally {
+    await t.close()
+  }
+})
+
+/** A stand-in for the publication manager that records what the server asked of it. */
+function fakePublications() {
+  const calls: string[] = []
+  const status = { enabled: true, url: 'https://dashboard-live.example.nl', current: null, releases: [], baseCommit: 'a'.repeat(40), upToDate: null, job: null }
+  const manager = {
+    isEnabled: () => true,
+    status: async () => status,
+    publish: async (id: string) => { calls.push(`publish ${id}`); return { ...status, job: { kind: 'publish', state: 'running' } } },
+    rollback: async (id: string, releaseId?: string) => { calls.push(`rollback ${id} ${releaseId ?? ''}`); return status },
+    restart: async (id: string) => { calls.push(`restart ${id}`); return status },
+  } as unknown as PublicationManager
+  return { manager, calls }
+}
+
+test('publication: needs a session, a CSRF header and a known project; reports "disabled" when not configured', async () => {
+  const t = await start()
+  try {
+    assert.equal((await t.api('/api/projects/dashboard/publication')).status, 401)
+    await t.login()
+    const off = await t.api('/api/projects/dashboard/publication')
+    assert.equal(off.status, 200)
+    assert.equal(off.body.enabled, false)
+    assert.equal((await t.api('/api/projects/dashboard/publication/publish', { method: 'POST', body: {} })).status, 409)
+    assert.equal((await t.api('/api/projects/nope/publication')).status, 404)
+    assert.equal((await t.api('/api/projects/nope/publication/publish', { method: 'POST', body: {} })).status, 404)
+  } finally {
+    await t.close()
+  }
+})
+
+test('publication: publish, rollback and restart are passed on, with the release id checked', async () => {
+  const fake = fakePublications()
+  const t = await start(fakeExecute(), { publications: () => fake.manager })
+  try {
+    await t.login()
+    const status = await t.api('/api/projects/dashboard/publication')
+    assert.equal(status.status, 200)
+    assert.equal(status.body.url, 'https://dashboard-live.example.nl')
+
+    const noHeader = await t.api('/api/projects/dashboard/publication/publish', { method: 'POST', body: {}, headers: { 'x-dig-builder': '' } })
+    assert.equal(noHeader.status, 403)
+    const crossSite = await t.api('/api/projects/dashboard/publication/publish', { method: 'POST', body: {}, headers: { origin: 'https://evil.example' } })
+    assert.equal(crossSite.status, 403)
+    assert.deepEqual(fake.calls, [])
+
+    const published = await t.api('/api/projects/dashboard/publication/publish', { method: 'POST', body: {} })
+    assert.equal(published.status, 202)
+    assert.equal(published.body.job.state, 'running')
+    assert.equal((await t.api('/api/projects/dashboard/publication/restart', { method: 'POST', body: {} })).status, 202)
+    assert.equal((await t.api('/api/projects/dashboard/publication/rollback', { method: 'POST', body: {} })).status, 202)
+    assert.equal((await t.api('/api/projects/dashboard/publication/rollback', { method: 'POST', body: { releaseId: 'abc123-0123abc' } })).status, 202)
+    for (const releaseId of ['../../x', 'ABC-0123abc', 5, 'abc123-0123abc; rm -rf /']) {
+      assert.equal((await t.api('/api/projects/dashboard/publication/rollback', { method: 'POST', body: { releaseId } })).status, 400, String(releaseId))
+    }
+    assert.equal((await t.api('/api/projects/dashboard/publication/explode', { method: 'POST', body: {} })).status, 404)
+    assert.deepEqual(fake.calls, ['publish dashboard', 'restart dashboard', 'rollback dashboard ', 'rollback dashboard abc123-0123abc'])
+  } finally {
+    await t.close()
+  }
+})
+
+test('the project list tells the screen where the live app is, without any token or path', async () => {
+  const fake = fakePublications()
+  const t = await start(fakeExecute(), { publications: () => fake.manager })
+  try {
+    t.projects[0].publish = {
+      config: { build: ['b'], start: ['s'], port: 3000, healthPath: '/', env: { DIG_GATEWAY_TOKEN: 'tok-secret' } },
+      url: 'https://dashboard-live.example.nl',
+    }
+    await t.login()
+    const list = await t.api('/api/projects')
+    assert.deepEqual(list.body.projects[0].publish, { url: 'https://dashboard-live.example.nl' })
+    const text = JSON.stringify(list.body)
+    assert.ok(!text.includes('tok-secret') && !text.includes(t.root))
   } finally {
     await t.close()
   }

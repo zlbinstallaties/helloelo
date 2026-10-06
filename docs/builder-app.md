@@ -36,6 +36,43 @@ samen in het lokale checkout op de server; naar GitHub of Odoo gaat niets.
 - De samenvatting van de agent is tekst die de agent zelf schrijft: lees de diff, vertrouw niet
   blind op "alle checks zijn groen".
 
+## Publiceren
+
+Voor projecten met een `publish`-blok in het projectenbestand verschijnt links een kaart
+**Gepubliceerde versie**:
+
+- Toont of er iets live staat, welke versie, en of er nieuwere wijzigingen in de hoofdbranch zijn
+  die nog niet live staan (bijvoorbeeld net goedgekeurd).
+- **Publiceer de nieuwste versie** bouwt de hoofdbranch in de sandbox en zet hem live. Dat duurt
+  ongeveer een halve minuut tot een paar minuten; de voortgang staat in de kaart. De versie die live
+  staat blijft werken tot de nieuwe klaar is en antwoordt.
+- Mislukt de build of start de nieuwe versie niet op (of antwoordt de gezondheidspagina met een
+  fout), dan blijft de oude versie live en toont de kaart de reden.
+- **Eerdere versies** (de laatste drie) hebben een knop **Terugdraaien**. **Opnieuw starten** start
+  de live versie weer op als de container is gestopt of verwijderd.
+- Eén publicatie tegelijk per project, en één tegelijk op de hele server (een build gebruikt tot
+  2 GB geheugen).
+
+Projectenbestand (alle velden van `publish` zijn optioneel):
+
+```json
+"publish": {
+  "build": ["bun", "run", "build"], "start": ["bun", "run", "start"],
+  "port": 3000, "healthPath": "/api/health",
+  "gatewayUrl": "http://odoo-gateway:8070", "gatewayTokenEnv": "DASHBOARD_LIVE_GATEWAY_TOKEN",
+  "url": "https://dashboard-live.apps.example.nl"
+}
+```
+
+- De app moet na `build` met `start` op `port` luisteren (`PORT` en `HOST=0.0.0.0` worden meegegeven).
+- `healthPath` moet antwoorden met een status onder 500 voordat de versie live gaat. Het dashboard
+  antwoordt op `/api/health` met 503 zolang de gateway niet is ingesteld; dat houdt een kapotte
+  configuratie dus tegen.
+- De gepubliceerde app krijgt een **eigen** gateway-token (`gatewayTokenEnv`), nooit dat van de agent,
+  zodat je het kunt beperken tot wat de live app nodig heeft.
+- De releasemap (`BUILDER_APP_RELEASES_DIR`) is dezelfde als `PREVIEW_RELEASES_DIR` van de
+  preview-proxy; die doet het inloggen en het doorsturen naar `https://<project>-live.<domein>`.
+
 ## Beveiliging
 
 - Wachtwoord wordt als scrypt-hash opgeslagen (`bun run preview:password`); sessiecookie is
@@ -65,7 +102,7 @@ geïnstalleerd en alleen de checks zonder afhankelijkheden uitgevoerd.
 `bun run test:builder-app` en `bun run typecheck:builder-app`. De tests starten echte
 git-repositories en de echte HTTP-server met een nep-agent. De interface is daarnaast met een
 echte browser doorlopen (inloggen, starten, live voortgang, goedkeuren, stoppen, afwijzen, mobiel)
-met een nagebootste Claude-API; dat is nog niet met een echte API-sleutel gebeurd.
+met een nagebootste Claude-API; dat is nog niet met een echte API-sleutel gebeurd. Publiceren is daarnaast met echt Docker doorlopen (zie `docs/dig-builder-sandbox.md`).
 
 ## API (voor wie hem wil aanroepen)
 
@@ -77,3 +114,6 @@ met een nagebootste Claude-API; dat is nog niet met een echte API-sleutel gebeur
 | `GET /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/diff` | overzicht, detail, diff |
 | `GET /api/runs/:id/events` | Server-Sent Events: eerdere gebeurtenissen, daarna live |
 | `POST /api/runs/:id/stop`, `/approve`, `/reject` | besluiten |
+| `GET /api/projects/:id/publication` | live versie, eerdere versies, lopende of laatste klus |
+| `POST /api/projects/:id/publication/publish`, `/restart` | publiceren (202, loopt op de achtergrond), herstarten |
+| `POST /api/projects/:id/publication/rollback` | `{releaseId?}` → terug naar een eerdere versie |

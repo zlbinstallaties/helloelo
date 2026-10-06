@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { availableActions, decisionInfo, eventLine, firstLine, formatCost, inlineTokens, parseDiff, parseMarkdown, relativeTime, statusInfo } from '../public/lib.js'
+import { availableActions, decisionInfo, eventLine, firstLine, formatCost, inlineTokens, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo } from '../public/lib.js'
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 111..222 100644
@@ -85,4 +85,47 @@ test('cost, time and titles are formatted for people', () => {
   assert.match(relativeTime('2026-10-03T12:00:00Z', now), /eergisteren|2 dagen geleden/)
   assert.equal(firstLine('Eerste regel\ntweede'), 'Eerste regel')
   assert.equal(firstLine('x'.repeat(200), 10), 'xxxxxxxxx…')
+})
+
+const release = (id: string, live = false) => ({ id, commit: id.padEnd(40, '0'), createdAt: '2026-10-06T08:00:00.000Z', live })
+const publication = (over: Record<string, unknown> = {}) => ({ enabled: true, url: null, current: null, releases: [], baseCommit: 'b'.repeat(40), upToDate: null, job: null, ...over })
+
+test('publicationInfo: hidden without publishing, "not yet" before the first publish, up to date, outdated', () => {
+  assert.deepEqual(publicationInfo(null), { kind: 'disabled' })
+  assert.deepEqual(publicationInfo({ enabled: false }), { kind: 'disabled' })
+
+  const first = publicationInfo(publication())
+  assert.equal(first.kind, 'idle')
+  assert.equal(first.headline?.label, 'Nog niet gepubliceerd')
+  assert.equal(first.canPublish, true)
+  assert.equal(first.canRestart, false)
+  assert.equal(first.canRollback, false)
+
+  const current = { releaseId: 'a1', commit: 'a'.repeat(40), publishedAt: '2026-10-06T08:00:00.000Z' }
+  const fresh = publicationInfo(publication({ current, upToDate: true, releases: [release('a1', true)] }))
+  assert.equal(fresh.headline?.tone, 'good')
+  assert.equal(fresh.canPublish, false, 'nothing newer to publish')
+  assert.equal(fresh.canRestart, true)
+  assert.equal(fresh.canRollback, false, 'only the live version exists')
+
+  const stale = publicationInfo(publication({ current, upToDate: false, releases: [release('a1', true), release('z9')] }))
+  assert.equal(stale.headline?.tone, 'warn')
+  assert.equal(stale.canPublish, true)
+  assert.deepEqual(stale.rollbackTargets.map((r: { id: string }) => r.id), ['z9'])
+  assert.equal(publicationInfo(publication({ baseCommit: null })).canPublish, false, 'no base branch, nothing to publish')
+})
+
+test('publicationInfo: while a job runs nothing can be started; a failed job shows its reason', () => {
+  const running = publicationInfo(publication({ job: { kind: 'publish', state: 'running', phase: 'build' } }))
+  assert.equal(running.kind, 'running')
+  assert.match(running.detail, /gebouwd/)
+  assert.deepEqual([running.canPublish, running.canRestart, running.canRollback], [false, false, false])
+  assert.match(publicationInfo(publication({ job: { kind: 'rollback', state: 'running', phase: null } })).detail, /Bezig/)
+
+  const failed = publicationInfo(publication({ job: { kind: 'publish', state: 'failed', error: 'De build mislukte.' } }))
+  assert.equal(failed.kind, 'idle')
+  assert.equal(failed.error, 'De build mislukte.')
+  assert.equal(failed.canPublish, true, 'the person can try again')
+  assert.equal(publicationInfo(publication({ job: { kind: 'publish', state: 'done' } })).error, null)
+  assert.equal(shortCommit('0123456789abcdef'), '0123456')
 })

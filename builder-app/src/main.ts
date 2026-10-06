@@ -3,7 +3,11 @@ import { mkdir } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { createSessions } from '../../sandbox/src/auth.ts'
+import { createDockerCli } from '../../sandbox/src/docker.ts'
+import { createPublisher } from '../../sandbox/src/release.ts'
+import { createSandbox } from '../../sandbox/src/sandbox.ts'
 import { parseProjects } from './config.ts'
+import { createPublicationManager } from './publish.ts'
 import { createRunManager } from './runs.ts'
 import { createBuilderServer } from './server.ts'
 import { createStore } from './store.ts'
@@ -20,6 +24,9 @@ import { createStore } from './store.ts'
  *   BUILDER_APP_SECURE_COOKIES  "false" only for local http testing
  *   BUILDER_APP_TRUST_PROXY     "true" behind a TLS proxy that sets X-Forwarded-For
  *   BUILDER_APP_MAX_RUNS        runs at the same time, default 2
+ *   BUILDER_APP_RELEASES_DIR    where published versions live; needed when a project has "publish".
+ *                               The preview proxy reads the same directory (PREVIEW_RELEASES_DIR).
+ *   BUILDER_APP_PREVIEW_NETWORK internal Docker network of the live containers, default dig-preview
  *   ANTHROPIC_API_KEY           for the agent (or another SDK credential source)
  *   DIG_SANDBOX_CA_BUNDLE       optional, for installs behind a TLS-intercepting proxy
  */
@@ -61,9 +68,33 @@ const runs = createRunManager({
 })
 await runs.recover()
 
+let publications: ReturnType<typeof createPublicationManager> | undefined
+if (projects.some((p) => p.publish)) {
+  const releasesDir = path.resolve(required('BUILDER_APP_RELEASES_DIR'))
+  for (const project of projects) {
+    if (releasesDir === project.workdir || releasesDir.startsWith(project.workdir + path.sep) || project.workdir.startsWith(releasesDir + path.sep)) {
+      console.error(`BUILDER_APP_RELEASES_DIR must be separate from the checkout of ${project.id}`)
+      process.exit(1)
+    }
+  }
+  await mkdir(releasesDir, { recursive: true })
+  const cli = createDockerCli()
+  publications = createPublicationManager({
+    projects,
+    publisher: createPublisher({
+      cli,
+      sandbox: createSandbox({ cli, caBundle: process.env.DIG_SANDBOX_CA_BUNDLE || undefined }),
+      releasesDir,
+      network: process.env.BUILDER_APP_PREVIEW_NETWORK || 'dig-preview',
+    }),
+    maxConcurrent: 1,
+  })
+}
+
 const handler = createBuilderServer({
   projects,
   runs,
+  publications,
   store,
   passwordHash: required('BUILDER_APP_PASSWORD_HASH'),
   sessions: createSessions({ secret: required('BUILDER_APP_SESSION_SECRET') }),

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createLoginLimiter, parseCookies, verifyPassword, type Sessions } from '../../sandbox/src/auth.ts'
 import { publicProject, type Project } from './config.ts'
+import type { PublicationManager } from './publish.ts'
 import { RunError, type RunManager } from './runs.ts'
 import { RUN_ID_PATTERN, type RunMeta, type Store } from './store.ts'
 
@@ -16,6 +17,8 @@ export const SESSION_COOKIE = 'dig_builder'
 export interface ServerOptions {
   projects: readonly Project[]
   runs: RunManager
+  /** Publishing is optional; without it every project reports publishing as disabled. */
+  publications?: PublicationManager
   store: Store
   passwordHash: string
   sessions: Sessions
@@ -28,6 +31,7 @@ export interface ServerOptions {
 }
 
 const MAX_BODY_BYTES = 16 * 1024
+const RELEASE_ID_PATTERN = /^[a-z0-9]{1,10}-[0-9a-f]{7}$/
 const HTML_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 function json(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}) {
@@ -179,6 +183,27 @@ export function createBuilderServer(options: ServerOptions) {
       const meta = await runs.start(parts[2], { task: body.task, effort: body.effort, maxCostUsd: body.maxCostUsd })
       log({ event: 'run_started', run: meta.id, project: meta.projectId })
       return json(res, 201, meta)
+    }
+    if (parts[1] === 'projects' && parts[3] === 'publication') {
+      const id = parts[2]
+      if (!projects.has(id)) throw new RunError(404, 'project_not_found')
+      const publications = options.publications
+      if (parts.length === 4 && method === 'GET') {
+        return json(res, 200, publications ? await publications.status(id) : { enabled: false, url: null, current: null, releases: [], baseCommit: null, upToDate: null, job: null })
+      }
+      if (parts.length === 5 && method === 'POST' && ['publish', 'rollback', 'restart'].includes(parts[4])) {
+        if (!publications) throw new RunError(409, 'publishing_disabled', 'Publiceren is niet ingesteld.')
+        const body = await readJson(req)
+        let status
+        if (parts[4] === 'publish') status = await publications.publish(id)
+        else if (parts[4] === 'restart') status = await publications.restart(id)
+        else {
+          if (body.releaseId !== undefined && (typeof body.releaseId !== 'string' || !RELEASE_ID_PATTERN.test(body.releaseId))) throw new RunError(400, 'invalid_release')
+          status = await publications.rollback(id, body.releaseId as string | undefined)
+        }
+        log({ event: `publication_${parts[4]}_requested`, project: id })
+        return json(res, 202, status)
+      }
     }
     if (parts[1] === 'runs' && parts.length === 2 && method === 'GET') {
       const projectId = url.searchParams.get('project')

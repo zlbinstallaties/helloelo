@@ -158,3 +158,52 @@ export function firstLine(text, max = 90) {
   const line = String(text ?? '').trim().split('\n')[0]
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
+
+export const PUBLISH_PHASES = {
+  export: 'De versie wordt klaargezet…',
+  install: 'Dependencies worden geïnstalleerd…',
+  build: 'De app wordt gebouwd…',
+  start: 'De nieuwe versie wordt gestart…',
+  check: 'Er wordt gecontroleerd of de nieuwe versie antwoordt…',
+  switch: 'Er wordt overgeschakeld naar de nieuwe versie…',
+}
+
+const JOB_TITLE = { publish: 'Publiceren', rollback: 'Terugdraaien', restart: 'Opnieuw starten' }
+
+export function shortCommit(commit) {
+  return String(commit ?? '').slice(0, 7)
+}
+
+/**
+ * What the publication card shows and allows. `kind` is "disabled" (hide the card), "running" or "idle".
+ * Publishing is offered only when the live version is not already the tip of the base branch.
+ */
+export function publicationInfo(status) {
+  if (!status || !status.enabled) return { kind: 'disabled' }
+  const job = status.job
+  if (job?.state === 'running') {
+    return {
+      kind: 'running',
+      title: JOB_TITLE[job.kind] ?? 'Bezig',
+      detail: PUBLISH_PHASES[job.phase] ?? 'Bezig…',
+      canPublish: false,
+      canRestart: false,
+      canRollback: false,
+      rollbackTargets: [],
+      error: null,
+    }
+  }
+  let headline
+  if (!status.current) headline = { label: 'Nog niet gepubliceerd', tone: 'warn' }
+  else if (status.upToDate) headline = { label: 'Live en bijgewerkt', tone: 'good' }
+  else headline = { label: 'Live, maar er zijn nieuwere wijzigingen', tone: 'warn' }
+  return {
+    kind: 'idle',
+    headline,
+    canPublish: status.upToDate !== true && Boolean(status.baseCommit),
+    canRestart: Boolean(status.current),
+    canRollback: status.releases.some((r) => !r.live),
+    rollbackTargets: status.releases.filter((r) => !r.live),
+    error: job?.state === 'failed' ? job.error : null,
+  }
+}
