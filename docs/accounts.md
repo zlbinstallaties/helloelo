@@ -5,9 +5,10 @@ eigen afspraken uit de Odoo-planning. De planner kan een monteur vanuit het dash
 aanmaken, zodat hij in Odoo Planning kan worden ingepland. De monteur krijgt **geen Odoo-account**: er wordt alleen
 een `hr.employee` aangemaakt, zonder `user_id`.
 
-> **Stand (2026-10-06):** gebouwd en getest met nagebootste Odoo, **nog niet tegen een echte Odoo geprobeerd** en
-> **nog niet geschikt voor een gepubliceerd dashboard** (zie "Wat nog moet"). Het aanmaken in Odoo staat standaard
-> **uit** en gaat pas aan als de beheerder in de gateway een verantwoordelijke instelt.
+> **Stand (2026-10-06):** gebouwd en getest met nagebootste Odoo, daarna **één keer geprobeerd op een lokale weggooi-Odoo 20
+> Enterprise** (zie `docs/verification.md`, "Eerste keer tegen een echte Odoo 20"). **Niet** geprobeerd op de testserver of
+> in productie, en **nog niet geschikt voor een gepubliceerd dashboard** (zie "Wat nog moet"). Het aanmaken in Odoo staat
+> standaard **uit** en gaat pas aan als de beheerder in de gateway een verantwoordelijke instelt.
 
 ## Rollen
 
@@ -141,18 +142,20 @@ bezoek zonder planning is alleen voor planners zichtbaar.
 
 ## Niet bewezen
 
-- **Niets is tegen een echte Odoo geprobeerd.** Hoe je dat lokaal doet staat in `docs/lokaal-testen.md`. De aanroepen en antwoorden zijn vergeleken met de Odoo 20.0-broncode
-  (zie "Wat Odoo 20 er zelf bij doet"): `POST /json/2/<model>/<methode>` met `vals_list` bij `create`, een lijst met
-  nummers als antwoord, `[id, naam]` voor een many2one en een lijst nummers voor een many2many (`company_ids`). Met
-  een draaiende Odoo is het niet gecontroleerd; de gateway leest daarom antwoorden streng (een onbekende vorm van
-  `user_id` geldt als "gekoppeld", een ontbrekende `share` als "niet intern").
+- **Alleen lokaal op één Odoo 20 Enterprise-build (`20.0+e.20261004`) geprobeerd**, met de gebruiker `admin` en een
+  weggooi-database. Daar nam Odoo de aanroep aan en kwam er een medewerker zonder Odoo-gebruiker uit (zie
+  `docs/verification.md`). Niet geprobeerd: de testserver, productie, een gebruiker met alleen Medewerkers: Officer, en
+  jullie eigen modules (`svs`).
 - Rechten en regels van **jullie** database (toegangsregels, eigen modules zoals `svs`, de sleutelgebruiker en zijn
-  groepen) staan niet in de broncode. Controleer op de testserver met `/v1/schema` (`fields_get`, let op `missing`).
+  groepen) zijn dus niet bekeken. Controleer op de testserver (de gateway meldt een model of veld dat er niet is).
 - Of de contextsleutels `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` alle volgers voorkomen, en of de
-  interne onboardingnotitie bij jullie is uitgezet of anders gaat.
-- Planning is in Odoo een Enterprise-module; de broncode ervan is niet gelezen. Dat `planning.slot.employee_ids` naar
-  `hr.employee` wijst, komt van de opdrachtgever.
-- Hoe de echte Odoo `employee_ids` en `user_ids` aanlevert (aangenomen: `[id, naam]`-paren).
+  interne onboardingnotitie bij jullie is uitgezet of anders gaat. Lokaal stond er een interne notitie met
+  "Employee created" en "Congratulations! May I recommend ... onboarding plan", beide door de aanroepende gebruiker.
+- Planning is een Enterprise-module; de broncode is hier niet gelezen. Lokaal werd de medewerker pas bij een dienst te
+  kiezen nadat de planningsrol aan hem gekoppeld was; een daarna via het dashboard aangemaakte tweede monteur zonder rol
+  kwam volgens de gebruiker ook in Planning. Of een rol vereist is, is niet eenduidig vastgesteld. De velden voor een rol
+  zijn `planning_role_ids` en `default_planning_role_id` (beide naar `planning.role`); het dashboard zet ze niet.
+- Hoe jullie Odoo `employee_ids` en `user_ids` van een dienst aanlevert (aangenomen: `[id, naam]`-paren).
 
 ## Wat nog moet: een gepubliceerd dashboard
 

@@ -80,9 +80,10 @@ De Odoo-gebruiker achter `ODOO_API_KEY` moet voor deze actie HR-medewerker zijn 
 daarom aan een eigen gateway met een eigen sleutel. Zie `docs/accounts.md`, "Wat Odoo 20 er zelf bij doet", voor wat Odoo
 bij het aanmaken zelf toevoegt (werkcontact, interne notitie, geen gebruiker).
 
-Wat niet is geprobeerd: een aanroep tegen een echte Odoo. De aanroep is vergeleken met de Odoo 20.0-broncode
-(`/json/2/hr.employee/create` met `vals_list`, `hr_responsible_id` en `date_version` in de waarden van de medewerker) en
-getest met nagebootste antwoorden. Het teruglezen is streng: alleen `user_id: false` telt als "geen Odoo-gebruiker".
+Geprobeerd op een lokale Odoo 20 Enterprise met `admin` (zie `docs/verification.md`, "Eerste keer tegen een echte Odoo 20"):
+Odoo nam de aanroep (`/json/2/hr.employee/create` met `vals_list`, `hr_responsible_id` en `date_version` in de waarden van de
+medewerker) aan. Niet geprobeerd: de testserver, productie en een gebruiker met alleen Medewerkers: Officer. Het teruglezen
+is streng: alleen `user_id: false` telt als "geen Odoo-gebruiker".
 
 ## Veiligheidsregels
 
@@ -131,7 +132,9 @@ In Compose heeft de gateway geen gepubliceerde host-poort; apps bereiken hem int
 - 50 gateway-tests en 23 clienttests geslaagd (2026-10-06), waaronder de actie; `tsc -p gateway` zonder fouten.
 - End-to-end rooktest van `main.ts` tegen een lokale nep-Odoo (JSON-2) geslaagd (eerdere sessie).
 - Niet uitgevoerd: Docker-image bouwen (geen Docker-daemon in de ontwikkelomgeving) en een
-  aanroep tegen de echte Odoo 20-testserver.
+  aanroep tegen de Odoo 20-testserver. Wel uitgevoerd: een lokale Odoo 20 Enterprise (zie hierboven).
+- `/v1/schema` meldt een model dat de database niet heeft (bijvoorbeeld `svs.tech.visit` zonder jullie module) met
+  `unknownModel: true` en laat de andere modellen gewoon zien.
 
 ## Gebruikt door
 

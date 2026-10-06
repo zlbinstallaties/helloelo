@@ -85,9 +85,32 @@ een medewerker in een ander bedrijf wordt als zodanig gemeld) en `company_ids` w
 (2 nieuwe en 2 aangepaste tests; 7 opzettelijke fouten, allemaal gevangen). Daarbij bleek dat Odoo zelf een werkcontact (`res.partner`, geen
 gebruiker) en een interne notitie aanmaakt, en dat de sleutelgebruiker HR-medewerker moet zijn (`docs/accounts.md`).
 
-**Niet bewezen:** (1) alles tegen een draaiende Odoo: rechten, toegangsregels en eigen modules van jullie database, en of de
-contextsleutels volgers en meldingen helemaal voorkomen; (2) de Enterprise-module Planning, waarvan de broncode niet is
-gelezen; (3) welke Odoo-gebruiker als verantwoordelijke moet gelden: die staat bewust nergens in de repository.
+**Niet bewezen:** (1) rechten, toegangsregels en eigen modules van jullie database, en of de contextsleutels volgers en
+meldingen helemaal voorkomen; (2) de werking met een gebruiker met alleen Medewerkers: Officer; (3) welke Odoo-gebruiker als
+verantwoordelijke moet gelden: die staat bewust nergens in de repository. Zie hieronder voor wat wel lokaal is gezien.
+
+## Eerste keer tegen een echte Odoo 20
+
+Lokaal op een weggooi-database (Odoo 20 Enterprise `20.0+e.20261004`, Python 3.12, PostgreSQL 17, modules `hr` en `planning`),
+met de gebruiker `admin` en een API-sleutel met bereik RPC. Gedaan door de gebruiker, op aanwijzing; daarbij is niets in
+de VPS, de testserver of productie gedaan.
+
+| Wat | Uitkomst |
+|---|---|
+| De gateway bereikt Odoo met de sleutel | `planning.slot` `search_count` via de gateway gaf `{"count":0}`: sleutel, bereik RPC, database en bedrijfsfilter werken |
+| "Monteur toevoegen" in het dashboard | na het toevoegen stond er een `hr.employee` (nummer 1, de naam met kleine letters zoals ingetypt) in Odoo |
+| Geen Odoo-gebruiker | `search_read` gaf `"user_id": false`; op het formulier stond **Not Invited**. De knop *Invite* is niet gebruikt: die maakt wél een gebruiker. Niet nagekeken: de lijst met gebruikers |
+| Vormen van de antwoorden | `[1, "proef monteur"]` voor een many2one, `false` voor een leeg veld, `[1]` voor een many2many: zoals het teruglezen ze verwacht |
+| Wat Odoo zelf toevoegde | een resource (`resource_id`), een eerste versie met de datum van vandaag (6 okt.), werkrooster 40 uur per week, contract "Niet in dienst", en twee interne notities ("Employee created" en de onboardingnotitie). Het werkcontact is niet bekeken |
+| Planning | zie `docs/accounts.md`: de medewerker was te kiezen bij een dienst nadat de planningsrol aan hem gekoppeld was; een via het dashboard aangemaakte tweede monteur zonder rol kwam volgens de gebruiker ook in Planning |
+
+Niet gezien: het bedrijf van de medewerker, de logregel van de gateway voor het aanmaken en of het antwoord `verified: true` gaf, wie als verantwoordelijke
+op het formulier stond (het scherm daarvan is niet bekeken), de herhaling met dezelfde aanvraag tegen deze Odoo, en het
+dashboard-overzicht (zonder jullie module `svs` kan het de bezoeken niet lezen).
+
+Wat het opleverde voor de code: `/v1/schema` meldt nu een model dat de database niet heeft in plaats van helemaal te
+falen (`unknownModel`); en voor de handleiding: Odoo 20 vraagt Python 3.12 en PostgreSQL 16 of hoger, en de Enterprise-download
+is een Python-pakket zonder `odoo-bin` (`docs/lokaal-testen.md`).
 
 ## Lokaal testpakket
 

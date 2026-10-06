@@ -3,9 +3,10 @@
 Zo draai je het dashboard, de gateway en een Odoo 20 op je eigen computer, en voeg je een proefmonteur toe. Er komt
 niets op de VPS en niets in productie.
 
-> **Stand (2026-10-06):** het pakket (setup, demo-Odoo, stappen 0 en 3 tot 5) is met echte processen geprobeerd tegen
-> de demo-Odoo van `scripts/demo-odoo.mjs`, **niet** tegen een echte Odoo. De stappen met Odoo 20 (1, 2 en 6) zijn
-> hier niet uitgevoerd: de Odoo 20-code en Enterprise staan op jouw computer.
+> **Stand (2026-10-06):** doorlopen op een lokale Odoo 20 Enterprise (build `20.0+e.20261004`, Python 3.12,
+> PostgreSQL 17), met de proefmonteur die het dashboard aanmaakte. Wat daarbij is gezien staat in
+> `docs/verification.md`, "Eerste keer tegen een echte Odoo 20". Alleen een lokale weggooi-database is gebruikt; er is
+> niets op de VPS of in productie gedaan.
 
 Alle commando's draai je in de hoofdmap van deze repository, met Node 22 en Bun. De bestanden die het setup-script
 schrijft staan in `.local/` en komen niet in git.
@@ -34,19 +35,56 @@ Wat dit commando doet, als je het met de hand wilt: `bun run local:setup --odoo-
 
 ## 1. Odoo 20 lokaal starten
 
-Je hebt een lokale Postgres nodig. Daarna, in de map met de Odoo 20-broncode:
+Wat bij de eerste keer werkte, en waarom:
+
+- **De Enterprise-download is een `.tar` van een Python-pakket (sdist), geen map met `odoo-bin`.** Pak hem uit in een nieuwe,
+  lege map en start met `python -m odoo` vanuit de uitgepakte map. De Planning-module staat in `odoo/addons/planning`.
+- **Python 3.12 of hoger** (`MIN_PY_VERSION` in `odoo/release.py`). Maak een eigen omgeving (venv) en installeer
+  `requirements.txt`. Op een Mac: laat `python-ldap` weg (alleen voor LDAP-login, vraagt systeembibliotheken) en vervang
+  `psycopg2` door `psycopg2-binary` (kant-en-klaar, niets te compileren).
+- **PostgreSQL 16 of hoger** (`MIN_PG_VERSION`). Met een oudere server (bij ons 14) mislukt de installatie op
+  `function any_value(integer) does not exist`. Een bestaande oude server hoef je niet aan te raken: maak een tweede, losse
+  Postgres in een eigen map op een andere poort (`initdb` en `pg_ctl` van versie 17, poort 5433).
+- Een eigen instellingenbestand (`-c odoo.conf`), zodat een oud `~/.odoorc` er niet doorheen komt, met
+  `http_interface = 127.0.0.1` (alleen vanaf deze computer bereikbaar).
+- Een nieuwe database via de opdrachtregel krijgt de login `admin` met wachtwoord `admin` (staat in
+  `base/data/res_users_data.xml`). Dat is alleen veilig omdat deze Odoo alleen lokaal bereikbaar is.
 
 ```bash
-# nieuwe, lege database
-./odoo-bin -d dig-test --addons-path=addons,odoo/addons,<pad-naar-enterprise>,<pad-naar-jullie-modules> -i hr,planning
-
-# of een kopie van een back-up, geneutraliseerd (geen mail, geplande acties of betalingen)
-./odoo-bin db load --neutralize dig-test <back-up.zip>
-./odoo-bin -d dig-test --addons-path=addons,odoo/addons,<pad-naar-enterprise>,<pad-naar-jullie-modules>
+# eenmalig
+mkdir ~/Developer/odoo20-ee && tar -xf ~/Downloads/odoo-20.0+e.<datum>.tar -C ~/Developer/odoo20-ee
+python3.12 -m venv ~/Developer/odoo20-ee/venv && source ~/Developer/odoo20-ee/venv/bin/activate
+cd ~/Developer/odoo20-ee/odoo-20.0+e.<datum>
+sed -e '/python-ldap/d' -e 's/^psycopg2==/psycopg2-binary==/' requirements.txt > ../requirements-mac.txt
+pip install -r ../requirements-mac.txt
+initdb -D ~/Developer/odoo20-ee/pgdata -E UTF8 --locale=en_US.UTF-8     # met PostgreSQL 16+ in je PATH
+pg_ctl -D ~/Developer/odoo20-ee/pgdata -o "-p 5433" -l ~/Developer/odoo20-ee/pg.log start
+python -m odoo -d dig20-test -i hr,planning --without-demo=all --data-dir ~/Developer/odoo20-ee/data --db_port 5433 --stop-after-init
 ```
 
-Zet de map met jullie eigen modules (waar `svs` in zit) in het `--addons-path`, anders kan het dashboard de bezoeken
-niet lezen. Gebruik nooit de productiedatabase of productiegegevens. Open `http://localhost:8069`.
+Daarna een instellingenbestand `~/Developer/odoo20-ee/odoo.conf` met `db_port = 5433`, `http_interface = 127.0.0.1`,
+`http_port = 8071` en `data_dir = ...`, en een startscript (`start`, `stop`, `status`, `log`) dat Postgres en Odoo op de
+achtergrond start:
+
+```bash
+#!/bin/bash
+BASE="$HOME/Developer/odoo20-ee"; SRC="$BASE/odoo-20.0+e.<datum>"; PGDATA="$BASE/pgdata"; PGPORT=5433; PORT=8071; DB=dig20-test
+case "$1" in
+  start)
+    pg_isready -q -p $PGPORT || pg_ctl -D "$PGDATA" -o "-p $PGPORT" -l "$BASE/pg.log" start || exit 1
+    cd "$SRC" || exit 1
+    nohup "$BASE/venv/bin/python" -m odoo -c "$BASE/odoo.conf" -d $DB > "$BASE/odoo.log" 2>&1 &
+    echo $! > "$BASE/odoo.pid" ;;
+  stop)   kill "$(cat "$BASE/odoo.pid")"; rm -f "$BASE/odoo.pid"; sleep 2; pg_ctl -D "$PGDATA" stop -m fast ;;
+  status) pg_isready -p $PGPORT; lsof -nP -iTCP:$PORT -sTCP:LISTEN ;;
+  log)    tail -n 40 "$BASE/odoo.log" ;;
+esac
+```
+
+Een kopie van een back-up laad je geneutraliseerd (geen mail, geplande acties of betalingen) met
+`python -m odoo db load --neutralize dig20-test <back-up.zip>`. Zet de map met jullie eigen modules (waar `svs` in zit)
+in `--addons-path`, anders kan het dashboard de bezoeken niet lezen. Gebruik nooit de productiedatabase of
+productiegegevens. Na een herstart van de computer moet de losse Postgres opnieuw worden gestart (`start` doet dat).
 
 ## 2. In Odoo: de gebruiker en de API-sleutel voor de gateway
 
@@ -108,10 +146,11 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
    - **Gerelateerde gebruiker is leeg**, en onder Instellingen, Gebruikers is er geen nieuwe gebruiker bij gekomen;
    - Odoo heeft zelf een werkcontact en een interne notitie in de chatter gemaakt (verwacht, zie `docs/accounts.md`);
    - er is geen planning of dienst aangemaakt.
-3. **Planning:** komt de medewerker daar voor? Wat moet je instellen om hem beschikbaar te krijgen? Stuur me
-   (a) wat je instelde en (b) zo nodig de uitvoer van
-   `grep -rn "planning_role_ids\|default_planning_role_id" enterprise/planning/models/hr_employee.py`. Met die veldnamen
-   kan ik een vaste planningsrol in de gateway-config bouwen.
+3. **Planning:** maak een dienst en wijs de monteur eraan toe. Bij de eerste proef kon de medewerker in Planning niet worden
+   gekozen zolang hij geen planningsrol had; nadat de rol aan hem gekoppeld was kon dat wel. Een daarna via het
+   dashboard aangemaakte tweede monteur zonder rol kwam ook in Planning (waarneming van de gebruiker). Of een rol
+   daarvoor vereist is, is dus niet eenduidig vastgesteld: controleer het op de omgeving waar het echt moet werken.
+   De veldnamen voor een rol zijn `planning_role_ids` en `default_planning_role_id` (beide verwijzen naar `planning.role`).
 4. Klik in het scherm nog eens op toevoegen met dezelfde gegevens (herhaling): er mag geen tweede medewerker komen.
 5. Log in als de nieuwe monteur: hij ziet alleen zijn eigen afspraken en geen Beheer. Hij staat pas in de lijst van de
    planning zodra hij is ingepland.
