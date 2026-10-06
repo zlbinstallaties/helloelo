@@ -9,7 +9,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Onderdeel | Controle | Uitkomst |
 |---|---|---|
 | Dashboard | `bun run typecheck`, `bun run lint`, `bun run build` | geslaagd, geen meldingen |
-| Dashboard | `bun run test:app` | 24 van 24 geslaagd (`test/appointments.test.ts`, `test/ttl-cache.test.ts`) |
+| Dashboard | `bun run test:app` | 26 van 26 geslaagd (`test/appointments.test.ts`, `test/ttl-cache.test.ts`) |
 | Odoo-client | `bun run test:odoo` | 11 van 11 geslaagd |
 | Gateway | `bun run test:gateway`, `bun run typecheck:gateway` | 23 van 23 geslaagd, typecheck zonder fouten |
 | Sandbox | `bun run test:sandbox`, `bun run typecheck:sandbox` | 39 geslaagd, 3 overgeslagen: de Docker-integratietests slaan zichzelf over zonder daemon |
@@ -45,7 +45,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Meerdere bezoeken per afspraak | Geslaagd | Opgelost via proefrun 1 en 2 (`docs/proefrun-resultaten.md`). Een afspraak toont alle bezoeken; de status is die van het eerste bezoek dat nog niet is afgerond. Een test op 3000 willekeurige datasets bewaakt dat elk bezoek precies één keer op het scherm staat. |
 | Bezoek met niet-geladen planning | Geslaagd | Zo'n bezoek valt terug op een geladen planning die het bezoek opsomt, en blijft anders als "Niet gepland" zichtbaar. |
 | Monteursfilter | Gedeeltelijk | De filter werkt op naam (`people`), niet op een stabiel id. Twee monteurs met dezelfde naam lopen door elkaar. `employee_ids` en `user_ids` worden samengevoegd tot unieke namen; dat is in een unit-test gedekt, niet met echte toegewezen many2many-data. |
-| Tijdzone en periodefilter | **Fout gevonden** | Weergave en filter `day` gebruiken de Amsterdamse datum (`amsterdamDate`) en zijn getest rond de overgang naar wintertijd. Het filter `upcoming` vergelijkt in `inScope` (`src/lib/appointments.ts`) de ruwe UTC-starttijd met de Amsterdamse datum. Een afspraak van 2026-10-05 23:00 UTC (= 6 oktober 01:00) valt daardoor op 6 oktober wel onder "Vandaag" maar niet onder "Komend". Alleen afspraken tussen 00:00 en de UTC-offset (1 of 2 uur) Amsterdamse tijd zijn getroffen. Nog niet opgelost en nog zonder test. |
+| Tijdzone en periodefilter | Geslaagd | Weergave en alle drie de periodefilters gebruiken de Amsterdamse datum (`visitDate`, via `amsterdamDate`). Een eerdere fout in `upcoming` (UTC-starttijd vergeleken met een Amsterdamse datum, waardoor een afspraak van 6 oktober 01:00 wel onder "Vandaag" maar niet onder "Komend" viel) is op 2026-10-06 opgelost. Twee tests bewaken dit: het geval net na middernacht in zomer- en wintertijd, en een controle over een halfuursraster rond beide klokwisselingen dat alles onder "Vandaag" ook onder "Komend" staat. Beide tests faalden op de oude code. |
 | Odoo-limiet 500 | Bekende beperking | Beide reads gebruiken `limit: 500` zonder paginering. De gateway begrenst met `maxLimit` van het project (hard maximum 1000). Onvoldoende voor grotere omgevingen. |
 | Odoo-foutafhandeling | Gedeeltelijk | Een `GatewayError` wordt 503 (gateway niet ingesteld) of 502; de pagina toont een foutstaat. De vernieuwknop (`refresh` in `src/routes/index.tsx`) controleert de status van haar eigen `POST` niet; een mislukte vernieuwing wordt pas zichtbaar via de `GET` die daarna volgt. Omdat `refresh()` de oude cache weggooit, toont het dashboard bij een storing in Odoo geen verouderde data meer (zo bedoeld, getest in `test/ttl-cache.test.ts`). |
 | Lege toestand | Geslaagd | Een selectie zonder resultaat toont een lege toestand met knoppen voor "komend" en "alle". |
@@ -81,15 +81,14 @@ zijn hier bewaard als achtergrond, niet als bewijs voor de huidige code.
 ## Aanbevolen vervolgreparaties
 
 Opgelost sinds de vorige versie van dit document: meerdere bezoeken per afspraak, unit tests voor
-mapping en multi-visit, en een expliciete tijdzone-helper met een test rond de overgang naar wintertijd.
+mapping en multi-visit, een expliciete tijdzone-helper met tests rond de klokwisselingen, en het filter
+`upcoming` rond middernacht Amsterdamse tijd.
 
-1. Maak `inScope` voor `upcoming` consistent met `day` door op de Amsterdamse datum (`visitDate`) te
-   vergelijken, en voeg een test toe voor een afspraak vlak na middernacht Amsterdamse tijd.
-2. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de
+1. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de
    DIG Builder-preview wordt gebruikt.
-3. Laat de monteursfilter op een stabiel Odoo-id werken, met een gecontroleerde employee/user-relatie.
-4. Voeg server-side paginering of een datumgebonden Odoo-domain toe vóór datasets boven 500 records.
-5. Laat de vernieuwknop de status van haar `POST` controleren en een traceerbare, secretvrije
+2. Laat de monteursfilter op een stabiel Odoo-id werken, met een gecontroleerde employee/user-relatie.
+3. Voeg server-side paginering of een datumgebonden Odoo-domain toe vóór datasets boven 500 records.
+4. Laat de vernieuwknop de status van haar `POST` controleren en een traceerbare, secretvrije
    foutmelding tonen.
-6. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
+5. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
    Docker en Odoo 20, en een run met de echte Odoo 20-testserver achter de gateway.

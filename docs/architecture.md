@@ -50,9 +50,8 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 - Dashboardfilters (datum, periode, monteur) worden na de gecachte leesactie in de serverroute toegepast.
 - Periode: `day`, `upcoming` of `all`.
 - Tijden worden voor weergave naar `Europe/Amsterdam` geïnterpreteerd.
-- Bekend probleem: `upcoming` vergelijkt de UTC-starttijd met de Amsterdamse datum, waardoor een afspraak
-  vlak na middernacht Amsterdamse tijd op de dag zelf wel onder `day` valt maar niet onder `upcoming`
-  (`docs/verification.md`).
+- Alle drie de periodes vergelijken op de Amsterdamse datum van de afspraak (`visitDate`), nooit op de ruwe
+  UTC-starttijd uit Odoo; `upcoming` is dus altijd een superset van `day` voor dezelfde datum.
 
 ## Authenticatie, autorisatie en geheimen
 

@@ -200,6 +200,49 @@ test('period filters: day, upcoming and all', () => {
   assert.deepEqual(ids('all'), ['slot-1', 'slot-2', 'slot-3', 'visit-100'])
 })
 
+test('period filters use the Amsterdam date, also for appointments just after midnight', () => {
+  const list = buildAppointments(
+    data(
+      [
+        // 2026-10-05 22:30 UTC = 6 October 00:30 in Amsterdam (summer time)
+        slot(1, { start_datetime: '2026-10-05 22:30:00' }),
+        // 2026-10-05 20:00 UTC = 5 October 22:00 in Amsterdam: still the day before
+        slot(2, { start_datetime: '2026-10-05 20:00:00' }),
+        // 2026-12-05 23:30 UTC = 6 December 00:30 in Amsterdam (winter time)
+        slot(3, { start_datetime: '2026-12-05 23:30:00' }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  const ids = (date: string, scope: 'day' | 'upcoming' | 'all') =>
+    list.filter((a) => inScope(a, date, scope)).map((a) => a.id)
+  assert.deepEqual(ids('2026-10-06', 'day'), ['slot-1'])
+  assert.deepEqual(ids('2026-10-06', 'upcoming'), ['slot-1', 'slot-3'])
+  assert.deepEqual(ids('2026-12-06', 'day'), ['slot-3'])
+  assert.deepEqual(ids('2026-12-06', 'upcoming'), ['slot-3'])
+})
+
+test('whatever appears under "day" also appears under "upcoming" for the same date', () => {
+  const slots: DashboardSlot[] = []
+  // Every half hour around two days in summer time and two in winter time (including the clock changes).
+  for (const day of ['2026-03-28', '2026-03-29', '2026-07-14', '2026-10-24', '2026-10-25', '2026-12-05']) {
+    for (let minutes = 0; minutes < 48 * 60; minutes += 30) {
+      const start = new Date(`${day}T00:00:00Z`).getTime() + minutes * 60_000
+      slots.push(slot(slots.length + 1, { start_datetime: new Date(start).toISOString().slice(0, 19).replace('T', ' ') }))
+    }
+  }
+  const list = buildAppointments(data(slots, []), BASE)
+  const dates = new Set(list.map((a) => a.visitDate))
+  for (const date of dates) {
+    const day = new Set(list.filter((a) => inScope(a, date, 'day')).map((a) => a.id))
+    const upcoming = new Set(list.filter((a) => inScope(a, date, 'upcoming')).map((a) => a.id))
+    assert.ok(day.size > 0)
+    for (const id of day) assert.ok(upcoming.has(id), `${id} is in "day" but not in "upcoming" for ${date}`)
+    for (const a of list) assert.equal(upcoming.has(a.id), a.visitDate >= date, `${a.id} on ${date}`)
+  }
+})
+
 test('the technician filter keeps appointments of that person only', () => {
   const list = buildAppointments(
     data([slot(1, { employee_ids: [[7, 'Jan']] }), slot(2, { employee_ids: [[8, 'Sanne']] })], []),

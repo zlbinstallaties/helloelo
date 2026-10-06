@@ -46,7 +46,9 @@ export function inScope(
   scope: DashboardResponse['scope'],
 ) {
   if (scope === 'all') return true
-  if (scope === 'upcoming') return appointment.start ? appointment.start >= date : appointment.visitDate >= date
+  // visitDate is the Amsterdam date (of the slot start, or of the visit when unscheduled). `start` is UTC,
+  // so comparing it with `date` would drop an appointment just after midnight Amsterdam time.
+  if (scope === 'upcoming') return appointment.visitDate >= date
   return appointment.visitDate === date
 }
 
