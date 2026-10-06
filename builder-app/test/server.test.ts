@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { createSessions, hashPassword } from '../../sandbox/src/auth.ts'
 import type { PublicationManager } from '../src/publish.ts'
 import { createBuilderServer } from '../src/server.ts'
-import { fakeExecute, setup, waitFor } from './helpers.ts'
+import { fakeExecute, fakeSequence, setup, waitFor } from './helpers.ts'
 
 const PASSWORD = 'bouw-wachtwoord-123'
 const ASSETS = {
@@ -296,6 +296,50 @@ test('the project list tells the screen where the live app is, without any token
     assert.deepEqual(list.body.projects[0].publish, { url: 'https://dashboard-live.example.nl' })
     const text = JSON.stringify(list.body)
     assert.ok(!text.includes('tok-secret') && !text.includes(t.root))
+  } finally {
+    await t.close()
+  }
+})
+
+test('follow-up over the API: parentRunId, the follow-up and earlier steps in the run detail, total diff, decisions', async () => {
+  const t = await start(fakeSequence([{ files: { 'src/app.ts': 'export const a = 2\n' } }, { files: { 'src/extra.ts': 'export const b = 3\n' } }]))
+  try {
+    await t.login()
+    const first = await t.api('/api/projects/dashboard/runs', { body: { task: 'Zet a op 2 in het dashboard' } })
+    assert.equal(first.status, 201)
+    assert.equal(first.body.parentRunId, null)
+    await waitFor(async () => (await t.api(`/api/runs/${first.body.id}`)).body.state === 'finished', 'first finished')
+
+    for (const parentRunId of ['../../x', 5, 'bestaat-niet-123']) {
+      const bad = await t.api('/api/projects/dashboard/runs', { body: { task: 'Vervolg met een rare verwijzing', parentRunId } })
+      assert.ok([400, 404].includes(bad.status), `${parentRunId}: ${bad.status}`)
+    }
+
+    const second = await t.api('/api/projects/dashboard/runs', { body: { task: 'Voeg ook b toe', parentRunId: first.body.id } })
+    assert.equal(second.status, 201)
+    assert.equal(second.body.parentRunId, first.body.id)
+    await waitFor(async () => (await t.api(`/api/runs/${second.body.id}`)).body.state === 'finished', 'second finished')
+
+    const parentView = (await t.api(`/api/runs/${first.body.id}`)).body
+    assert.deepEqual(parentView.followUp, { id: second.body.id, task: 'Voeg ook b toe', state: 'finished' })
+    assert.deepEqual(parentView.ancestors, [])
+    const childView = (await t.api(`/api/runs/${second.body.id}`)).body
+    assert.equal(childView.followUp, null)
+    assert.deepEqual(childView.ancestors.map((a: { id: string }) => a.id), [first.body.id])
+
+    const own = await t.api(`/api/runs/${second.body.id}/diff`)
+    assert.ok(own.body.includes('src/extra.ts') && !own.body.includes('src/app.ts'))
+    const total = await t.api(`/api/runs/${second.body.id}/diff?scope=total`)
+    assert.ok(total.body.includes('src/extra.ts') && total.body.includes('src/app.ts'))
+
+    const blocked = await t.api(`/api/runs/${first.body.id}/approve`, { method: 'POST', body: {} })
+    assert.equal(blocked.status, 409)
+    assert.equal(blocked.body.error, 'has_followup')
+    const approved = await t.api(`/api/runs/${second.body.id}/approve`, { method: 'POST', body: {} })
+    assert.equal(approved.status, 200)
+    assert.equal((await t.api(`/api/runs/${first.body.id}`)).body.decision, 'superseded')
+    assert.equal((await t.api(`/api/runs/${second.body.id}/diff?scope=total`)).status, 409, 'the branch is gone after the decision')
+    assert.equal((await t.api('/api/runs')).body.runs.find((r: { id: string }) => r.id === second.body.id).parentRunId, first.body.id)
   } finally {
     await t.close()
   }

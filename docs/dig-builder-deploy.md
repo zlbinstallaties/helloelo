@@ -141,5 +141,5 @@ beoordeelt de diff en merget zelf.
 ## Wat nog niet is gebouwd
 
 - Login via Odoo-gebruikers in plaats van één gedeeld wachtwoord.
-- De builder-app is een eerste versie (opdracht geven, voortgang, diff, goedkeuren/afwijzen). Een
-  echt gesprek met de agent (vervolgvragen op een run) volgt later.
+- De builder-app kent opdrachten, vervolgopdrachten, voortgang, diff, goedkeuren/afwijzen en publiceren.
+  Een vrij gesprek met de agent (vragen stellen over de code zonder iets te wijzigen) volgt later.

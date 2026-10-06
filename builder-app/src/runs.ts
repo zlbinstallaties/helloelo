@@ -2,7 +2,7 @@ import { finishBranch, git } from '../../agent/src/git.ts'
 import type { AgentEvent } from '../../agent/src/loop.ts'
 import { EFFORTS, executeRun, newRunId, type Effort } from '../../agent/src/run.ts'
 import type { Project } from './config.ts'
-import type { RunMeta, Store } from './store.ts'
+import { RUN_ID_PATTERN, type RunMeta, type Store } from './store.ts'
 
 /*
  * Starts, follows, stops and decides agent runs.
@@ -30,6 +30,8 @@ export interface StartInput {
   task: unknown
   effort?: unknown
   maxCostUsd?: unknown
+  /** Build on this run's (undecided) changes instead of on the base branch. */
+  parentRunId?: unknown
 }
 
 export interface RunManagerOptions {
@@ -43,6 +45,8 @@ export interface RunManagerOptions {
 }
 
 const MAX_TASK_CHARS = 4000
+const MAX_CHAIN = 25
+const MAX_CONTEXT_SUMMARY = 3000
 const MIN_TASK_CHARS = 5
 const MIN_COST = 0.1
 const MAX_COST = 50
@@ -60,6 +64,45 @@ interface Active {
 function cleanLine(text: string) {
   // Control characters (including newlines) must not end up in a commit message.
   return Array.from(text, (char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? ' ' : char)).join('').trim().slice(0, 100)
+}
+
+const STOPPED_EARLY: Record<string, string> = {
+  budget: 'de kostenlimiet was bereikt',
+  max_turns: 'het maximale aantal stappen was bereikt',
+  stopped: 'de run is gestopt voordat hij klaar was',
+  refusal: 'het model weigerde door te gaan',
+  max_tokens: 'het antwoord werd afgebroken',
+  no_tool_progress: 'de agent liep vast',
+}
+
+/**
+ * What the agent is told in a follow-up task. The previous summary is the agent's own account and can
+ * be too positive, so the agent is told to check it against the code.
+ */
+export function followUpTask(parent: RunMeta, text: string) {
+  const early = parent.status && STOPPED_EARLY[parent.status]
+  const summary = parent.summary.trim().slice(0, MAX_CONTEXT_SUMMARY)
+  return [
+    'Dit is een vervolgopdracht. De wijzigingen van de vorige opdracht staan al in de werkmap; bouw daarop voort en begin niet opnieuw.',
+    '',
+    'Vorige opdracht:',
+    parent.task,
+    ...(early ? ['', `Let op: de vorige run stopte voortijdig (${early}), dus het werk kan onaf zijn.`] : []),
+    ...(summary ? ['', 'Wat de vorige run over zijn eigen werk meldde (kan onvolledig of te positief zijn: controleer het in de code):', summary] : []),
+    '',
+    'Nieuwe opdracht:',
+    text,
+  ].join('\n')
+}
+
+function firstLine(text: string, max = 120) {
+  const line = text.trim().split('\n')[0]
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line
+}
+
+/** A follow-up that still needs a decision stops its parent from being decided. */
+function isBlocking(child: RunMeta) {
+  return child.decision === null && (child.state === 'running' || (child.state === 'finished' && Boolean(child.commit)))
 }
 
 export function createRunManager(options: RunManagerOptions) {
@@ -105,6 +148,32 @@ export function createRunManager(options: RunManagerOptions) {
       if ((await currentBranch(p)) !== p.baseBranch) await git(p.workdir, ['switch', '-q', p.baseBranch])
     } catch {
       // The checkout stays where it is; the next start reports it.
+    }
+  }
+
+  /** Undecided runs this one builds on, nearest first. */
+  async function ancestorsOf(meta: RunMeta): Promise<RunMeta[]> {
+    const chain: RunMeta[] = []
+    let next = meta.parentRunId
+    while (next && chain.length < MAX_CHAIN) {
+      const parent = await store.get(next)
+      if (!parent || parent.decision) break
+      chain.push(parent)
+      next = parent.parentRunId
+    }
+    return chain
+  }
+
+  async function blockingChildOf(id: string): Promise<RunMeta | null> {
+    return (await store.list()).find((m) => m.parentRunId === id && isBlocking(m)) ?? null
+  }
+
+  async function branchExists(p: Project, branch: string) {
+    try {
+      await git(p.workdir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -194,26 +263,65 @@ export function createRunManager(options: RunManagerOptions) {
       }
     },
 
+    /** What the screen needs next to a run: its undecided follow-up, and the earlier steps it contains. */
+    async describe(id: string) {
+      const meta = await store.get(id)
+      if (!meta) throw new RunError(404, 'run_not_found')
+      const child = await blockingChildOf(id)
+      return {
+        followUp: child ? { id: child.id, task: firstLine(child.task), state: child.state } : null,
+        ancestors: (await ancestorsOf(meta)).map((a) => ({ id: a.id, task: firstLine(a.task) })),
+      }
+    },
+
+    /** Everything this run's branch adds to the base branch, earlier follow-up steps included. */
+    async totalDiff(id: string): Promise<string> {
+      const meta = await store.get(id)
+      if (!meta) throw new RunError(404, 'run_not_found')
+      const p = project(meta.projectId)
+      if (!meta.branch || meta.decision || !(await branchExists(p, meta.branch))) {
+        throw new RunError(409, 'branch_gone', 'De branch van deze opdracht bestaat niet meer.')
+      }
+      return git(p.workdir, ['diff', '--no-color', '--no-ext-diff', `${p.baseBranch}...${meta.branch}`])
+    },
+
     async start(projectId: string, input: StartInput): Promise<RunMeta> {
       const p = project(projectId)
       const valid = validate(input)
+      let parent: RunMeta | null = null
+      if (input.parentRunId !== undefined && input.parentRunId !== null) {
+        if (typeof input.parentRunId !== 'string' || !RUN_ID_PATTERN.test(input.parentRunId)) throw new RunError(400, 'invalid_parent')
+        parent = await store.get(input.parentRunId)
+        if (!parent || parent.projectId !== p.id) throw new RunError(404, 'run_not_found')
+        if (parent.state !== 'finished' || !parent.commit || !parent.branch) {
+          throw new RunError(409, 'nothing_to_follow_up', 'Op deze opdracht kan geen vervolg worden gegeven: er zijn geen wijzigingen om op voort te bouwen.')
+        }
+        if (parent.decision) throw new RunError(409, 'already_decided', 'Hierover is al besloten.')
+        if (await blockingChildOf(parent.id)) throw new RunError(409, 'has_followup', 'Er is al een vervolgopdracht op deze opdracht. Beslis daar eerst over.')
+      }
       if (active.size >= maxConcurrent) throw new RunError(429, 'too_many_runs', 'Er lopen al te veel opdrachten tegelijk.')
       if (busy.has(p.id)) throw new RunError(409, 'project_busy', 'Er loopt al een opdracht voor dit project.')
       const id = newRunId()
       busy.set(p.id, id)
       try {
         await prepareRepo(p)
+        if (parent) {
+          if (!(await branchExists(p, parent.branch!))) throw new RunError(409, 'parent_branch_missing', 'De branch van de vorige opdracht bestaat niet meer.')
+          // The agent branches off whatever is checked out: the parent's branch, so its changes are in the work directory.
+          await git(p.workdir, ['switch', '-q', parent.branch!])
+        }
         const meta: RunMeta = {
           id, projectId: p.id, task: valid.task, effort: valid.effort, maxCostUsd: valid.maxCostUsd,
           state: 'running', status: null, createdAt: now().toISOString(), finishedAt: null,
           branch: null, commit: null, turns: 0, estimatedCostUsd: 0, changedFiles: [], stat: '', summary: '', error: null,
-          decision: null, decidedAt: null, mergeCommit: null,
+          decision: null, decidedAt: null, mergeCommit: null, parentRunId: parent?.id ?? null, supersededBy: null,
         }
         await store.create(meta)
         active.set(id, { controller: new AbortController(), events: [], listeners: new Set(), writes: Promise.resolve() })
-        void runInBackground(meta, p, valid)
+        void runInBackground(meta, p, parent ? { ...valid, task: followUpTask(parent, valid.task) } : valid)
         return { ...meta }
       } catch (error) {
+        await restoreBase(p)
         busy.delete(p.id)
         throw error
       }
@@ -241,9 +349,11 @@ export function createRunManager(options: RunManagerOptions) {
       const p = project(meta.projectId)
       if (meta.state !== 'finished' || !meta.commit || !meta.branch) throw new RunError(409, 'nothing_to_approve', 'Er zijn geen wijzigingen om goed te keuren.')
       if (meta.decision) throw new RunError(409, 'already_decided', 'Hierover is al besloten.')
+      if (await blockingChildOf(meta.id)) throw new RunError(409, 'has_followup', 'Er is een vervolgopdracht op deze opdracht. Beslis daar over.')
       if (busy.has(p.id)) throw new RunError(409, 'project_busy', 'Er loopt al een opdracht voor dit project.')
       busy.set(p.id, id)
       try {
+        const earlier = await ancestorsOf(meta)
         await prepareRepo(p)
         const message = `DIG Builder: ${cleanLine(meta.task.split('\n')[0])} (run ${meta.id})`
         try {
@@ -257,6 +367,14 @@ export function createRunManager(options: RunManagerOptions) {
         meta.decision = 'approved'
         meta.decidedAt = now().toISOString()
         store.save(meta)
+        // The earlier steps are part of what was just merged; their branches are no longer needed.
+        for (const step of earlier) {
+          if (step.branch) await git(p.workdir, ['branch', '-D', step.branch]).catch(() => {})
+          step.decision = 'superseded'
+          step.supersededBy = meta.id
+          step.decidedAt = meta.decidedAt
+          store.save(step)
+        }
         return meta
       } finally {
         busy.delete(p.id)
@@ -269,6 +387,7 @@ export function createRunManager(options: RunManagerOptions) {
       const p = project(meta.projectId)
       if (meta.state === 'running') throw new RunError(409, 'still_running', 'Stop de opdracht eerst.')
       if (meta.decision) throw new RunError(409, 'already_decided', 'Hierover is al besloten.')
+      if (await blockingChildOf(meta.id)) throw new RunError(409, 'has_followup', 'Er is een vervolgopdracht op deze opdracht. Beslis daar over.')
       if (busy.has(p.id)) throw new RunError(409, 'project_busy', 'Er loopt al een opdracht voor dit project.')
       busy.set(p.id, id)
       try {

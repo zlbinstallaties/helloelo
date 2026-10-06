@@ -36,6 +36,23 @@ samen in het lokale checkout op de server; naar GitHub of Odoo gaat niets.
 - De samenvatting van de agent is tekst die de agent zelf schrijft: lees de diff, vertrouw niet
   blind op "alle checks zijn groen".
 
+## Vervolgopdrachten
+
+Onder het resultaat staat **Nog iets aanpassen?** (of **Doorgaan waar de agent stopte** als de run
+voortijdig stopte, met "Ga verder" als voorstel). Wat je typt wordt een vervolgopdracht:
+
+- De agent begint op de branch van de vorige opdracht, dus de wijzigingen staan er al. Hij krijgt de
+  vorige opdracht, wat de vorige run over zichzelf meldde (met de waarschuwing dat dat te positief kan
+  zijn) en of die run voortijdig stopte.
+- Het scherm toont de diff van **alleen deze stap**, met een knop **Alles tot nu toe** voor het totaal.
+- Je kunt een vervolg op een vervolg geven. Goedkeuren neemt dan alle stappen mee in één samenvoeging
+  ("Goedkeuren (alle 3 stappen)"); de eerdere opdrachten krijgen het label **Opgenomen in vervolg** en
+  hun branches verdwijnen.
+- Zolang een vervolg op een besluit wacht (of loopt), kun je de opdracht eronder niet goedkeuren of
+  afwijzen: daar neem je het besluit. **Afwijzen** van het vervolg laat de vorige opdracht ongemoeid,
+  zodat je die alsnog kunt goedkeuren. Een vervolg dat niets wijzigde of mislukte blokkeert niets.
+- Per opdracht één vervolg tegelijk; een run kan maar één opdracht tegelijk per project, zoals altijd.
+
 ## Publiceren
 
 Voor projecten met een `publish`-blok in het projectenbestand verschijnt links een kaart
@@ -110,8 +127,8 @@ met een nagebootste Claude-API; dat is nog niet met een echte API-sleutel gebeur
 |---|---|
 | `GET /api/session`, `POST /api/login`, `POST /api/logout` | sessie |
 | `GET /api/projects` | projecten (zonder paden en tokens) |
-| `POST /api/projects/:id/runs` | `{task, effort?, maxCostUsd?}` → run starten (201) |
-| `GET /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/diff` | overzicht, detail, diff |
+| `POST /api/projects/:id/runs` | `{task, effort?, maxCostUsd?, parentRunId?}` → run starten (201); met `parentRunId` een vervolgopdracht |
+| `GET /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/diff` | overzicht, detail (met `followUp` en `ancestors`), diff (`?scope=total`: alle stappen tot nu toe) |
 | `GET /api/runs/:id/events` | Server-Sent Events: eerdere gebeurtenissen, daarna live |
 | `POST /api/runs/:id/stop`, `/approve`, `/reject` | besluiten |
 | `GET /api/projects/:id/publication` | live versie, eerdere versies, lopende of laatste klus |

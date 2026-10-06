@@ -11,7 +11,8 @@ import type { AgentEvent } from '../../agent/src/loop.ts'
 export const RUN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{5,40}$/
 
 export type RunState = 'running' | 'finished' | 'failed'
-export type Decision = 'approved' | 'rejected' | null
+// 'superseded': a follow-up run that includes this run's changes was approved instead.
+export type Decision = 'approved' | 'rejected' | 'superseded' | null
 
 export interface RunMeta {
   id: string
@@ -35,6 +36,14 @@ export interface RunMeta {
   decision: Decision
   decidedAt: string | null
   mergeCommit: string | null
+  /** The run this one builds on (a follow-up task); its branch starts from the parent's branch. */
+  parentRunId: string | null
+  supersededBy: string | null
+}
+
+/** Records written before follow-ups existed lack the new fields. */
+function normalize(meta: RunMeta): RunMeta {
+  return { ...meta, parentRunId: meta.parentRunId ?? null, supersededBy: meta.supersededBy ?? null }
 }
 
 export function createStore(dataDir: string) {
@@ -68,7 +77,7 @@ export function createStore(dataDir: string) {
 
     async get(id: string): Promise<RunMeta | null> {
       try {
-        return JSON.parse(await readFile(path.join(dir(id), 'meta.json'), 'utf8')) as RunMeta
+        return normalize(JSON.parse(await readFile(path.join(dir(id), 'meta.json'), 'utf8')) as RunMeta)
       } catch {
         return null
       }

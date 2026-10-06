@@ -20,14 +20,39 @@ export function statusInfo(run) {
 export function decisionInfo(run) {
   if (run.decision === 'approved') return { label: 'Goedgekeurd', tone: 'good' }
   if (run.decision === 'rejected') return { label: 'Afgewezen', tone: 'bad' }
+  if (run.decision === 'superseded') return { label: 'Opgenomen in vervolg', tone: '' }
   return null
 }
 
 /** What the person can do with a run right now. */
 export function availableActions(run) {
-  if (run.state === 'running') return { stop: true, approve: false, reject: false }
-  const undecided = !run.decision
-  return { stop: false, approve: undecided && run.state === 'finished' && Boolean(run.commit), reject: undecided }
+  if (run.state === 'running') return { stop: true, approve: false, reject: false, followUp: false }
+  // While a follow-up waits for a decision, the decision is made there: it contains these changes.
+  const open = !run.decision && !run.followUp
+  const changes = run.state === 'finished' && Boolean(run.commit)
+  return { stop: false, approve: open && changes, reject: open, followUp: open && changes }
+}
+
+const UNFINISHED = new Set(['budget', 'max_turns', 'stopped', 'refusal', 'max_tokens', 'no_tool_progress'])
+
+/** Wording of the follow-up form: continue what stopped early, or adjust a finished result. */
+export function followUpForm(run) {
+  if (UNFINISHED.has(run.status)) {
+    return {
+      title: 'Doorgaan waar de agent stopte',
+      hint: 'De agent bouwt voort op wat er nu staat.',
+      placeholder: 'Bijvoorbeeld: werk het af, of zeg wat er nog moet gebeuren.',
+      preset: 'Ga verder waar je gebleven was en maak de opdracht af.',
+      button: 'Ga verder',
+    }
+  }
+  return {
+    title: 'Nog iets aanpassen?',
+    hint: 'De agent bouwt voort op deze wijzigingen. Er verandert niets in de hoofdversie tot je goedkeurt.',
+    placeholder: 'Bijvoorbeeld: maak de knop groter en zet hem rechts.',
+    preset: '',
+    button: 'Pas aan',
+  }
 }
 
 const TOOL_TEXT = {

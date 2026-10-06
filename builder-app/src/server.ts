@@ -180,7 +180,7 @@ export function createBuilderServer(options: ServerOptions) {
     if (parts[1] === 'projects' && parts[3] === 'runs' && method === 'POST') {
       if (!projects.has(parts[2])) throw new RunError(404, 'project_not_found')
       const body = await readJson(req)
-      const meta = await runs.start(parts[2], { task: body.task, effort: body.effort, maxCostUsd: body.maxCostUsd })
+      const meta = await runs.start(parts[2], { task: body.task, effort: body.effort, maxCostUsd: body.maxCostUsd, parentRunId: body.parentRunId })
       log({ event: 'run_started', run: meta.id, project: meta.projectId })
       return json(res, 201, meta)
     }
@@ -213,11 +213,11 @@ export function createBuilderServer(options: ServerOptions) {
     }
     if (parts[1] === 'runs' && parts.length === 3 && method === 'GET') {
       const meta = await findRun(parts[2])
-      return json(res, 200, { ...meta, running: runs.isRunning(meta.id) })
+      return json(res, 200, { ...meta, running: runs.isRunning(meta.id), ...(await runs.describe(meta.id)) })
     }
     if (parts[1] === 'runs' && parts[3] === 'diff' && method === 'GET') {
       const meta = await findRun(parts[2])
-      const diff = await store.diff(meta.id)
+      const diff = url.searchParams.get('scope') === 'total' ? await runs.totalDiff(meta.id) : await store.diff(meta.id)
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
       return res.end(diff)
     }

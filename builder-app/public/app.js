@@ -1,5 +1,5 @@
 import {
-  availableActions, decisionInfo, eventLine, firstLine, formatCost, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo,
+  availableActions, decisionInfo, eventLine, firstLine, followUpForm, formatCost, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo,
 } from '/lib.js'
 
 const $ = (id) => document.getElementById(id)
@@ -12,6 +12,9 @@ const state = {
   run: null,
   events: [],
   diff: '',
+  diffScope: 'step',
+  totalDiff: '',
+  drafts: {},
   source: null,
   publication: null,
   publicationTimer: null,
@@ -70,6 +73,10 @@ const ERROR_TEXT = {
   unknown_release: 'Die versie is niet meer beschikbaar.',
   publishing_disabled: 'Dit project kan niet worden gepubliceerd.',
   invalid_release: 'Ongeldige versie.',
+  has_followup: 'Er is al een vervolgopdracht. Beslis daar eerst over.',
+  nothing_to_follow_up: 'Hier valt niets op voort te bouwen: er zijn geen wijzigingen.',
+  parent_branch_missing: 'De branch van de vorige opdracht bestaat niet meer.',
+  branch_gone: 'De branch van deze opdracht bestaat niet meer.',
 }
 
 async function api(path, { method = 'GET', body, text = false } = {}) {
@@ -178,7 +185,7 @@ function renderRunList() {
     ...state.runs.map((run) =>
       el('li', {},
         el('button', { class: 'run-item', type: 'button', 'aria-current': String(run.id === state.selectedId), onclick: () => selectRun(run.id) },
-          el('span', { class: 'title' }, firstLine(run.task)),
+          el('span', { class: 'title' }, run.parentRunId ? `↳ ${firstLine(run.task)}` : firstLine(run.task)),
           el('span', { class: 'meta' },
             chip(statusInfo(run)),
             decisionInfo(run) ? chip(decisionInfo(run)) : null,
@@ -223,6 +230,8 @@ async function selectRun(id) {
   state.selectedId = id
   state.events = []
   state.diff = ''
+  state.diffScope = 'step'
+  state.totalDiff = ''
   state.run = null
   // Clear at once: the previous run's buttons must not stay clickable while the new one loads.
   renderDetail()
@@ -287,6 +296,12 @@ function renderDetail() {
   } else if (run.state === 'finished' && run.status !== 'done') {
     banners.push(el('p', { class: 'banner warn' }, `De agent is gestopt voordat hij klaar was (${info.label.toLowerCase()}). Bekijk de wijzigingen goed voordat je goedkeurt.`))
   }
+  if (run.followUp) {
+    banners.push(el('p', { class: 'banner info' }, 'Er is een vervolgopdracht gemaakt: ', runLink(run.followUp.id, run.followUp.task), ' — die bevat deze wijzigingen, dus daar neem je het besluit.'))
+  }
+  if (run.decision === 'superseded') {
+    banners.push(el('p', { class: 'banner' }, 'Deze wijzigingen zijn goedgekeurd als onderdeel van een vervolgopdracht', run.supersededBy ? [' — ', runLink(run.supersededBy, 'bekijk die opdracht')] : '', '.'))
+  }
   if (run.decision === 'approved') {
     banners.push(el('p', { class: 'banner good' }, `Samengevoegd in ${base}${run.mergeCommit ? ` (commit ${run.mergeCommit.slice(0, 7)})` : ''}.`))
   } else if (run.decision === 'rejected') {
@@ -295,7 +310,10 @@ function renderDetail() {
     banners.push(el('p', { class: 'banner' }, 'De agent heeft niets gewijzigd.'))
   }
 
+  const earlier = run.ancestors ?? []
+  const steps = earlier.length + 1
   const head = el('div', { class: 'card detail-head' },
+    earlier.length ? el('p', { class: 'muted chain' }, 'Vervolg op: ', runLink(earlier[0].id, earlier[0].task)) : null,
     el('div', { class: 'chips' },
       chip(info),
       decision ? chip(decision) : null,
@@ -304,15 +322,16 @@ function renderDetail() {
     el('p', { class: 'task' }, run.task),
     el('div', { class: 'actions' },
       actions.stop ? el('button', { type: 'button', class: 'inline', onclick: () => stopRun(run.id) }, 'Stoppen') : null,
-      actions.approve ? el('button', { type: 'button', class: 'primary inline', onclick: () => decide(run.id, 'approve', base) }, `Goedkeuren en samenvoegen in ${base}`) : null,
-      actions.reject ? el('button', { type: 'button', class: 'danger', onclick: () => decide(run.id, 'reject', base) }, run.commit ? 'Afwijzen' : 'Opruimen') : null,
+      actions.approve ? el('button', { type: 'button', class: 'primary inline', onclick: () => decide(run.id, 'approve', base, steps) }, steps > 1 ? `Goedkeuren (alle ${steps} stappen) en samenvoegen in ${base}` : `Goedkeuren en samenvoegen in ${base}`) : null,
+      actions.reject ? el('button', { type: 'button', class: 'danger', onclick: () => decide(run.id, 'reject', base, steps) }, run.commit ? 'Afwijzen' : 'Opruimen') : null,
     ),
   )
 
   const sections = [head, ...banners, el('div', { class: 'card', id: 'progress-card' })]
   if (run.state !== 'running' && run.summary) sections.push(resultCard(run))
-  const files = parseDiff(state.diff)
-  if (run.state !== 'running' && files.length) sections.push(diffCard(files))
+  if (actions.followUp) sections.push(followUpCard(run))
+  const files = parseDiff(state.diffScope === 'total' ? state.totalDiff : state.diff)
+  if (run.state !== 'running' && files.length) sections.push(diffCard(files, earlier.length > 0 && !run.decision))
   detail.replaceChildren(...sections)
   renderProgress()
 }
@@ -354,9 +373,61 @@ function resultCard(run) {
 
 const MAX_DIFF_LINES = 3000
 
-function diffCard(files) {
+function runLink(id, text) {
+  return el('button', { type: 'button', class: 'linklike', onclick: () => selectRun(id) }, text)
+}
+
+function followUpCard(run) {
+  const form = followUpForm(run)
+  const textarea = el('textarea', { id: 'followup-task', rows: '3', maxlength: '4000', required: true, placeholder: form.placeholder, 'aria-label': form.title })
+  textarea.value = state.drafts[run.id] ?? form.preset
+  textarea.addEventListener('input', () => { state.drafts[run.id] = textarea.value })
+  const button = el('button', { type: 'submit', class: 'primary inline' }, form.button)
+  const node = el('form', { class: 'card followup' }, el('h2', {}, form.title), el('p', { class: 'muted' }, form.hint), textarea, el('div', { class: 'actions' }, button))
+  node.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    button.disabled = true
+    try {
+      const next = await api(`/api/projects/${encodeURIComponent(run.projectId)}/runs`, {
+        method: 'POST',
+        body: { task: textarea.value, effort: $('effort').value, maxCostUsd: Number($('cost').value), parentRunId: run.id },
+      })
+      delete state.drafts[run.id]
+      await loadRuns()
+      await selectRun(next.id)
+    } catch (error) {
+      toast(error.message, true)
+      button.disabled = false
+    }
+  })
+  return node
+}
+
+async function showDiffScope(scope) {
+  const run = state.run
+  if (!run) return
+  if (scope === 'total' && !state.totalDiff) {
+    try {
+      state.totalDiff = await api(`/api/runs/${run.id}/diff?scope=total`, { text: true })
+    } catch (error) {
+      toast(error.message, true)
+      return
+    }
+  }
+  if (state.run?.id !== run.id) return
+  state.diffScope = scope
+  renderDetail()
+}
+
+function diffCard(files, scoped = false) {
   return el('div', { class: 'card' },
     el('h2', {}, `Wijzigingen (${files.length} ${files.length === 1 ? 'bestand' : 'bestanden'})`),
+    scoped
+      ? el('div', { class: 'scope', role: 'group', 'aria-label': 'Welke wijzigingen' },
+        el('button', { type: 'button', class: state.diffScope === 'step' ? 'ghost active' : 'ghost', 'aria-pressed': String(state.diffScope === 'step'), onclick: () => showDiffScope('step') }, 'Alleen deze stap'),
+        el('button', { type: 'button', class: state.diffScope === 'total' ? 'ghost active' : 'ghost', 'aria-pressed': String(state.diffScope === 'total'), onclick: () => showDiffScope('total') }, 'Alles tot nu toe'),
+      )
+      : null,
     files.map((file, index) => {
       const shown = file.lines.slice(0, MAX_DIFF_LINES)
       return el('details', { class: 'diff-file', open: files.length <= 3 || index === 0 },
@@ -380,9 +451,9 @@ async function stopRun(id) {
 }
 
 // The buttons carry the id of the run they were drawn for, never "whatever is selected now".
-async function decide(id, kind, base) {
+async function decide(id, kind, base, steps = 1) {
   const question = kind === 'approve'
-    ? `De wijzigingen worden samengevoegd in "${base}" van dit project. Doorgaan?`
+    ? `De wijzigingen${steps > 1 ? ` (inclusief de ${steps - 1} eerdere ${steps === 2 ? 'stap' : 'stappen'})` : ''} worden samengevoegd in "${base}" van dit project. Doorgaan?`
     : 'De branch met deze wijzigingen wordt verwijderd. Doorgaan?'
   if (!window.confirm(question)) return
   try {

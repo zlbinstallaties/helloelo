@@ -39,6 +39,16 @@ export interface FakeOptions {
   /** Wait for this promise before finishing. */
   gate?: Promise<void>
   status?: RunOutcome['status']
+  /** Called with the task text the agent would receive. */
+  onTask?: (task: string, workdirFiles: () => Promise<string[]>) => void
+  summary?: string
+}
+
+/** One FakeOptions per call, in order: the first run does one thing, its follow-up another. */
+export function fakeSequence(steps: FakeOptions[]): typeof executeRun {
+  const executes = steps.map((step) => fakeExecute(step))
+  let next = 0
+  return ((config) => executes[Math.min(next++, executes.length - 1)](config)) as typeof executeRun
 }
 
 /** A stand-in for executeRun that uses the real git helpers but no model. */
@@ -47,6 +57,7 @@ export function fakeExecute(options: FakeOptions = {}): typeof executeRun {
   return (async (config) => {
     const onEvent = config.onEvent ?? (() => {})
     const runId = config.runId!
+    options.onTask?.(config.task, async () => (await git(config.workdir, ['ls-files'])).split('\n').filter(Boolean))
     const started = await startBranch(config.workdir, branchName(runId))
     onEvent({ type: 'phase', turn: 0, detail: { phase: 'branch', branch: started.branch, base: started.base } })
     onEvent({ type: 'phase', turn: 0, detail: { phase: 'agent' } })
@@ -71,7 +82,7 @@ export function fakeExecute(options: FakeOptions = {}): typeof executeRun {
     await mkdir(runDir, { recursive: true })
     await writeFile(path.join(runDir, 'changes.diff'), finished.diff)
     const status = options.untilAborted ? 'stopped' : (options.status ?? 'done')
-    return { ...base, status, error: null, summary: 'Klaar: **a** is nu 2.', turns: 2, estimatedCostUsd: 0.1234, commit: finished.commit, stat: finished.stat } as RunOutcome
+    return { ...base, status, error: null, summary: options.summary ?? 'Klaar: **a** is nu 2.', turns: 2, estimatedCostUsd: 0.1234, commit: finished.commit, stat: finished.stat } as RunOutcome
   }) as typeof executeRun
 }
 

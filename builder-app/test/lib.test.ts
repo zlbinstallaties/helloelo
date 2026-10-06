@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { availableActions, decisionInfo, eventLine, firstLine, formatCost, inlineTokens, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo } from '../public/lib.js'
+import { availableActions, decisionInfo, eventLine, firstLine, followUpForm, formatCost, inlineTokens, parseDiff, parseMarkdown, publicationInfo, relativeTime, shortCommit, statusInfo } from '../public/lib.js'
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 111..222 100644
@@ -67,11 +67,29 @@ test('status and decision labels, and which buttons make sense', () => {
   assert.equal(decisionInfo({ decision: 'approved' })!.label, 'Goedgekeurd')
 
   const run = { state: 'finished', commit: 'abc', decision: null }
-  assert.deepEqual(availableActions({ state: 'running' } as any), { stop: true, approve: false, reject: false })
-  assert.deepEqual(availableActions(run as any), { stop: false, approve: true, reject: true })
-  assert.deepEqual(availableActions({ ...run, commit: null } as any), { stop: false, approve: false, reject: true })
-  assert.deepEqual(availableActions({ ...run, decision: 'approved' } as any), { stop: false, approve: false, reject: false })
-  assert.deepEqual(availableActions({ state: 'failed', commit: null, decision: null } as any), { stop: false, approve: false, reject: true })
+  assert.deepEqual(availableActions({ state: 'running' } as any), { stop: true, approve: false, reject: false, followUp: false })
+  assert.deepEqual(availableActions(run as any), { stop: false, approve: true, reject: true, followUp: true })
+  assert.deepEqual(availableActions({ ...run, commit: null } as any), { stop: false, approve: false, reject: true, followUp: false })
+  assert.deepEqual(availableActions({ ...run, decision: 'approved' } as any), { stop: false, approve: false, reject: false, followUp: false })
+  assert.deepEqual(availableActions({ state: 'failed', commit: null, decision: null } as any), { stop: false, approve: false, reject: true, followUp: false })
+})
+
+test('a run with a pending follow-up cannot be decided or followed up again; a superseded run is closed', () => {
+  const waiting = { state: 'finished', commit: 'abc', decision: null, followUp: { id: 'x', task: 'y', state: 'finished' } }
+  assert.deepEqual(availableActions(waiting as any), { stop: false, approve: false, reject: false, followUp: false })
+  assert.deepEqual(availableActions({ state: 'finished', commit: 'abc', decision: 'superseded' } as any), { stop: false, approve: false, reject: false, followUp: false })
+  assert.deepEqual(decisionInfo({ decision: 'superseded' } as any), { label: 'Opgenomen in vervolg', tone: '' })
+})
+
+test('the follow-up form continues unfinished work and adjusts finished work', () => {
+  const adjust = followUpForm({ status: 'done' } as any)
+  assert.equal(adjust.button, 'Pas aan')
+  assert.equal(adjust.preset, '', 'the person writes what to change')
+  for (const status of ['budget', 'max_turns', 'stopped']) {
+    const carryOn = followUpForm({ status } as any)
+    assert.equal(carryOn.button, 'Ga verder', status)
+    assert.match(carryOn.preset, /Ga verder/, 'a sensible default the person can send as it is')
+  }
 })
 
 test('cost, time and titles are formatted for people', () => {
