@@ -13,9 +13,10 @@ const at = (offset, time) => `${day(offset)} ${time}`
 
 const jan = [5, 'Jan de Vries']
 const sanne = [6, 'Sanne Bakker']
-const slot = (id, name, offset, from, to, partner, address, people, state, visits, travel) => ({
+// `users` are the res.users of the people; by default the same [id, name] pairs as the employees.
+const slot = (id, name, offset, from, to, partner, address, people, state, visits, travel, users = people) => ({
   id, name, start_datetime: at(offset, from), end_datetime: at(offset, to), allocated_hours: 3,
-  role_id: [1, 'Monteur'], user_ids: people, employee_ids: people,
+  role_id: [1, 'Monteur'], user_ids: users, employee_ids: people,
   partner_id: [100 + id, partner], partner_name: partner, partner_address: address,
   sale_order_id: false, sale_line_id: false, state, svs_tech_visit_ids: visits,
   travel_time_in: travel, travel_time_out: travel, travel_times_up_to_date: travel > 0,
@@ -29,6 +30,10 @@ const slots = [
   slot(5, 'Keuring gasinstallatie', 3, '08:00:00', '09:30:00', 'Kantoor Hoekstra', 'Stationsplein 1, Utrecht', [sanne], 'draft', [], 0),
   // The slot lists its visit, but the visit has no slot_id of its own.
   slot(6, 'Oplevering badkamer', 0, '16:00:00', '17:00:00', 'Familie Van den Berg', 'Molenweg 4, Houten', [jan], 'published', [105], 10),
+  // Two different people with the same name: other employee ids and other user ids. The technician filter must
+  // offer them as two separate choices and show only their own appointment for each.
+  slot(7, 'Reparatie radiator', 0, '08:00:00', '09:00:00', 'Familie De Wit', 'Beukenlaan 2, Bilthoven', [[7, 'Piet Smit']], 'published', [], 0, [[21, 'Piet Smit']]),
+  slot(8, 'Controle thermostaat', 0, '09:30:00', '10:30:00', 'Kantoor Mulder', 'Hoogstraat 9, De Bilt', [[9, 'Piet Smit']], 'published', [], 0, [[22, 'Piet Smit']]),
 ]
 const visit = (id, name, offset, state, slotId, slotName, partner, tech, missing, photos) => ({
   id, name, state, visit_date: day(offset), partner_id: [100 + (slotId || id), partner], technician_id: tech,

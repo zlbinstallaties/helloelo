@@ -9,7 +9,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Onderdeel | Controle | Uitkomst |
 |---|---|---|
 | Dashboard | `bun run typecheck`, `bun run lint`, `bun run build` | geslaagd, geen meldingen |
-| Dashboard | `bun run test:app` | 26 van 26 geslaagd (`test/appointments.test.ts`, `test/ttl-cache.test.ts`) |
+| Dashboard | `bun run test:app` | 31 van 31 geslaagd (`test/appointments.test.ts`, `test/ttl-cache.test.ts`) |
 | Odoo-client | `bun run test:odoo` | 11 van 11 geslaagd |
 | Gateway | `bun run test:gateway`, `bun run typecheck:gateway` | 23 van 23 geslaagd, typecheck zonder fouten |
 | Sandbox | `bun run test:sandbox`, `bun run typecheck:sandbox` | 39 geslaagd, 3 overgeslagen: de Docker-integratietests slaan zichzelf over zonder daemon |
@@ -44,7 +44,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Geheimen in browsercode | Geslaagd op code-inspectie | `DIG_GATEWAY_TOKEN` staat alleen in `src/lib/gateway.server.ts`, dat een server-only import heeft. Alleen `.env.example` staat in git; `.env` en `.env.*` zijn uitgesloten. |
 | Meerdere bezoeken per afspraak | Geslaagd | Opgelost via proefrun 1 en 2 (`docs/proefrun-resultaten.md`). Een afspraak toont alle bezoeken; de status is die van het eerste bezoek dat nog niet is afgerond. Een test op 3000 willekeurige datasets bewaakt dat elk bezoek precies één keer op het scherm staat. |
 | Bezoek met niet-geladen planning | Geslaagd | Zo'n bezoek valt terug op een geladen planning die het bezoek opsomt, en blijft anders als "Niet gepland" zichtbaar. |
-| Monteursfilter | Gedeeltelijk | De filter werkt op naam (`people`), niet op een stabiel id. Twee monteurs met dezelfde naam lopen door elkaar. `employee_ids` en `user_ids` worden samengevoegd tot unieke namen; dat is in een unit-test gedekt, niet met echte toegewezen many2many-data. |
+| Monteursfilter | Geslaagd in tests, niet met echte Odoo-data | De filter werkt op een stabiele sleutel per persoon: `employee:<id>`, `user:<id>` of, alleen als Odoo geen id meegeeft, `name:<naam>` (`DashboardPerson` in `src/lib/dashboard-types.ts`). Twee monteurs met dezelfde naam zijn twee keuzes in de lijst, met hun Odoo-id erachter (`Piet Smit (medewerker 7)`); alleen bij gelijke namen komt dat achtervoegsel erbij. Een gebruiker en een medewerker die in één afspraak onder dezelfde naam staan, gelden als één persoon (`userAliases` in `src/lib/appointments.ts`): er is geen andere koppeling, want het dashboard leest geen `hr.employee` of `res.users`. Is dat bewijs dubbelzinnig (meerdere mensen met die naam in de afspraak, of dezelfde gebruiker bij verschillende medewerkers), dan wordt er niet gekoppeld. Een persoon die alleen als gebruiker én alleen als medewerker voorkomt, zonder ooit samen in één afspraak te staan, verschijnt dus twee keer. Daarnaast aangenomen: `technician_id` is een `res.users`-record (zo staat het in `scripts/demo-data.mjs`). Niet bewezen is hoe Odoo de many2many-velden `employee_ids` en `user_ids` echt aanlevert (de demodata en de typen gaan uit van `[id, naam]`-paren, en een echte toegewezen many2many is nooit gezien); komen er alleen id's binnen, dan toont het dashboard `Medewerker 4` of `Gebruiker 4`. Gedekt door 7 tests; de logica is met vijf opzettelijke fouten gecontroleerd (filter op naam, geen koppeling gebruiker-medewerker, dubbelzinnigheid en conflict tussen afspraken negeren, achtervoegsel altijd) en alle vijf werden door een test gevonden. Ook bekeken met `scripts/probe.mjs` en in Chromium tegen de demodata (twee Piet Smits, elk met alleen de eigen afspraak). |
 | Tijdzone en periodefilter | Geslaagd | Weergave en alle drie de periodefilters gebruiken de Amsterdamse datum (`visitDate`, via `amsterdamDate`). Een eerdere fout in `upcoming` (UTC-starttijd vergeleken met een Amsterdamse datum, waardoor een afspraak van 6 oktober 01:00 wel onder "Vandaag" maar niet onder "Komend" viel) is op 2026-10-06 opgelost. Twee tests bewaken dit: het geval net na middernacht in zomer- en wintertijd, en een controle over een halfuursraster rond beide klokwisselingen dat alles onder "Vandaag" ook onder "Komend" staat. Beide tests faalden op de oude code. |
 | Odoo-limiet 500 | Bekende beperking | Beide reads gebruiken `limit: 500` zonder paginering. De gateway begrenst met `maxLimit` van het project (hard maximum 1000). Onvoldoende voor grotere omgevingen. |
 | Odoo-foutafhandeling | Gedeeltelijk | Een `GatewayError` wordt 503 (gateway niet ingesteld) of 502; de pagina toont een foutstaat. De vernieuwknop (`refresh` in `src/routes/index.tsx`) controleert de status van haar eigen `POST` niet; een mislukte vernieuwing wordt pas zichtbaar via de `GET` die daarna volgt. Omdat `refresh()` de oude cache weggooit, toont het dashboard bij een storing in Odoo geen verouderde data meer (zo bedoeld, getest in `test/ttl-cache.test.ts`). |
@@ -81,14 +81,15 @@ zijn hier bewaard als achtergrond, niet als bewijs voor de huidige code.
 ## Aanbevolen vervolgreparaties
 
 Opgelost sinds de vorige versie van dit document: meerdere bezoeken per afspraak, unit tests voor
-mapping en multi-visit, een expliciete tijdzone-helper met tests rond de klokwisselingen, en het filter
-`upcoming` rond middernacht Amsterdamse tijd.
+mapping en multi-visit, een expliciete tijdzone-helper met tests rond de klokwisselingen, het filter
+`upcoming` rond middernacht Amsterdamse tijd en de monteursfilter op een stabiel id.
 
 1. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de
    DIG Builder-preview wordt gebruikt.
-2. Laat de monteursfilter op een stabiel Odoo-id werken, met een gecontroleerde employee/user-relatie.
-3. Voeg server-side paginering of een datumgebonden Odoo-domain toe vóór datasets boven 500 records.
-4. Laat de vernieuwknop de status van haar `POST` controleren en een traceerbare, secretvrije
+2. Voeg server-side paginering of een datumgebonden Odoo-domain toe vóór datasets boven 500 records.
+3. Laat de vernieuwknop de status van haar `POST` controleren en een traceerbare, secretvrije
    foutmelding tonen.
-5. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
-   Docker en Odoo 20, en een run met de echte Odoo 20-testserver achter de gateway.
+4. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
+   Docker en Odoo 20, en een run met de echte Odoo 20-testserver achter de gateway. Controleer daarbij
+   ook hoe `employee_ids`, `user_ids` en `technician_id` er in het echte antwoord uitzien en of de
+   koppeling tussen gebruiker en medewerker op naam daar volstaat.

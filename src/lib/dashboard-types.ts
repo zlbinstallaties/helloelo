@@ -62,6 +62,15 @@ export type DashboardAppointmentVisit = {
   odooUrl: string
 }
 
+/**
+ * Someone assigned to an appointment. `id` is stable and unique: `employee:<hr.employee id>`,
+ * `user:<res.users id>` or, only when Odoo sent no id at all, `name:<name>`. `name` is for display.
+ */
+export type DashboardPerson = {
+  id: string
+  name: string
+}
+
 export type DashboardAppointment = {
   id: string
   slotId: number | null
@@ -77,7 +86,7 @@ export type DashboardAppointment = {
   customer: string
   address: string
   role: string
-  people: string[]
+  people: DashboardPerson[]
   state: string
   /** Totals over all visits of the appointment; null when it has no visits. */
   missingRequired: number | null

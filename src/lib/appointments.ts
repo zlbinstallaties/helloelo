@@ -2,6 +2,7 @@ import type {
   DashboardAppointment,
   DashboardAppointmentVisit,
   DashboardData,
+  DashboardPerson,
   DashboardResponse,
   DashboardVisit,
   OdooMany2One,
@@ -20,18 +21,95 @@ export function tupleId(value: OdooMany2One) {
   return value ? value[0] : null
 }
 
-export function relationNames(value: unknown) {
+type PersonKind = 'employee' | 'user'
+type RawPerson = { kind: PersonKind; id: number | null; name: string }
+
+/*
+ * The assignees in a many2many field. Odoo sends [id, name] pairs; plain ids, records and bare names are
+ * accepted too, so a different wire format still gives every person an id where Odoo sent one.
+ */
+function relationPeople(value: unknown, kind: PersonKind): RawPerson[] {
   if (!Array.isArray(value)) return []
-  return value
-    .map((item) => {
-      if (Array.isArray(item)) return item[1]
-      if (typeof item === 'object' && item !== null) {
-        if ('display_name' in item) return item.display_name
-        if ('name' in item) return item.name
-      }
-      return typeof item === 'string' ? item : ''
+  const people: RawPerson[] = []
+  for (const item of value) {
+    let id: number | null = null
+    let name = ''
+    if (typeof item === 'number') {
+      id = item
+    } else if (Array.isArray(item)) {
+      if (typeof item[0] === 'number') id = item[0]
+      if (typeof item[1] === 'string') name = item[1]
+    } else if (typeof item === 'object' && item !== null) {
+      if ('id' in item && typeof item.id === 'number') id = item.id
+      if ('display_name' in item && typeof item.display_name === 'string') name = item.display_name
+      else if ('name' in item && typeof item.name === 'string') name = item.name
+    } else if (typeof item === 'string') {
+      name = item
+    }
+    if (id !== null || name) people.push({ kind, id, name })
+  }
+  return people
+}
+
+/*
+ * A user and an employee are different Odoo records with different ids, and nothing we read links them.
+ * The only evidence is a slot that lists both under the same name, so that is taken as one person; the
+ * person then keeps the employee id everywhere the user appears (other slots, the technician of a visit).
+ * Not linked when the evidence is ambiguous: several people with that name in the slot, or the same user
+ * matching different employees in different slots.
+ */
+function userAliases(slots: DashboardData['slots']) {
+  const aliases = new Map<number, number | null>()
+  for (const slot of slots) {
+    const employees = relationPeople(slot.employee_ids, 'employee').filter((person) => person.id !== null && person.name)
+    const users = relationPeople(slot.user_ids, 'user').filter((person) => person.id !== null && person.name)
+    for (const user of users) {
+      const employeesWithName = employees.filter((person) => person.name === user.name)
+      const usersWithName = users.filter((person) => person.name === user.name)
+      if (employeesWithName.length !== 1 || usersWithName.length !== 1) continue
+      const employeeId = employeesWithName[0].id as number
+      const known = aliases.get(user.id as number)
+      if (known === undefined) aliases.set(user.id as number, employeeId)
+      else if (known !== employeeId) aliases.set(user.id as number, null)
+    }
+  }
+  return aliases
+}
+
+function resolvePeople(raw: RawPerson[], aliases: Map<number, number | null>): DashboardPerson[] {
+  const people = new Map<string, DashboardPerson>()
+  for (const person of raw) {
+    const employeeId = person.kind === 'user' && person.id !== null ? aliases.get(person.id) : undefined
+    const kind = typeof employeeId === 'number' ? 'employee' : person.kind
+    const id = typeof employeeId === 'number' ? employeeId : person.id
+    const key = id !== null ? `${kind}:${id}` : `name:${person.name}`
+    if (people.has(key)) continue
+    const fallback = kind === 'employee' ? `Medewerker ${id}` : `Gebruiker ${id}`
+    people.set(key, { id: key, name: person.name || fallback })
+  }
+  return [...people.values()]
+}
+
+const KIND_LABEL: Record<string, string> = { employee: 'medewerker', user: 'gebruiker' }
+
+/*
+ * The choices of the technician filter: one per person id, sorted by name. People who share a name get
+ * their Odoo id behind it, so every choice can be picked on its own.
+ */
+export function technicianOptions(appointments: DashboardAppointment[]) {
+  const nameById = new Map<string, string>()
+  for (const appointment of appointments) {
+    for (const person of appointment.people) if (!nameById.has(person.id)) nameById.set(person.id, person.name)
+  }
+  const nameCount = new Map<string, number>()
+  for (const name of nameById.values()) nameCount.set(name, (nameCount.get(name) ?? 0) + 1)
+  return [...nameById]
+    .map(([value, name]) => {
+      if ((nameCount.get(name) ?? 0) < 2) return { value, label: name }
+      const [kind, id] = value.split(':')
+      return { value, label: `${name} (${KIND_LABEL[kind] ? `${KIND_LABEL[kind]} ${id}` : 'zonder Odoo-id'})` }
     })
-    .filter((name): name is string => typeof name === 'string' && name.length > 0)
+    .sort((a, b) => a.label.localeCompare(b.label, 'nl') || a.value.localeCompare(b.value))
 }
 
 export function amsterdamDate(value: string) {
@@ -95,6 +173,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
   const makeOdooUrl = (model: string, id: number) => `${odooBaseUrl}/web#id=${id}&model=${model}&view_type=form`
 
   const visitsBySlot = groupVisitsBySlot(data)
+  const aliases = userAliases(data.slots)
   const toAppointmentVisit = (visit: DashboardVisit): DashboardAppointmentVisit => ({
     id: visit.id,
     // Odoo sends `false` for empty char/date fields.
@@ -116,7 +195,10 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
   const appointments: DashboardAppointment[] = data.slots.map((slot) => {
     const visits = (visitsBySlot.get(slot.id) ?? []).map(toAppointmentVisit)
     const visit = visits[0]
-    const peopleUnique = [...new Set([...relationNames(slot.employee_ids), ...relationNames(slot.user_ids)])]
+    const people = resolvePeople(
+      [...relationPeople(slot.employee_ids, 'employee'), ...relationPeople(slot.user_ids, 'user')],
+      aliases,
+    )
     return {
       id: `slot-${slot.id}`,
       slotId: slot.id,
@@ -130,7 +212,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
       customer: slot.partner_name || tupleName(slot.partner_id) || 'Onbekende klant',
       address: slot.partner_address || 'Adres ontbreekt',
       role: tupleName(slot.role_id) || 'Geen rol toegewezen',
-      people: peopleUnique,
+      people,
       state: appointmentState(visits) ?? slot.state,
       missingRequired: total(visits, (item) => item.missingRequired),
       missingInputs: total(visits, (item) => item.missingInputs),
@@ -138,7 +220,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
       travelTimeIn: slot.travel_time_in ?? null,
       travelTimeOut: slot.travel_time_out ?? null,
       travelTimesUpToDate: slot.travel_times_up_to_date,
-      assigned: peopleUnique.length > 0,
+      assigned: people.length > 0,
       scheduled: true,
       odooUrl: visit?.odooUrl ?? null,
     } satisfies DashboardAppointment
@@ -162,7 +244,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
       customer: tupleName(visit.partner_id) || 'Onbekende klant',
       address: 'Adres ontbreekt in het bezoekformulier',
       role: 'Niet gepland',
-      people: visit.technician_id ? [tupleName(visit.technician_id)] : [],
+      people: resolvePeople(relationPeople(visit.technician_id ? [visit.technician_id] : [], 'user'), aliases),
       state: visit.state,
       missingRequired: visit.missing_required_count,
       missingInputs: visit.missing_required_inputs_count,
@@ -179,7 +261,8 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
   return appointments.sort((a, b) => (a.start ?? `${a.visitDate}T00:00:00`).localeCompare(b.start ?? `${b.visitDate}T00:00:00`))
 }
 
+/** `technician` is a person id as in `technicianOptions` (e.g. `employee:7`); empty keeps everything. */
 export function filterByTechnician(appointments: DashboardAppointment[], technician: string) {
   if (!technician) return appointments
-  return appointments.filter((appointment) => appointment.people.includes(technician))
+  return appointments.filter((appointment) => appointment.people.some((person) => person.id === technician))
 }

@@ -17,7 +17,7 @@
 |---|---|---|
 | UI en browserfetch | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link |
 | HTTP API | `src/routes/api/dashboard.ts` | vaste route en queryparameters, foutvertaling (502/503), antwoord samenstellen |
-| Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur (puur, getest) |
+| Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur, personen en keuzelijst van de monteursfilter (puur, getest) |
 | Cache | `src/lib/ttl-cache.ts` | `withCache`: TTL, `refresh()`, gedeelde lopende lezing, mislukte lezing wordt niet bewaard |
 | Odoo-leeslaag | `src/lib/cache.ts` | vaste Odoo-modellen en veldenlijst, weergavenaam van het bedrijf, TTL van 300 s |
 | Gateway-client en serversecret | `src/lib/gateway.server.ts` | gateway-URL en projecttoken uitsluitend server-side |
@@ -48,6 +48,9 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 - Vast bedrijfsfilter: `company_id = 2`, afgedwongen door de gateway-projectconfig (de naam `De Installatiegroep B.V. [TEST]` staat alleen in de weergave).
 - Readlimiet: `500` per model (de gateway begrenst met `maxLimit`).
 - Dashboardfilters (datum, periode, monteur) worden na de gecachte leesactie in de serverroute toegepast.
+- Monteur: het filter (`?technician=`) en de keuzelijst gebruiken een persoon-id (`employee:7`, `user:5`), niet de naam;
+  de naam is alleen label. Een gebruiker en een medewerker met dezelfde naam in één afspraak gelden als één persoon.
+  `technicianOptions` zet bij gelijke namen het Odoo-id achter de naam. Zie `docs/verification.md`.
 - Periode: `day`, `upcoming` of `all`.
 - Tijden worden voor weergave naar `Europe/Amsterdam` geïnterpreteerd.
 - Alle drie de periodes vergelijken op de Amsterdamse datum van de afspraak (`visitDate`), nooit op de ruwe

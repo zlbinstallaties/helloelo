@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getDigDashboardData } from '#/lib/cache'
 import { GatewayError } from '#/lib/gateway.server'
-import { buildAppointments, filterByTechnician, inScope } from '#/lib/appointments'
+import { buildAppointments, filterByTechnician, inScope, technicianOptions } from '#/lib/appointments'
 import type { DashboardResponse } from '#/lib/dashboard-types'
 
 // Only used to build links to Odoo forms; no credentials involved.
@@ -16,14 +16,12 @@ async function responseFor(request: Request, refresh = false) {
   const scope: DashboardResponse['scope'] = requestedScope === 'upcoming' || requestedScope === 'all' ? requestedScope : 'day'
   const technician = url.searchParams.get('technician') ?? ''
   const data = refresh ? await getDigDashboardData.refresh() : await getDigDashboardData()
+  const all = buildAppointments(data, ODOO_BASE_URL)
   const appointments = filterByTechnician(
-    buildAppointments(data, ODOO_BASE_URL).filter((appointment) => inScope(appointment, date, scope)),
+    all.filter((appointment) => inScope(appointment, date, scope)),
     technician,
   )
-  const technicians = [...new Set(buildAppointments(data, ODOO_BASE_URL).flatMap((item) => item.people))]
-    .filter((label): label is string => typeof label === 'string' && label.length > 0)
-    .sort((a, b) => a.localeCompare(b, 'nl'))
-    .map((label) => ({ value: label, label }))
+  const technicians = technicianOptions(all)
 
   return Response.json({
     company: data.company,
