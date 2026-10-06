@@ -67,3 +67,14 @@ export async function docker(cli: DockerCli, args: string[], timeoutMs = 60_000)
   }
   return result.stdout.trim()
 }
+
+/** IP of a running container on one network, or null when it is not running (or not on that network). */
+export async function containerIp(cli: DockerCli, name: string, network: string): Promise<string | null> {
+  const result = await cli.run(
+    ['inspect', '-f', `{{with index .NetworkSettings.Networks "${network}"}}{{.IPAddress}}{{end}}|{{.State.Running}}`, name],
+    { timeoutMs: 30_000 },
+  )
+  if (result.code !== 0) return null
+  const [ip, running] = result.stdout.trim().split('|')
+  return running === 'true' && ip ? ip : null
+}

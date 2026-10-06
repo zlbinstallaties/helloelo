@@ -65,6 +65,31 @@ PREVIEW_PROJECTS_FILE=sandbox/previews.json bun run preview:start
   preview-host; dat blokkeert cross-site WebSocket-kaping met de cookie van de gebruiker.
   Geweigerde upgrades worden gelogd.
 
+## Gepubliceerde versies
+
+Een preview is de werkversie (`vite dev` op de werkmap). Een **gepubliceerde versie** is een
+vaste, gebouwde versie voor de mensen die de app gebruiken, op `https://x-live.preview.example.com`
+(één DNS-label, dus gedekt door hetzelfde wildcard-record; een project-id mag daarom niet op
+`-live` eindigen). Dezelfde login als de previews.
+
+Publiceren (`sandbox/src/release.ts`, aangestuurd door de builder-app, zie `docs/builder-app.md`):
+
+1. `git archive` van de commit van de hoofdbranch naar `<releases>/<project>/releases/<id>/app`
+   (alleen wat is vastgelegd, zonder `.git`).
+2. Dependencies installeren en bouwen in de sandbox (zelfde regels als hierboven: installatie met
+   `--ignore-scripts`, bouwen zonder netwerk).
+3. Een eigen container starten op het interne netwerk, zoals een preview maar blijvend: app-map
+   **alleen-lezen**, niet-root, alle capabilities weg, geen internet, `--restart unless-stopped`,
+   eigen gateway-token. Docker start hem opnieuw na een crash of reboot.
+4. Pas als de gezondheidspagina antwoordt (status onder 500) verschuift `current.json` naar de
+   nieuwe versie; daarna verdwijnt de oude container. Een versie die niet bouwt of niet opstart
+   komt dus nooit live, en de versie die al live stond blijft ongemoeid.
+5. De laatste 3 versies blijven op schijf. Terugdraaien is dezelfde omschakeling naar een oudere.
+
+De preview-proxy leest `current.json` (`PREVIEW_RELEASES_DIR`), zoekt het IP van de container en
+stuurt door; zonder gepubliceerde versie krijgt de bezoeker "Nog niet gepubliceerd". Er staat niets
+geheims in de releasemap: het gateway-token gaat alleen als omgevingsvariabele naar `docker run`.
+
 **Let op:** de preview-proxy zelf heeft toegang tot Docker nodig om containers te starten.
 Dat is gelijk aan root op de server. Draai hem daarom als aparte systeemdienst op de
 builder-server, niet in een container met de Docker-socket, en laat alleen de TLS-proxy
@@ -86,11 +111,23 @@ Uitgevoerd in de ontwikkelomgeving met een echte Docker-daemon:
   login, pagina en modules via de proxy, HMR-WebSocket `101 Switching Protocols`.
 - In Chromium (Playwright): inlogscherm, fout wachtwoord, startscherm, preview, en een
   wijziging in de broncode die zonder handmatig verversen in de browser verschijnt.
+- Publiceren (`test/release.test.ts`, 17 tests met een nagebootste Docker en een echte git-repo):
+  alleen vastgelegde inhoud, volgorde installeren-bouwen-starten-controleren-omschakelen,
+  mislukte build of gezondheidscheck laat de live versie ongemoeid en ruimt op, terugdraaien,
+  herstarten, opschonen van oude versies (ook als de klok achteruit springt), slot per project,
+  weigeren van rare ids/branches/pointerbestanden. De regels zijn met mutaties gecontroleerd: van de 11
+  veiligheidsregels die ik opzettelijk brak, werden er 9 meteen door een test gevonden; voor de
+  twee die ontsnapten (de live versie nooit opruimen, de benoemde branch en niet de uitgecheckte)
+  zijn tests toegevoegd.
+- Publiceren met echt Docker (dashboard als gewone gebruiker): installeren 7 s, bouwen 9 s, live in
+  17 s; container non-root, alleen-lezen, zonder internet; via de proxy alleen na login;
+  tweede versie, terugdraaien en een kapotte versie (build faalt) allemaal doorlopen.
 - Niet uitgevoerd: preview van het monteursdashboard zelf (dat leunt nog op HelloLeo en de
   Cloudflare-runtime), TLS-proxy ervoor, en een run tegen de echte Claude API.
 
 ## Nog niet
 
 - Eén gedeeld previewwachtwoord; geen gebruikers of rollen (fase 4: login via Odoo).
-- Geen chat-UI om runs te starten; runs gaan via de CLI.
+- Een gepubliceerde versie heeft dezelfde login als de previews; per-app toegang volgt met Odoo-login.
+- Geen automatisch herstel als een live container is verwijderd: de builder-app heeft daarvoor "Opnieuw starten".
 - Geen limiet op schijfgebruik per container (Docker-storage-quota hangt af van de host).

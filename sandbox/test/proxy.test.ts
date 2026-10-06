@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { createSessions, hashPassword } from '../src/auth.ts'
 import type { PreviewProject, PreviewState } from '../src/preview.ts'
 import { createPreviewProxy } from '../src/proxy.ts'
+import type { LiveResolver, LiveState } from '../src/release.ts'
 
 const PASSWORD = 'preview-wachtwoord-123'
 const HASH = hashPassword(PASSWORD)
@@ -39,7 +40,7 @@ async function upstream() {
   return { server, port, seen }
 }
 
-async function setup(state: () => PreviewState | Promise<PreviewState>) {
+async function setup(state: () => PreviewState | Promise<PreviewState>, live?: Pick<LiveResolver, 'exists' | 'resolve'>) {
   const up = await upstream()
   const ensured: string[] = []
   const projects = new Map<string, PreviewProject>([['dashboard', { id: 'dashboard', workdir: '/x' }]])
@@ -54,6 +55,7 @@ async function setup(state: () => PreviewState | Promise<PreviewState>) {
       },
     },
     projects,
+    live,
     secureCookies: true,
     log: () => {},
   })
@@ -245,6 +247,114 @@ test('certificate ask: only hostnames of configured projects are allowed, withou
     assert.equal((await ask('dashboard.preview.test.evil.com')).status, 404)
     assert.equal((await call(env.port, '/_dig/allowed')).status, 404)
     assert.deepEqual(env.ensured, [])
+  } finally {
+    await env.close()
+  }
+})
+
+function fakeLive(resolve: (id: string) => LiveState, existing: string[]) {
+  const resolved: string[] = []
+  return {
+    resolved,
+    exists: (id: string) => existing.includes(id),
+    async resolve(id: string) {
+      resolved.push(id)
+      return resolve(id)
+    },
+  }
+}
+
+test('published version: <id>-live needs the same login and is proxied without starting a preview', async () => {
+  let env!: Awaited<ReturnType<typeof setup>>
+  const live = fakeLive(() => ({ state: 'ready', target: env.target }), ['dashboard'])
+  env = await setup(() => ({ state: 'starting' }), live)
+  try {
+    const anonymous = await call(env.port, '/api/health', { host: 'dashboard-live.preview.test' })
+    assert.equal(anonymous.status, 302)
+    assert.deepEqual(live.resolved, [])
+    const cookie = await loginCookie(env.port)
+    const res = await call(env.port, '/api/health', { cookie, host: 'dashboard-live.preview.test' })
+    assert.equal(res.status, 200)
+    assert.equal(res.body, 'hello from /api/health')
+    assert.equal(res.headers['x-robots-tag'], 'noindex')
+    assert.deepEqual(live.resolved, ['dashboard'])
+    assert.deepEqual(env.ensured, [], 'the preview container is not started for the live hostname')
+    assert.equal(env.up.seen.at(-1)!.headers.cookie, undefined)
+  } finally {
+    await env.close()
+  }
+})
+
+test('published version: nothing published is 404, a stopped release is 503, other hosts stay unknown', async () => {
+  let state: LiveState = { state: 'none' }
+  const live = fakeLive(() => state, ['dashboard'])
+  const env = await setup(() => ({ state: 'starting' }), live)
+  try {
+    const cookie = await loginCookie(env.port)
+    const none = await call(env.port, '/', { cookie, host: 'dashboard-live.preview.test' })
+    assert.equal(none.status, 404)
+    assert.match(none.body, /Nog niet gepubliceerd/)
+    state = { state: 'down' }
+    const down = await call(env.port, '/', { cookie, host: 'dashboard-live.preview.test' })
+    assert.equal(down.status, 503)
+    assert.match(down.body, /http-equiv="refresh"/)
+    for (const host of ['-live.preview.test', 'a.b-live.preview.test', 'dashboard-live.preview.test.evil.com', '.-live.preview.test']) {
+      assert.equal((await call(env.port, '/', { cookie, host })).status, 404, host)
+    }
+  } finally {
+    await env.close()
+  }
+})
+
+test('without a releases directory the -live hostnames do not exist', async () => {
+  const env = await setup(() => ({ state: 'starting' }))
+  try {
+    const cookie = await loginCookie(env.port)
+    assert.equal((await call(env.port, '/', { cookie, host: 'dashboard-live.preview.test' })).status, 404)
+    const ask = await call(env.port, '/_dig/allowed?domain=dashboard-live.preview.test', { host: 'anything' })
+    assert.equal(ask.status, 404)
+  } finally {
+    await env.close()
+  }
+})
+
+test('certificate ask: a -live hostname only when something is published', async () => {
+  const live = fakeLive(() => ({ state: 'none' }), ['dashboard'])
+  const env = await setup(() => ({ state: 'starting' }), live)
+  try {
+    const ask = (domain: string) => call(env.port, `/_dig/allowed?domain=${encodeURIComponent(domain)}`, { host: 'anything' })
+    assert.equal((await ask('dashboard-live.preview.test')).status, 200)
+    assert.equal((await ask('other-live.preview.test')).status, 404)
+    assert.equal((await ask('dashboard-live.evil.com')).status, 404)
+    assert.equal((await ask('dashboard.preview.test')).status, 200)
+  } finally {
+    await env.close()
+  }
+})
+
+test('websocket upgrades work on the published hostname too, with the same checks', async () => {
+  let env!: Awaited<ReturnType<typeof setup>>
+  const live = fakeLive(() => ({ state: 'ready', target: env.target }), ['dashboard'])
+  env = await setup(() => ({ state: 'starting' }), live)
+  try {
+    const cookie = await loginCookie(env.port)
+    const liveUpgrade = (origin?: string) =>
+      new Promise<string>((resolve) => {
+        const socket = connect(env.port, '127.0.0.1', () => {
+          socket.write(`GET /ws HTTP/1.1\r\nHost: dashboard-live.preview.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nCookie: ${cookie}\r\n${origin ? `Origin: ${origin}\r\n` : ''}\r\n`)
+        })
+        let data = ''
+        socket.on('data', (d) => {
+          data += d
+          if (data.includes('101 Switching') || data.startsWith('HTTP/1.1 4')) {
+            socket.destroy()
+            resolve(data)
+          }
+        })
+        socket.on('close', () => resolve(data))
+      })
+    assert.match(await liveUpgrade('https://evil.example'), /^HTTP\/1.1 403/)
+    assert.match(await liveUpgrade('http://dashboard-live.preview.test'), /101 Switching Protocols/)
   } finally {
     await env.close()
   }

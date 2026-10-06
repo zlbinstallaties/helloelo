@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createSessions } from './auth.ts'
 import { createDockerCli } from './docker.ts'
+import { isProjectId } from './ids.ts'
 import { createPreviewManager, type PreviewProject } from './preview.ts'
 import { createPreviewProxy } from './proxy.ts'
+import { createLiveResolver } from './release.ts'
 
 /*
  * Preview proxy entry point.
@@ -13,6 +15,7 @@ import { createPreviewProxy } from './proxy.ts'
  *   PREVIEW_SESSION_SECRET  at least 32 random bytes
  *   PREVIEW_PROJECTS_FILE   JSON: {"projects": [{"id", "workdir", "command"?, "port"?, "env"?}]}
  *   PREVIEW_NETWORK         internal Docker network, default dig-preview
+ *   PREVIEW_RELEASES_DIR    where the builder app puts published versions; enables <id>-live hostnames
  *   PREVIEW_PORT            default 8090
  *   PREVIEW_HOST            address to listen on, default 0.0.0.0 (on a server: the docker
  *                           bridge address, so only the TLS proxy container can reach it)
@@ -32,11 +35,10 @@ function required(name: string) {
   return value
 }
 
-const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,40}$/
 const raw = JSON.parse(readFileSync(required('PREVIEW_PROJECTS_FILE'), 'utf8')) as { projects?: PreviewProject[] }
 const projects = new Map<string, PreviewProject>()
 for (const project of raw.projects ?? []) {
-  if (!PROJECT_ID.test(project.id) || typeof project.workdir !== 'string') {
+  if (!isProjectId(project.id) || typeof project.workdir !== 'string') {
     console.error(`invalid preview project: ${JSON.stringify(project.id)}`)
     process.exit(1)
   }
@@ -44,9 +46,12 @@ for (const project of raw.projects ?? []) {
 }
 
 const domain = required('PREVIEW_DOMAIN').toLowerCase()
+const cli = createDockerCli()
+const network = process.env.PREVIEW_NETWORK || 'dig-preview'
+const releasesDir = process.env.PREVIEW_RELEASES_DIR
 const previews = createPreviewManager({
-  cli: createDockerCli(),
-  network: process.env.PREVIEW_NETWORK || 'dig-preview',
+  cli,
+  network,
   idleMs: Number(process.env.PREVIEW_IDLE_MINUTES ?? 30) * 60_000,
 })
 const proxy = createPreviewProxy({
@@ -55,6 +60,7 @@ const proxy = createPreviewProxy({
   sessions: createSessions({ secret: required('PREVIEW_SESSION_SECRET') }),
   previews,
   projects,
+  live: releasesDir ? createLiveResolver({ cli, releasesDir, network }) : undefined,
   secureCookies: process.env.PREVIEW_SECURE_COOKIES !== 'false',
 })
 
