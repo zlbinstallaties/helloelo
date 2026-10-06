@@ -30,10 +30,24 @@ test('the request has the request id and the name, and nothing else: no company,
   assert.deepEqual(JSON.parse(calls[0].init.body as string), { requestId: REQUEST, name: 'Jan de Vries' })
 })
 
+test('Odoo confirmed: the number of planning roles is taken over only when it is a plausible count', async () => {
+  const roles = async (value: unknown) => (await run(() => answer(200, { id: 41, name: 'Jan', verified: true, planningRoles: value })).outcome) as { planningRoles: number }
+  assert.equal((await roles(2)).planningRoles, 2)
+  assert.equal((await roles(0)).planningRoles, 0)
+  for (const value of [-1, 1.5, '2', 100, null, undefined, [], {}]) assert.equal((await roles(value)).planningRoles, 0, JSON.stringify(value))
+})
+
+test('the gateway refuses because a planning role is gone: nothing was created, so trying again is safe', async () => {
+  const outcome = await run(() => answer(409, { error: 'planning_role_not_allowed', message: 'the configured planning role 4 does not exist or is archived' })).outcome
+  assert.equal(outcome.kind, 'rejected')
+  assert.match(outcome.message, /planningsrol/)
+  assert.match(outcome.message, /niets aangemaakt/)
+})
+
 test('Odoo confirmed: the id, whether it was verified, and whether this was a repeat', async () => {
-  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: true })).outcome, { kind: 'created', id: 41, verified: true, replayed: false })
-  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: false })).outcome, { kind: 'created', id: 41, verified: false, replayed: false })
-  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: true, replayed: true })).outcome, { kind: 'created', id: 41, verified: true, replayed: true })
+  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: true })).outcome, { kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false })
+  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: false })).outcome, { kind: 'created', id: 41, verified: false, planningRoles: 0, replayed: false })
+  assert.deepEqual(await run(() => answer(200, { id: 41, name: 'Jan', verified: true, replayed: true })).outcome, { kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: true })
 })
 
 test('a success that does not name an employee is not a success', async () => {

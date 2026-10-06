@@ -14,7 +14,7 @@
  */
 
 export type GatewayOutcome =
-  | { kind: 'created'; id: number; verified: boolean; replayed: boolean }
+  | { kind: 'created'; id: number; verified: boolean; /** How many of the configured planning roles Odoo confirmed on the employee. */ planningRoles: number; replayed: boolean }
   | { kind: 'rejected'; message: string }
   | { kind: 'not_enabled'; message: string }
   | { kind: 'unknown'; message: string }
@@ -35,12 +35,16 @@ function interpret(status: number, body: unknown): GatewayOutcome {
 
   if (status === 200) {
     if (!isId(data.id)) return { kind: 'unknown', message: UNKNOWN }
-    return { kind: 'created', id: data.id, verified: data.verified === true, replayed: data.replayed === true }
+    const roles = Number.isInteger(data.planningRoles) && (data.planningRoles as number) >= 0 && (data.planningRoles as number) <= 99 ? (data.planningRoles as number) : 0
+    return { kind: 'created', id: data.id, verified: data.verified === true, planningRoles: roles, replayed: data.replayed === true }
   }
   if (status === 401) return { kind: 'not_enabled', message: 'Het gateway-token van het dashboard is niet geldig. Neem contact op met de beheerder.' }
   if (status === 403) return { kind: 'not_enabled', message: 'Het aanmaken van monteurs in Odoo staat niet aan op de server. Neem contact op met de beheerder.' }
   if (status === 409 && code === 'responsible_not_allowed') {
     return { kind: 'rejected', message: 'De ingestelde verantwoordelijke in Odoo is niet geldig (niet actief, geen interne gebruiker of niet van het bedrijf). Neem contact op met de beheerder; er is niets aangemaakt.' }
+  }
+  if (status === 409 && code === 'planning_role_not_allowed') {
+    return { kind: 'rejected', message: 'De ingestelde planningsrol bestaat niet (meer) in Odoo of is gearchiveerd. Neem contact op met de beheerder; er is niets aangemaakt.' }
   }
   if (status === 429 && code === 'rate_limited') return { kind: 'rejected', message: 'Er zijn te veel monteurs per uur aangemaakt. Probeer het later opnieuw; er is niets aangemaakt.' }
   if (status === 502 && code === 'odoo_rejected') return { kind: 'rejected', message: `Odoo heeft het aanmaken geweigerd${reason}. Er is niets aangemaakt.` }

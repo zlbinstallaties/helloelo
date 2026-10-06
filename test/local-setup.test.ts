@@ -126,3 +126,17 @@ test('a partly existing set is refused as a whole: nothing is written', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('a planning role: set for every new employee, as the default too, and only together with a responsible', () => {
+  const { projects } = build({ planningRoleId: 1 })
+  assert.deepEqual(projects.projects[0].actions, { createEmployee: { responsibleUserId: 7, planningRoleIds: [1], defaultPlanningRoleId: 1 } })
+  const parsed = parseProjects(projects)[0].actions.createEmployee
+  assert.deepEqual(parsed?.planningRoleIds, [1])
+  assert.equal(parsed?.defaultPlanningRoleId, 1)
+  assert.deepEqual(build().projects.projects[0].actions, { createEmployee: { responsibleUserId: 7 } }, 'none unless asked for')
+  assert.equal(resolveOptions({ 'responsible-id': '7', 'planning-role-id': '3' }).planningRoleId, 3)
+  assert.equal(resolveOptions({}).planningRoleId, null)
+  assert.throws(() => resolveOptions({ 'planning-role-id': '3' }), /responsible-id/)
+  for (const bad of ['0', '-1', '1.5', 'x', '']) assert.throws(() => resolveOptions({ 'responsible-id': '7', 'planning-role-id': bad }), /planning-role-id/, bad)
+  assert.equal('actions' in build({ responsibleId: null, planningRoleId: null }).projects.projects[0], false)
+})

@@ -8,6 +8,7 @@ import { createGateway, type AccessLogEntry } from '../src/server.ts'
 
 const TOKEN = 'writer-token-123'
 const READER = 'reader-token-456'
+const ROLES = 'roles-token-789'
 const REQUEST = 'req-0123456789abcdef'
 const NOW = Date.UTC(2026, 9, 6, 10, 0)
 
@@ -19,6 +20,13 @@ const projects = parseProjects({
       companyId: 2,
       models: { 'planning.slot': { fields: ['name'], methods: ['search_read'] } },
       actions: { createEmployee: { responsibleUserId: 9, maxPerHour: 3 } },
+    },
+    {
+      id: 'dashboard-roles',
+      tokenSha256: sha256Hex(ROLES),
+      companyId: 2,
+      models: { 'planning.slot': { fields: ['name'], methods: ['search_read'] } },
+      actions: { createEmployee: { responsibleUserId: 9, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 } },
     },
     {
       id: 'preview',
@@ -36,6 +44,7 @@ const GOOD: Check = { exists: true, active: true, internal: true, inCompany: tru
 function fakeOdoo(overrides: Partial<OdooClient> = {}) {
   const calls: Call[] = []
   let lastName = ''
+  let lastRoles: readonly number[] = []
   const odoo: OdooClient = {
     async searchRead() {
       calls.push({ method: 'search_read', params: null })
@@ -51,14 +60,19 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
       calls.push({ method: 'checkResponsible', params })
       return GOOD
     },
+    async checkPlanningRoles(params) {
+      calls.push({ method: 'checkPlanningRoles', params })
+      return [...params.ids]
+    },
     async createEmployee(params) {
       calls.push({ method: 'createEmployee', params })
       lastName = params.name
+      lastRoles = params.planningRoleIds ?? []
       return 41
     },
     async readEmployee(params) {
       calls.push({ method: 'readEmployee', params })
-      return { id: params.id, name: lastName, companyId: params.companyId, userId: null, userLinked: false, active: true }
+      return { id: params.id, name: lastName, companyId: params.companyId, planningRoleIds: params.planningRoles ? [...lastRoles] : null, userId: null, userLinked: false, active: true }
     },
     ...overrides,
   }
@@ -131,11 +145,11 @@ test('a creation checks the responsible, creates one employee with the fixed val
   await withGateway(odoo, async (gw) => {
     const response = await gw.create(body())
     assert.equal(response.status, 200)
-    assert.deepEqual(response.json, { id: 41, name: 'Jan de Vries', verified: true })
-    assert.deepEqual(calls.map((call) => call.method), ['checkResponsible', 'createEmployee', 'readEmployee'])
+    assert.deepEqual(response.json, { id: 41, name: 'Jan de Vries', verified: true, planningRoles: 0 })
+    assert.deepEqual(calls.map((call) => call.method), ['checkResponsible', 'createEmployee', 'readEmployee'], 'no roles configured: no role check')
     assert.deepEqual(calls[0].params, { userId: 9, companyId: 2 })
-    assert.deepEqual(calls[1].params, { name: 'Jan de Vries', companyId: 2, responsibleUserId: 9, dateVersion: '2026-10-06' })
-    assert.deepEqual(calls[2].params, { id: 41, companyId: 2 })
+    assert.deepEqual(calls[1].params, { name: 'Jan de Vries', companyId: 2, responsibleUserId: 9, dateVersion: '2026-10-06', planningRoleIds: [], defaultPlanningRoleId: null })
+    assert.deepEqual(calls[2].params, { id: 41, companyId: 2, planningRoles: false })
   })
 })
 
@@ -305,8 +319,8 @@ test('the request ids of two projects do not meet', async () => {
     assert.equal((await post('token-two-123')).status, 200)
     const created = calls.filter((call) => call.method === 'createEmployee').map((call) => call.params)
     assert.deepEqual(created, [
-      { name: 'Jan de Vries', companyId: 2, responsibleUserId: 9, dateVersion: '2026-10-06' },
-      { name: 'Jan de Vries', companyId: 3, responsibleUserId: 8, dateVersion: '2026-10-06' },
+      { name: 'Jan de Vries', companyId: 2, responsibleUserId: 9, dateVersion: '2026-10-06', planningRoleIds: [], defaultPlanningRoleId: null },
+      { name: 'Jan de Vries', companyId: 3, responsibleUserId: 8, dateVersion: '2026-10-06', planningRoleIds: [], defaultPlanningRoleId: null },
     ])
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -346,10 +360,10 @@ test('two different people with the same name are two employees: there are such 
 
 test('read-back: an employee that came out with an Odoo user or in another company is reported, never as a success', async () => {
   for (const record of [
-    { id: 41, name: 'Jan de Vries', companyId: 2, userId: 5, userLinked: true, active: true },
-    { id: 41, name: 'Jan de Vries', companyId: 2, userId: null, userLinked: true, active: true }, // a user is linked, its id was unreadable
-    { id: 41, name: 'Jan de Vries', companyId: 3, userId: null, userLinked: false, active: true },
-    { id: 41, name: 'Jan de Vries', companyId: null, userId: null, userLinked: false, active: true }, // company unreadable
+    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, userId: 5, userLinked: true, active: true },
+    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, userId: null, userLinked: true, active: true }, // a user is linked, its id was unreadable
+    { id: 41, name: 'Jan de Vries', companyId: 3, planningRoleIds: null, userId: null, userLinked: false, active: true },
+    { id: 41, name: 'Jan de Vries', companyId: null, planningRoleIds: null, userId: null, userLinked: false, active: true }, // company unreadable
   ]) {
     const { odoo, count } = fakeOdoo({ async readEmployee() { return record } })
     await withGateway(odoo, async (gw) => {
@@ -373,8 +387,8 @@ test('read-back that cannot be done: created, but not verified', async () => {
     await withGateway(odoo, async (gw) => {
       const response = await gw.create(body())
       assert.equal(response.status, 200)
-      assert.deepEqual(response.json, { id: 41, name: 'Jan de Vries', verified: false })
-      assert.deepEqual((await gw.create(body())).json, { id: 41, name: 'Jan de Vries', verified: false, replayed: true })
+      assert.deepEqual(response.json, { id: 41, name: 'Jan de Vries', verified: false, planningRoles: 0 })
+      assert.deepEqual((await gw.create(body())).json, { id: 41, name: 'Jan de Vries', verified: false, planningRoles: 0, replayed: true })
       assert.equal(count('createEmployee'), 1)
     })
   }
@@ -436,5 +450,97 @@ test('the generic read routes are unchanged: the writer project reads like befor
     assert.equal(denied.json.error, 'model_not_allowed')
     const allowed = await gw.create({}, { path: '/v1/models/planning.slot/search_read' })
     assert.equal(allowed.status, 200)
+  })
+})
+
+// ---- planning roles: a shift with a role can only go to someone who has it ----
+
+const withRoles = (overrides: Record<string, unknown> = {}) => body(overrides)
+
+test('with planning roles configured: the roles are checked, set at creation, read back, and counted', async () => {
+  const { odoo, calls } = fakeOdoo()
+  await withGateway(odoo, async (gw) => {
+    const response = await gw.create(withRoles(), { token: ROLES })
+    assert.equal(response.status, 200)
+    assert.deepEqual(response.json, { id: 41, name: 'Jan de Vries', verified: true, planningRoles: 2 })
+    assert.deepEqual(calls.map((call) => call.method), ['checkResponsible', 'checkPlanningRoles', 'createEmployee', 'readEmployee'])
+    assert.deepEqual(calls[1].params, { ids: [3, 4], companyId: 2 })
+    assert.deepEqual(calls[2].params, { name: 'Jan de Vries', companyId: 2, responsibleUserId: 9, dateVersion: '2026-10-06', planningRoleIds: [3, 4], defaultPlanningRoleId: 3 })
+    assert.deepEqual(calls[3].params, { id: 41, companyId: 2, planningRoles: true })
+    assert.deepEqual((await gw.create(withRoles(), { token: ROLES })).json, { id: 41, name: 'Jan de Vries', verified: true, planningRoles: 2, replayed: true }, 'a repeat gives the same answer')
+  })
+})
+
+test('the request cannot choose planning roles', async () => {
+  const { odoo, calls } = fakeOdoo()
+  await withGateway(odoo, async (gw) => {
+    for (const extra of [{ planningRoleIds: [1] }, { planning_role_ids: [1] }, { defaultPlanningRoleId: 1 }, { roleId: 1 }]) {
+      const response = await gw.create(withRoles(extra), { token: ROLES })
+      assert.equal(response.status, 400, JSON.stringify(extra))
+      assert.equal(response.json.error, 'unknown_parameter')
+    }
+    assert.equal(calls.length, 0)
+  })
+})
+
+test('a configured role that does not exist or is archived stops the creation, and fixing it makes a retry work', async () => {
+  let found: number[] = [3]
+  const { odoo, count } = fakeOdoo({ async checkPlanningRoles() { return found } })
+  await withGateway(odoo, async (gw) => {
+    const refused = await gw.create(withRoles(), { token: ROLES })
+    assert.equal(refused.status, 409)
+    assert.equal(refused.json.error, 'planning_role_not_allowed')
+    assert.match(refused.json.message, /\b4\b/, 'names the missing role')
+    assert.equal(count('createEmployee'), 0)
+    found = [3, 4]
+    assert.equal((await gw.create(withRoles(), { token: ROLES })).status, 200, 'the same request id works once the role is back')
+    assert.equal(count('createEmployee'), 1)
+  })
+})
+
+test('an error while checking the roles creates nothing and is not remembered', async () => {
+  let fail = true
+  const { odoo, count } = fakeOdoo({
+    async checkPlanningRoles(params) {
+      if (fail) throw new OdooError('Odoo planning.role read failed (404): the model \'planning.role\' does not exist', 404, 'werkzeug.exceptions.NotFound', true)
+      return [...params.ids]
+    },
+  })
+  await withGateway(odoo, async (gw) => {
+    const response = await gw.create(withRoles(), { token: ROLES })
+    assert.equal(response.status, 502)
+    assert.equal(count('createEmployee'), 0)
+    fail = false
+    assert.equal((await gw.create(withRoles(), { token: ROLES })).status, 200)
+  })
+})
+
+test('what Odoo says about the roles after creating counts: fewer roles, none, or no answer', async () => {
+  for (const [readEmployee, planningRoles] of [
+    [async (params: { id: number; companyId: number }) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [3], userId: null, userLinked: false, active: true }), 1],
+    [async (params: { id: number; companyId: number }) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [], userId: null, userLinked: false, active: true }), 0],
+    [async (params: { id: number; companyId: number }) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [3, 4, 9], userId: null, userLinked: false, active: true }), 2],
+    [async (params: { id: number; companyId: number }) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: null, userId: null, userLinked: false, active: true }), 0],
+    [async () => { throw new OdooError('Odoo hr.employee read timed out', 0) }, 0],
+  ] as const) {
+    const { odoo } = fakeOdoo({ readEmployee })
+    await withGateway(odoo, async (gw) => {
+      const response = await gw.create(withRoles(), { token: ROLES })
+      assert.equal(response.status, 200)
+      assert.equal(response.json.planningRoles, planningRoles)
+    })
+  }
+})
+
+test('the roles do not change the safety checks: an Odoo user on the employee is still reported', async () => {
+  const { odoo } = fakeOdoo({
+    async readEmployee(params) {
+      return { id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [3, 4], userId: 5, userLinked: true, active: true }
+    },
+  })
+  await withGateway(odoo, async (gw) => {
+    const response = await gw.create(withRoles(), { token: ROLES })
+    assert.equal(response.status, 500)
+    assert.equal(response.json.error, 'employee_invariant_violated')
   })
 })

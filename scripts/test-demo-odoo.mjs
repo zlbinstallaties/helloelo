@@ -86,3 +86,37 @@ test('the planning data and the key check still work', async () => {
     assert.equal((await call('nope.model', 'search_read')).status, 404)
   })
 })
+
+test('planning roles: set by an Odoo "set" command, read back as a list of ids, and only existing active roles are accepted', async () => {
+  await withDemo(async ({ call, demo, lines }) => {
+    const withRoles = { ...vals, planning_role_ids: [[6, 0, [1, 2]]], default_planning_role_id: 1 }
+    assert.deepEqual((await call('hr.employee', 'create', { vals_list: [withRoles], context })).body, [900])
+    const read = await call('hr.employee', 'search_read', { domain: [['id', '=', 900]], fields: ['id', 'planning_role_ids', 'default_planning_role_id'], limit: 1, context })
+    assert.deepEqual(read.body, [{ id: 900, planning_role_ids: [1, 2], default_planning_role_id: [1, 'Monteur'] }])
+    assert.match(lines.join('\n'), /planning_role_ids/)
+    const fails = async (extra) => {
+      const answer = await call('hr.employee', 'create', { vals_list: [{ ...vals, ...extra }], context })
+      assert.equal(answer.status, 500, JSON.stringify(extra))
+    }
+    await fails({ planning_role_ids: [[6, 0, [99]]] })
+    await fails({ planning_role_ids: [[6, 0, [3]]] }) // archived
+    await fails({ planning_role_ids: [1, 2] }) // not a command
+    await fails({ planning_role_ids: [[4, 1]] }) // another command
+    await fails({ planning_role_ids: [[6, 0, [1]]], default_planning_role_id: 2 }) // default not among the roles
+    await fails({ default_planning_role_id: 1 }) // default without roles
+    assert.equal(demo.employees.length, 1, 'only the first one was made')
+    const none = await call('hr.employee', 'create', { vals_list: [vals], context })
+    assert.equal(none.status, 200)
+    const readNone = await call('hr.employee', 'search_read', { domain: [['id', '=', 901]], fields: ['planning_role_ids', 'default_planning_role_id'], limit: 1, context })
+    assert.deepEqual(readNone.body, [{ planning_role_ids: [], default_planning_role_id: false }])
+  })
+})
+
+test('planning.role: only the asked ids that exist; archived ones only with active_test false', async () => {
+  await withDemo(async ({ call }) => {
+    const read = (ids, extra = {}) => call('planning.role', 'search_read', { domain: [['id', 'in', ids]], fields: ['id'], limit: 5, context: { ...context, ...extra } })
+    assert.deepEqual((await read([1, 2, 3, 99])).body, [{ id: 1 }, { id: 2 }])
+    assert.deepEqual((await read([3], { active_test: false })).body, [{ id: 3 }])
+    assert.deepEqual((await read([99])).body, [])
+  })
+})

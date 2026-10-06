@@ -39,7 +39,7 @@ function setup() {
   const gateway = {
     calls: [] as Array<{ requestId: string; name: string }>,
     seenInJournal: [] as Array<string | undefined>,
-    outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, replayed: false }),
+    outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const deps = {
     accounts,
@@ -93,7 +93,7 @@ test('a planner adds a technician: one employee in Odoo, then a portal account l
 test('the portal account is linked by the stable employee id, never by the name', async () => {
   const { run, accounts, gateway } = setup()
   const first = ok(await run(planner))
-  gateway.outcome = () => ({ kind: 'created', id: 42, verified: true, replayed: false })
+  gateway.outcome = () => ({ kind: 'created', id: 42, verified: true, planningRoles: 0, replayed: false })
   const second = ok(await run(planner, { requestId: 'req-second-0123456789', username: 'jan2' }))
   assert.equal(first.account?.name, second.account?.name, 'two people with the same name')
   assert.deepEqual([first.account?.personId, second.account?.personId], ['employee:41', 'employee:42'])
@@ -154,7 +154,7 @@ test('Odoo refuses: an error, no account, and the same request may be tried agai
   assert.equal(result.employeeId, undefined)
   assert.deepEqual(accounts.list(), [], 'no account for an employee that does not exist')
   assert.equal(journal.get(REQUEST), undefined)
-  gateway.outcome = () => ({ kind: 'created', id: 41, verified: true, replayed: false })
+  gateway.outcome = () => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false })
   ok(await run(planner))
   assert.equal(gateway.calls.length, 2)
   assert.equal(accounts.list().length, 1)
@@ -227,7 +227,7 @@ test('a second request while the first still runs is refused', async () => {
   const gate = new Promise<void>((resolve) => (release = resolve))
   gateway.outcome = async () => {
     await gate
-    return { kind: 'created', id: 41, verified: true, replayed: false }
+    return { kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }
   }
   const first = run(planner)
   await new Promise((resolve) => setTimeout(resolve, 10))
@@ -266,7 +266,7 @@ test('the user name was taken in the meantime: the employee exists, and another 
   const { run, gateway, accounts, journal } = setup()
   gateway.outcome = () => {
     accounts.create({ username: 'jan', name: 'Andere Jan', role: 'monteur', personId: 'employee:7', password: 'een-goed-wachtwoord' })
-    return { kind: 'created', id: 41, verified: true, replayed: false }
+    return { kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }
   }
   const result = refused(await run(planner), 409, /41/)
   assert.equal(result.employeeId, 41)
@@ -283,7 +283,7 @@ test('the journal could not record the answer of Odoo: the employee id is report
   const { run, gateway, journalFile, accounts } = setup()
   gateway.outcome = () => {
     journalFile.state.failWrites = 1
-    return { kind: 'created', id: 41, verified: true, replayed: false }
+    return { kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }
   }
   const result = refused(await run(planner), 500, /41/)
   assert.equal(result.employeeId, 41)
@@ -333,7 +333,7 @@ test('the account was made but the journal could not say so: the planner gets th
 
 test('whether the employee was verified is remembered, also across a half done request and a repeat', async () => {
   const { run, gateway, accountsFile, journal } = setup()
-  gateway.outcome = () => ({ kind: 'created', id: 41, verified: false, replayed: false })
+  gateway.outcome = () => ({ kind: 'created', id: 41, verified: false, planningRoles: 0, replayed: false })
   accountsFile.state.failWrites = 1
   refused(await run(planner), 500, /41/)
   assert.equal(journal.get(REQUEST)?.verified, false)
@@ -379,4 +379,26 @@ test('the answer says whether the same request may be sent again: only when noth
   const busy = setup()
   busy.journal.begin({ requestId: REQUEST, name: 'Jan de Vries', username: 'jan', by: 'u_planner' })
   assert.equal(retry(await busy.run(planner)), 'safe', 'still running: waiting is safe')
+})
+
+test('the number of confirmed planning roles is passed on, saved, and told again on a repeat and when only the account was missing', async () => {
+  const { run, journal, gateway, accounts } = setup()
+  gateway.outcome = () => ({ kind: 'created', id: 41, verified: true, planningRoles: 2, replayed: false })
+  const first = ok(await run(planner))
+  assert.equal(first.planningRoles, 2)
+  assert.equal(journal.get(REQUEST)?.planningRoles, 2)
+  assert.equal(ok(await run(planner)).planningRoles, 2, 'a repeat')
+
+  // The account step fails after Odoo confirmed: the number is kept for the retry that only finishes the account.
+  const second = setup()
+  second.gateway.outcome = () => ({ kind: 'created', id: 43, verified: true, planningRoles: 1, replayed: false })
+  second.accountsFile.state.failWrites = 1
+  const blocked = await second.run(planner)
+  assert.equal(blocked.ok, false)
+  assert.equal(second.journal.get(REQUEST)?.state, 'created')
+  assert.equal(second.journal.get(REQUEST)?.planningRoles, 1)
+  const retried = ok(await second.run(planner))
+  assert.equal(retried.planningRoles, 1)
+  assert.equal(second.gateway.calls.length, 1, 'Odoo is not asked again')
+  assert.equal(accounts.list().length, 1, 'the first set-up has its one account')
 })

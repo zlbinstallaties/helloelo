@@ -59,6 +59,9 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
     async checkResponsible() {
       throw new Error('checkResponsible is not used in these tests')
     },
+    async checkPlanningRoles() {
+      throw new Error('checkPlanningRoles is not used in these tests')
+    },
     async readEmployee() {
       throw new Error('readEmployee is not used in these tests')
     },

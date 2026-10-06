@@ -186,9 +186,19 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
               <AlertTitle>{done.replayed ? 'Deze aanvraag was al verwerkt' : 'Monteur toegevoegd'}</AlertTitle>
               <AlertDescription>
                 In Odoo staat de medewerker met nummer <strong>{done.employeeId}</strong>
-                {done.account && <> en het account <strong>{done.account.username}</strong> is gekoppeld aan dat nummer</>}. De monteur is nu in Odoo Planning te kiezen.
+                {done.account && <> en het account <strong>{done.account.username}</strong> is gekoppeld aan dat nummer</>}.
+                {done.planningRoles > 0 && <> Hij heeft in Odoo {done.planningRoles === 1 ? 'de planningsrol' : `${done.planningRoles} planningsrollen`} en is te kiezen bij een dienst met die rol.</>}
               </AlertDescription>
             </Alert>
+            {done.planningRoles === 0 && (
+              <Alert>
+                <AlertTriangle className="size-4" />
+                <AlertTitle>Nog geen planningsrol</AlertTitle>
+                <AlertDescription>
+                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur de rol in Odoo (Werknemers, veld Roles), of laat de beheerder in de gateway een planningsrol instellen.
+                </AlertDescription>
+              </Alert>
+            )}
             {!done.verified && (
               <Alert variant="destructive">
                 <AlertTriangle className="size-4" />

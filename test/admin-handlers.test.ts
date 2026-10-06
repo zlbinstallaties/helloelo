@@ -49,6 +49,7 @@ test('add a technician: a planner gets the employee id, the account linked to it
   assert.equal(answer.status, 201)
   assert.equal(answer.json.employeeId, 41)
   assert.equal(answer.json.verified, true)
+  assert.equal(answer.json.planningRoles, 0, 'no planning role was confirmed: the screen must say so')
   assert.equal(answer.json.replayed, false)
   assert.equal(answer.json.password, GENERATED)
   assert.equal(answer.json.account.username, 'els')
@@ -364,4 +365,12 @@ test('the pages that were already there still answer with a planner session', as
   const answer = await dashboard(api, await plannerCookie(api), '?scope=all&date=2026-10-05')
   assert.equal(answer.status, 200)
   assert.ok(answer.text.includes(ODOO))
+})
+
+test('add a technician: the answer tells how many planning roles Odoo confirmed', async () => {
+  const api = setup()
+  api.odoo.outcome = () => ({ kind: 'created', id: 41, verified: true, planningRoles: 2, replayed: false })
+  const answer = await read(await addTechnician(api, await plannerCookie(api)))
+  assert.equal(answer.status, 201)
+  assert.equal(answer.json.planningRoles, 2)
 })

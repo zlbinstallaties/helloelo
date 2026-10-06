@@ -21,6 +21,8 @@ export type AccountsResponse = {
 export type TechnicianCreated = {
   employeeId: number
   verified: boolean
+  /** How many planning roles Odoo confirmed on the new employee (0: none set up, so Planning cannot take him for a shift with a role). */
+  planningRoles: number
   replayed: boolean
   account: PublicAccount | null
   /** Shown once; null for a repeat. */

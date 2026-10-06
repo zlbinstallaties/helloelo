@@ -45,10 +45,13 @@ Per aanmaak, en niets anders (`src/lib/odoo-client.ts`, getest met een nageboots
 | Aanroep | Doel |
 |---|---|
 | `res.users` `search_read`, één record, velden `id active share company_ids` | is de verantwoordelijke actief, intern en van het bedrijf |
-| `hr.employee` `create`, één record met `name`, `company_id`, `hr_responsible_id`, `user_id: false`, `date_version` | de medewerker |
-| `hr.employee` `search_read`, één record, velden `id name company_id user_id active` | terugkijken: geen Odoo-gebruiker, juiste bedrijf |
+| `planning.role` `search_read`, alleen als er rollen zijn ingesteld, veld `id` | bestaan de ingestelde planningsrollen en zijn ze niet gearchiveerd |
+| `hr.employee` `create`, één record met `name`, `company_id`, `hr_responsible_id`, `user_id: false`, `date_version` en, als ingesteld, `planning_role_ids` en `default_planning_role_id` | de medewerker |
+| `hr.employee` `search_read`, één record, velden `id name company_id user_id active` (plus `planning_role_ids` als er rollen zijn ingesteld) | terugkijken: geen Odoo-gebruiker, juiste bedrijf, de rollen |
 
-Er wordt nooit een `res.users` aangemaakt of gewijzigd, en nooit een planning of dienst.
+Er wordt nooit een `res.users` aangemaakt of gewijzigd, en nooit een planning of dienst. De planningsrol komt uit de
+gatewayconfig (`planningRoleIds`), nooit uit de browser; zonder rol kan een dienst met een rol niet aan de monteur worden
+toegewezen, en het scherm zegt dat ("Nog geen planningsrol").
 
 ### Wat Odoo 20 er zelf bij doet
 
@@ -151,10 +154,11 @@ bezoek zonder planning is alleen voor planners zichtbaar.
 - Of de contextsleutels `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` alle volgers voorkomen, en of de
   interne onboardingnotitie bij jullie is uitgezet of anders gaat. Lokaal stond er een interne notitie met
   "Employee created" en "Congratulations! May I recommend ... onboarding plan", beide door de aanroepende gebruiker.
-- Planning is een Enterprise-module; de broncode is hier niet gelezen. Lokaal werd de medewerker pas bij een dienst te
-  kiezen nadat de planningsrol aan hem gekoppeld was; een daarna via het dashboard aangemaakte tweede monteur zonder rol
-  kwam volgens de gebruiker ook in Planning. Of een rol vereist is, is niet eenduidig vastgesteld. De velden voor een rol
-  zijn `planning_role_ids` en `default_planning_role_id` (beide naar `planning.role`); het dashboard zet ze niet.
+- Planning is een Enterprise-module; de broncode is hier niet gelezen. Wat is waargenomen (door de gebruiker, lokaal): een
+  dienst met de functie Monteur kan alleen worden toegewezen aan iemand die die functie heeft; zonder werkt het niet.
+  Daarom zet de gateway bij het aanmaken een vaste planningsrol (`planningRoleIds`). De velden zijn `planning_role_ids` en
+  `default_planning_role_id` (naar `planning.role`); dat Odoo ze in de aanroep van het dashboard aanneemt is **alleen met
+  nagebootste antwoorden getest**, niet tegen een echte Odoo.
 - Hoe jullie Odoo `employee_ids` en `user_ids` van een dienst aanlevert (aangenomen: `[id, naam]`-paren).
 
 ## Wat nog moet: een gepubliceerd dashboard

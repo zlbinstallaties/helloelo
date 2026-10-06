@@ -69,6 +69,10 @@ export interface CreateEmployeeParams {
   responsibleUserId: number
   /** Start date of the first version of the employee, `YYYY-MM-DD`. */
   dateVersion: string
+  /** `planning.role` ids the employee gets (`planning_role_ids`); empty or absent: none. */
+  planningRoleIds?: readonly number[]
+  /** One of `planningRoleIds` (`default_planning_role_id`). */
+  defaultPlanningRoleId?: number | null
 }
 
 /** Whether an Odoo user may be the responsible of an employee of a company. */
@@ -84,6 +88,8 @@ export interface EmployeeRecord {
   id: number
   name: string
   companyId: number | null
+  /** `planning_role_ids`; null when they were not asked for. */
+  planningRoleIds: number[] | null
   /** The Odoo user linked to the employee, when Odoo gave its id in a shape we understand. */
   userId: number | null
   /**
@@ -102,7 +108,10 @@ export interface OdooClient {
   /** Creates one `hr.employee` without an Odoo user and returns the id Odoo confirms. Throws `OdooWriteError`. */
   createEmployee(params: CreateEmployeeParams): Promise<number>
   checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck>
-  readEmployee(params: { id: number; companyId: number }): Promise<EmployeeRecord | null>
+  /** Which of these `planning.role` ids exist and are active. */
+  checkPlanningRoles(params: { ids: readonly number[]; companyId: number }): Promise<number[]>
+  /** `planningRoles: true` also reads `planning_role_ids` (the Planning module must be installed). */
+  readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null>
 }
 
 export class OdooError extends Error {
@@ -314,13 +323,24 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (!isId(params.responsibleUserId)) throw new OdooWriteError('responsibleUserId is required', 0, 'rejected')
     if (!validDate(params.dateVersion)) throw new OdooWriteError('Invalid dateVersion', 0, 'rejected')
 
-    const vals = {
+    const roles = params.planningRoleIds ?? []
+    if (!Array.isArray(roles) || roles.length > 5 || roles.some((id) => !isId(id)) || new Set(roles).size !== roles.length) {
+      throw new OdooWriteError('Invalid planningRoleIds', 0, 'rejected')
+    }
+    const defaultRole = params.defaultPlanningRoleId ?? null
+    if (defaultRole !== null && (!isId(defaultRole) || !roles.includes(defaultRole))) {
+      throw new OdooWriteError('Invalid defaultPlanningRoleId', 0, 'rejected')
+    }
+    const vals: Record<string, unknown> = {
       name,
       company_id: params.companyId,
       hr_responsible_id: params.responsibleUserId,
       user_id: false,
       date_version: params.dateVersion,
     }
+    // Planning roles are set only when the configuration says so; never from a request.
+    if (roles.length > 0) vals.planning_role_ids = [[6, 0, [...roles]]]
+    if (defaultRole !== null) vals.default_planning_role_id = defaultRole
     let payload: unknown
     try {
       payload = await call(
@@ -363,13 +383,28 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  async function readEmployee(params: { id: number; companyId: number }): Promise<EmployeeRecord | null> {
+  async function checkPlanningRoles(params: { ids: readonly number[]; companyId: number }): Promise<number[]> {
+    if (!Array.isArray(params?.ids) || params.ids.length === 0 || params.ids.length > 5 || params.ids.some((id) => !isId(id))) {
+      throw new OdooError('ids must be 1 to 5 positive integers', 0)
+    }
+    checkCompany(params.companyId)
+    const payload = await call('planning.role', 'search_read', {
+      domain: [['id', 'in', [...params.ids]]],
+      fields: ['id'],
+      limit: 5,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo planning.role returned an unexpected response', 200)
+    return (payload as Array<Record<string, unknown>>).map((row) => row?.id).filter((id): id is number => isId(id) && params.ids.includes(id))
+  }
+
+  async function readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null> {
     if (!isId(params?.id)) throw new OdooError('id is required', 0)
     checkCompany(params.companyId)
     const payload = await call('hr.employee', 'search_read', {
       // No company in the domain: an employee in another company must show up as such, not as "not found".
       domain: [['id', '=', params.id]],
-      fields: ['id', 'name', 'company_id', 'user_id', 'active'],
+      fields: params.planningRoles === true ? ['id', 'name', 'company_id', 'user_id', 'active', 'planning_role_ids'] : ['id', 'name', 'company_id', 'user_id', 'active'],
       limit: 1,
       context: { allowed_company_ids: [params.companyId], active_test: false },
     })
@@ -380,6 +415,8 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       id: params.id,
       name: typeof row.name === 'string' ? row.name : '',
       companyId: relatedId(row.company_id),
+      // A many2many comes as a list of ids; only ids are kept, anything else is ignored.
+      planningRoleIds: params.planningRoles === true ? (Array.isArray(row.planning_role_ids) ? row.planning_role_ids.map(relatedId).filter((id): id is number => id !== null) : []) : null,
       userId: relatedId(row.user_id),
       // Only an explicit empty value means "no Odoo login"; a missing field or an odd shape counts as linked.
       userLinked: row.user_id !== false && row.user_id !== null,
@@ -387,5 +424,5 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  return { searchRead, searchCount, fieldsGet, createEmployee, checkResponsible, readEmployee }
+  return { searchRead, searchCount, fieldsGet, createEmployee, checkResponsible, checkPlanningRoles, readEmployee }
 }

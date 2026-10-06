@@ -28,6 +28,8 @@ export type JournalEntry = {
   employeeId?: number
   /** Odoo confirmed the id, and reading it back confirmed no Odoo user and the right company. */
   verified?: boolean
+  /** How many of the configured planning roles Odoo confirmed on the employee; 0 when none or unknown. */
+  planningRoles?: number
   accountId?: string
 }
 
@@ -74,6 +76,7 @@ function parse(text: string | null): JournalEntry[] {
       typeof e.at !== 'string' || typeof e.updatedAt !== 'string' ||
       (e.employeeId !== undefined && !(Number.isInteger(e.employeeId) && (e.employeeId as number) > 0)) ||
       (e.verified !== undefined && typeof e.verified !== 'boolean') ||
+      (e.planningRoles !== undefined && !(Number.isInteger(e.planningRoles) && (e.planningRoles as number) >= 0 && (e.planningRoles as number) <= 99)) ||
       (e.accountId !== undefined && typeof e.accountId !== 'string')
     ) {
       throw new JournalFileError(`aanvraag ${index + 1} mist een veld of heeft een onjuiste waarde.`)
@@ -128,11 +131,12 @@ export function createJournal(options: { io: AccountIo; now?: () => Date }) {
       return entry
     },
 
-    markCreated: (requestId: string, employeeId: number, verified = false) =>
+    markCreated: (requestId: string, employeeId: number, verified = false, planningRoles = 0) =>
       change(requestId, ['creating'], (entry) => {
         entry.state = 'created'
         entry.employeeId = employeeId
         entry.verified = verified
+        entry.planningRoles = planningRoles
       }),
 
     /** While only the account is missing, another user name may be chosen. */

@@ -12,7 +12,7 @@ import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { demoData, demoFields } from './demo-data.mjs'
 
-const EMPLOYEE_FIELDS = ['name', 'company_id', 'hr_responsible_id', 'user_id', 'date_version']
+const EMPLOYEE_FIELDS = ['name', 'company_id', 'hr_responsible_id', 'user_id', 'date_version', 'planning_role_ids', 'default_planning_role_id']
 const COMPANY_NAME = 'Demo bedrijf'
 // res.users the rehearsal can use as responsible: 2 is a valid choice, the others are not.
 const USERS = [
@@ -21,6 +21,13 @@ const USERS = [
   { id: 4, active: false, share: false, company_ids: [1, 2] },
   { id: 5, active: true, share: false, company_ids: [2] },
   { id: 6, active: true, share: false, company_ids: [2] },
+]
+
+// planning.role records: 1 and 2 can be used, 3 is archived (Odoo then does not find it by default).
+const ROLES = [
+  { id: 1, name: 'Monteur', active: true },
+  { id: 2, name: 'Planner', active: true },
+  { id: 3, name: 'Oud', active: false },
 ]
 
 const odooError = (name, message) => ({ name, message, arguments: [message], context: {}, debug: '' })
@@ -39,6 +46,8 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       name: employee.name,
       company_id: [employee.companyId, COMPANY_NAME],
       user_id: employee.userId ? [employee.userId, 'Gebruiker'] : false,
+      planning_role_ids: [...employee.roleIds],
+      default_planning_role_id: employee.defaultRoleId ? [employee.defaultRoleId, ROLES.find((role) => role.id === employee.defaultRoleId)?.name ?? ''] : false,
       active: true,
       hr_responsible_id: [employee.responsibleId, 'Verantwoordelijke'],
       date_version: employee.dateVersion,
@@ -51,6 +60,12 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       const activeTest = body.context?.active_test !== false
       const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'active', 'share', 'company_ids']
       return [200, USERS.filter((user) => user.id === id && (user.active || !activeTest)).map((user) => pick(user, wanted))]
+    }
+    if (model === 'planning.role' && method === 'search_read') {
+      const asked = body.domain?.[0]?.[2]
+      const activeTest = body.context?.active_test !== false
+      const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'name']
+      return [200, ROLES.filter((role) => Array.isArray(asked) && asked.includes(role.id) && (role.active || !activeTest)).map((role) => pick(role, wanted))]
     }
     if (model === 'hr.employee' && method === 'search_read') {
       const id = idFilter(body.domain)
@@ -70,7 +85,22 @@ export function createDemoOdoo({ log = () => {} } = {}) {
         if (!allowedCompanies.includes(vals.company_id)) return [403, odooError('odoo.exceptions.AccessError', 'Access to unauthorized or invalid companies.')]
         const user = USERS.find((candidate) => candidate.id === vals.hr_responsible_id)
         if (!user) return [500, odooError('odoo.exceptions.ValidationError', 'hr_responsible_id does not exist')]
+        // planning_role_ids is an Odoo "set" command: [[6, 0, [ids]]]. A role that does not exist or is archived is refused.
+        let roleIds = []
+        if (vals.planning_role_ids !== undefined) {
+          const command = vals.planning_role_ids
+          if (!Array.isArray(command) || command.length !== 1 || !Array.isArray(command[0]) || command[0][0] !== 6 || command[0][1] !== 0 || !Array.isArray(command[0][2])) {
+            return [500, odooError('builtins.ValueError', 'planning_role_ids: the rehearsal only understands [[6, 0, [ids]]]')]
+          }
+          roleIds = command[0][2]
+          if (roleIds.some((id) => !ROLES.some((role) => role.id === id && role.active))) return [500, odooError('odoo.exceptions.MissingError', 'a planning role does not exist or is archived')]
+        }
+        if (vals.default_planning_role_id !== undefined && vals.default_planning_role_id !== false && !roleIds.includes(vals.default_planning_role_id)) {
+          return [500, odooError('odoo.exceptions.ValidationError', 'the default planning role must be one of the roles')]
+        }
         const employee = {
+          roleIds,
+          defaultRoleId: vals.default_planning_role_id || null,
           id: nextEmployeeId++,
           name: vals.name,
           companyId: vals.company_id,

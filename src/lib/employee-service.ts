@@ -38,6 +38,8 @@ export type TechnicianResult =
       employeeId: number
       /** Odoo confirmed the id and reading it back showed no Odoo user and the right company. */
       verified: boolean
+      /** How many of the configured planning roles Odoo confirmed on the employee; 0 when none are configured or unknown. */
+      planningRoles: number
       /** An earlier request with this id had already finished; nothing new was made. */
       replayed: boolean
       /** The portal account; null when it was removed after an earlier request. */
@@ -103,11 +105,11 @@ export async function createTechnician(deps: EmployeeServiceDeps, user: User, in
     switch (outcome.kind) {
       case 'created':
         try {
-          deps.journal.markCreated(requestId, outcome.id, outcome.verified)
+          deps.journal.markCreated(requestId, outcome.id, outcome.verified, outcome.planningRoles)
         } catch {
           return fail(500, `In Odoo is medewerker ${outcome.id} aangemaakt, maar dat kon niet worden vastgelegd. Er is nog geen account gemaakt; neem contact op met de beheerder.`, outcome.id)
         }
-        return await finishAccount(deps, requestId, outcome.id, outcome.verified, checked.name, checked.username)
+        return await finishAccount(deps, requestId, outcome.id, outcome.verified, outcome.planningRoles, checked.name, checked.username)
       case 'rejected':
         deps.journal.remove(requestId)
         return fail(502, outcome.message)
@@ -146,6 +148,7 @@ async function continueRequest(deps: EmployeeServiceDeps, now: () => Date, entry
         status: 200,
         employeeId: entry.employeeId as number,
         verified: entry.verified === true,
+        planningRoles: entry.planningRoles ?? 0,
         replayed: true,
         account: entry.accountId ? (deps.accounts.get(entry.accountId) ?? null) : null,
         password: null,
@@ -159,12 +162,12 @@ async function continueRequest(deps: EmployeeServiceDeps, now: () => Date, entry
       return fail(409, entry.employeeId ? `In Odoo bestaat medewerker ${entry.employeeId}, maar niet zoals bedoeld. Controleer en herstel dat in Odoo; er wordt niets nieuws aangemaakt.` : UNKNOWN_MESSAGE, entry.employeeId, 'blocked')
     default:
       // created: the employee exists, only the account is missing.
-      return finishAccount(deps, entry.requestId, entry.employeeId as number, entry.verified === true, entry.name, username)
+      return finishAccount(deps, entry.requestId, entry.employeeId as number, entry.verified === true, entry.planningRoles ?? 0, entry.name, username)
   }
 }
 
 /** Step 3: the portal account, only now that Odoo confirmed the employee. */
-async function finishAccount(deps: EmployeeServiceDeps, requestId: string, employeeId: number, verified: boolean, name: string, username: string): Promise<TechnicianResult> {
+async function finishAccount(deps: EmployeeServiceDeps, requestId: string, employeeId: number, verified: boolean, planningRoles: number, name: string, username: string): Promise<TechnicianResult> {
   const personId = `employee:${employeeId}`
   const prefix = `In Odoo is medewerker ${employeeId} aangemaakt, maar het account kon niet worden gemaakt`
 
@@ -172,7 +175,7 @@ async function finishAccount(deps: EmployeeServiceDeps, requestId: string, emplo
   const existing = deps.accounts.findByPerson(personId)
   if (existing) {
     deps.journal.markDone(requestId, existing.id)
-    return { ok: true, status: 200, employeeId, verified, replayed: true, account: existing, password: null }
+    return { ok: true, status: 200, employeeId, verified, planningRoles, replayed: true, account: existing, password: null }
   }
 
   const password = deps.generatePassword()
@@ -192,5 +195,5 @@ async function finishAccount(deps: EmployeeServiceDeps, requestId: string, emplo
   } catch {
     // The account exists and the password is in hand: the job is done. A repeat finds the account by its person.
   }
-  return { ok: true, status: 201, employeeId, verified, replayed: false, account, password }
+  return { ok: true, status: 201, employeeId, verified, planningRoles, replayed: false, account, password }
 }

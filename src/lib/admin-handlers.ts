@@ -78,7 +78,7 @@ export function createAdminHandlers(ctx: Context) {
           return json({ error: result.error, retry: result.retry, ...(result.employeeId !== undefined && { employeeId: result.employeeId }) }, result.status)
         }
         return json(
-          { employeeId: result.employeeId, verified: result.verified, replayed: result.replayed, account: result.account, password: result.password },
+          { employeeId: result.employeeId, verified: result.verified, planningRoles: result.planningRoles, replayed: result.replayed, account: result.account, password: result.password },
           result.status,
         )
       })

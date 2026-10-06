@@ -296,7 +296,7 @@ test('employee read-back: one fixed hr.employee record in the company; user_id f
   const calls = []
   const rows = [{ id: 41, name: 'Jan de Vries', company_id: [2, 'DIG'], user_id: false, active: true }]
   const client = createOdooClient({ ...base, fetch: mockFetch(200, rows, calls) })
-  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, userId: null, userLinked: false, active: true })
+  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, userId: null, userLinked: false, active: true })
   assert.equal(calls[0].url, 'https://odoo.example.com/json/2/hr.employee/search_read')
   const body = JSON.parse(calls[0].init.body)
   // No company in the domain: an employee that ended up in another company is reported as such, not as missing.
@@ -309,4 +309,70 @@ test('employee read-back: one fixed hr.employee record in the company; user_id f
   assert.equal(linked.userLinked, true)
   const none = createOdooClient({ ...base, fetch: mockFetch(200, []) })
   assert.equal(await none.readEmployee({ id: 41, companyId: 2 }), null)
+})
+
+// ---- planning roles ----
+
+test('create without roles sends none; with roles only the fixed set, from the configuration', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [41], calls) })
+  await client.createEmployee(employee)
+  assert.deepEqual(Object.keys(JSON.parse(calls[0].init.body).vals_list[0]).sort(), ['company_id', 'date_version', 'hr_responsible_id', 'name', 'user_id'])
+  await client.createEmployee({ ...employee, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 })
+  const vals = JSON.parse(calls[1].init.body).vals_list[0]
+  assert.deepEqual(vals.planning_role_ids, [[6, 0, [3, 4]]], 'Odoo command "set"')
+  assert.equal(vals.default_planning_role_id, 3)
+  assert.equal(vals.user_id, false, 'still no Odoo user')
+  await client.createEmployee({ ...employee, planningRoleIds: [3] })
+  assert.equal('default_planning_role_id' in JSON.parse(calls[2].init.body).vals_list[0], false, 'no default unless given')
+  // Other keys in the params are ignored, like before.
+  await client.createEmployee({ ...employee, planningRoleIds: [3], planning_role_ids: [9], groups_id: [1] })
+  assert.deepEqual(JSON.parse(calls[3].init.body).vals_list[0].planning_role_ids, [[6, 0, [3]]])
+  assert.equal('groups_id' in JSON.parse(calls[3].init.body).vals_list[0], false)
+})
+
+test('create refuses odd roles before anything is sent', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [41], calls) })
+  for (const extra of [
+    { planningRoleIds: [0] }, { planningRoleIds: [-1] }, { planningRoleIds: [1.5] }, { planningRoleIds: ['3'] }, { planningRoleIds: [3, 3] },
+    { planningRoleIds: [1, 2, 3, 4, 5, 6] }, { planningRoleIds: 'x' }, { planningRoleIds: [3], defaultPlanningRoleId: 4 }, { defaultPlanningRoleId: 3 },
+    { planningRoleIds: [3], defaultPlanningRoleId: '3' },
+  ]) {
+    await assert.rejects(client.createEmployee({ ...employee, ...extra }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected', JSON.stringify(extra))
+  }
+  assert.equal(calls.length, 0)
+})
+
+test('role check: one fixed planning.role read, and only the asked, existing ids come back', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [{ id: 3 }, { id: 4 }, { id: 9 }, { id: 'x' }, null], calls) })
+  assert.deepEqual(await client.checkPlanningRoles({ ids: [3, 4], companyId: 2, domain: [['id', '>', 0]], fields: ['name'] }), [3, 4])
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/planning.role/search_read')
+  const body = JSON.parse(calls[0].init.body)
+  assert.deepEqual(body.domain, [['id', 'in', [3, 4]]])
+  assert.deepEqual(body.fields, ['id'])
+  assert.deepEqual(body.context, { allowed_company_ids: [2] })
+  const none = createOdooClient({ ...base, fetch: mockFetch(200, []) })
+  assert.deepEqual(await none.checkPlanningRoles({ ids: [3], companyId: 2 }), [])
+  for (const ids of [[], [0], ['3'], [1, 2, 3, 4, 5, 6], 'x']) {
+    await assert.rejects(client.checkPlanningRoles({ ids, companyId: 2 }), OdooError, JSON.stringify(ids))
+  }
+  await assert.rejects(client.checkPlanningRoles({ ids: [3], companyId: 0 }), OdooError)
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, { not: 'a list' }) })
+  await assert.rejects(odd.checkPlanningRoles({ ids: [3], companyId: 2 }), OdooError)
+})
+
+test('employee read-back with roles asks for planning_role_ids, and reads ids only', async () => {
+  const calls = []
+  const rows = [{ id: 41, name: 'Jan', company_id: [2, 'DIG'], user_id: false, active: true, planning_role_ids: [3, 4] }]
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, rows, calls) })
+  assert.deepEqual((await client.readEmployee({ id: 41, companyId: 2, planningRoles: true })).planningRoleIds, [3, 4])
+  assert.deepEqual(JSON.parse(calls[0].init.body).fields, ['id', 'name', 'company_id', 'user_id', 'active', 'planning_role_ids'])
+  assert.deepEqual((await client.readEmployee({ id: 41, companyId: 2 })).planningRoleIds, null, 'not asked for: not read')
+  assert.deepEqual(JSON.parse(calls[1].init.body).fields, ['id', 'name', 'company_id', 'user_id', 'active'])
+  for (const [value, expected] of [[[[3, 'Monteur']], [3]], [[{ id: 3 }], [3]], [false, []], [[], []], [[0, 'x', null], []], ['3', []]]) {
+    const odd = createOdooClient({ ...base, fetch: mockFetch(200, [{ ...rows[0], planning_role_ids: value }]) })
+    assert.deepEqual((await odd.readEmployee({ id: 41, companyId: 2, planningRoles: true })).planningRoleIds, expected, JSON.stringify(value))
+  }
 })

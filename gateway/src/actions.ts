@@ -31,7 +31,7 @@ export interface ActionContext {
 type Entry = {
   name: string
   state: 'pending' | 'done' | 'unknown'
-  result?: { id: number; name: string; verified: boolean }
+  result?: { id: number; name: string; verified: boolean; planningRoles: number }
   failure?: GatewayError
   expires: number
 }
@@ -108,6 +108,14 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
           const why = !check.exists ? 'does not exist' : !check.active ? 'is not active' : !check.internal ? 'is not an internal user' : 'is not in the company'
           throw new GatewayError(409, 'responsible_not_allowed', `the configured responsible ${why}`)
         }
+        // The planning roles are checked on every request too: a role can be archived or removed.
+        if (policy.planningRoleIds.length > 0) {
+          const found = await odoo.checkPlanningRoles({ ids: policy.planningRoleIds, companyId: project.companyId })
+          const missing = policy.planningRoleIds.filter((id) => !found.includes(id))
+          if (missing.length > 0) {
+            throw new GatewayError(409, 'planning_role_not_allowed', `the configured planning role ${missing.join(', ')} does not exist or is archived`)
+          }
+        }
         if (limitReached(project, policy.maxPerHour)) {
           throw new GatewayError(429, 'rate_limited', `at most ${policy.maxPerHour} employees per hour`)
         }
@@ -121,6 +129,8 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
             companyId: project.companyId,
             responsibleUserId: policy.responsibleUserId,
             dateVersion: amsterdamDate(now()),
+            planningRoleIds: policy.planningRoleIds,
+            defaultPlanningRoleId: policy.defaultPlanningRoleId,
           })
         } catch (error) {
           if (error instanceof OdooWriteError && error.outcome === 'rejected') {
@@ -134,20 +144,24 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
 
         // Read back what Odoo made: the technician must have no Odoo user and must be in the company.
         let verified = false
+        let planningRoles = 0
+        const wantRoles = policy.planningRoleIds.length > 0
         try {
-          const record = await odoo.readEmployee({ id, companyId: project.companyId })
+          const record = await odoo.readEmployee({ id, companyId: project.companyId, planningRoles: wantRoles })
           if (record && (record.userLinked || record.companyId !== project.companyId)) {
             entry.state = 'done'
             entry.failure = new GatewayError(500, 'employee_invariant_violated', 'the employee was created but is not as intended', { id })
             throw entry.failure
           }
           verified = record !== null
+          // How many of the configured roles Odoo says the employee has: what the planner can count on in Planning.
+          if (record && wantRoles && record.planningRoleIds) planningRoles = policy.planningRoleIds.filter((role) => record.planningRoleIds?.includes(role)).length
         } catch (error) {
           if (error instanceof GatewayError) throw error
           // Reading back failed: the employee was created (Odoo confirmed the id), it is just not verified.
         }
         entry.state = 'done'
-        entry.result = { id, name, verified }
+        entry.result = { id, name, verified, planningRoles }
         return entry.result
       } catch (error) {
         if (!attempted) entries.delete(key)

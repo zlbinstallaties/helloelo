@@ -66,7 +66,7 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
   // What the dashboard sends to Odoo (through the gateway), and what Odoo answers. Nothing here is a real Odoo.
   const odoo = {
     calls: [] as Array<{ requestId: string; name: string }>,
-    outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, replayed: false }),
+    outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const mode = options.mode ?? 'on'
   const configured = options.configured ?? true

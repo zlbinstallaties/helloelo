@@ -13,9 +13,11 @@ import { generatePassword, hashPassword } from '../src/lib/password.ts'
  * the Odoo API key is NOT asked for or written: fill it in yourself in `.local/gateway.env`.
  *
  *   node --experimental-strip-types scripts/local-setup.ts [--odoo-url ...] [--database ...] [--company-id 1]
- *        [--responsible-id <Odoo user id>] [--force]
+ *        [--responsible-id <Odoo user id>] [--planning-role-id <planning.role id>] [--force]
  *
  * Without --responsible-id the dashboard cannot create employees in Odoo (the action stays off).
+ * With --planning-role-id every new employee gets that planning role (and it is his default role): a shift with a
+ * role can only be given to someone who has it.
  */
 
 export interface LocalSetupOptions {
@@ -24,6 +26,8 @@ export interface LocalSetupOptions {
   companyId: number
   /** The Odoo user who becomes hr_responsible_id; null leaves "add technician" switched off. */
   responsibleId: number | null
+  /** The `planning.role` every new employee gets; null: none (Planning will not take him for a shift with a role). */
+  planningRoleId: number | null
   adminUsername: string
   gatewayPort: number
   dashboardPort: number
@@ -45,6 +49,7 @@ export const DEFAULTS: LocalSetupOptions = {
   database: '',
   companyId: 1,
   responsibleId: null,
+  planningRoleId: null,
   adminUsername: 'admin',
   gatewayPort: 8070,
   dashboardPort: 3000,
@@ -82,11 +87,15 @@ export function resolveOptions(values: Record<string, string | boolean | undefin
   if (host.protocol !== 'https:' && host.hostname !== 'localhost' && host.hostname !== '127.0.0.1') {
     throw new Error('Alleen localhost en 127.0.0.1 mogen met http; gebruik anders https.')
   }
+  const responsibleId = positiveInteger(text('responsible-id'), '--responsible-id', null)
+  const planningRoleId = positiveInteger(text('planning-role-id'), '--planning-role-id', null)
+  if (planningRoleId !== null && responsibleId === null) throw new Error('--planning-role-id werkt alleen samen met --responsible-id.')
   return {
     odooUrl: host.origin,
     database: text('database') ? singleLine(text('database') as string, '--database') : DEFAULTS.database,
     companyId: positiveInteger(text('company-id'), '--company-id', DEFAULTS.companyId) as number,
-    responsibleId: positiveInteger(text('responsible-id'), '--responsible-id', null),
+    responsibleId,
+    planningRoleId,
     adminUsername: singleLine(text('admin-username') ?? DEFAULTS.adminUsername, '--admin-username'),
     gatewayPort: positiveInteger(text('gateway-port'), '--gateway-port', DEFAULTS.gatewayPort) as number,
     dashboardPort: positiveInteger(text('dashboard-port'), '--dashboard-port', DEFAULTS.dashboardPort) as number,
@@ -115,7 +124,14 @@ export function buildLocalSetup(options: LocalSetupOptions, secrets: LocalSetupS
     tokenSha256: sha256Hex(secrets.gatewayToken),
     companyId: options.companyId,
   }
-  if (options.responsibleId !== null) project.actions = { createEmployee: { responsibleUserId: options.responsibleId } }
+  if (options.responsibleId !== null) {
+    project.actions = {
+      createEmployee: {
+        responsibleUserId: options.responsibleId,
+        ...(options.planningRoleId !== null && { planningRoleIds: [options.planningRoleId], defaultPlanningRoleId: options.planningRoleId }),
+      },
+    }
+  }
   else delete project.actions
   const projects = { projects: [project] }
   parseProjects(projects) // throws when the gateway would refuse this file
@@ -173,6 +189,7 @@ function main() {
       database: { type: 'string' },
       'company-id': { type: 'string' },
       'responsible-id': { type: 'string' },
+      'planning-role-id': { type: 'string' },
       'admin-username': { type: 'string' },
       'gateway-port': { type: 'string' },
       'dashboard-port': { type: 'string' },
@@ -204,6 +221,9 @@ function main() {
   } else {
     out()
     out(`Monteur toevoegen in Odoo staat AAN met Odoo-gebruiker ${options.responsibleId} als verantwoordelijke (bedrijf ${options.companyId}).`)
+    out(options.planningRoleId === null
+      ? 'Er is GEEN planningsrol ingesteld: een nieuwe monteur is pas aan een dienst met een rol te geven nadat hij die rol in Odoo heeft (--planning-role-id).'
+      : `Elke nieuwe monteur krijgt planningsrol ${options.planningRoleId} (ook als standaardrol).`)
   }
 }
 

@@ -25,12 +25,14 @@ function amsterdamToday() {
 
 function mockOdoo() {
   const wire: Wire[] = []
-  const employees: Array<{ id: number; name: string; company_id: [number, string]; user_id: false | [number, string] }> = []
+  const employees: Array<{ id: number; name: string; company_id: [number, string]; user_id: false | [number, string]; planning_role_ids: number[] }> = []
   const mode = {
     responsible: { id: 9, active: true, share: false, company_ids: [2] } as Record<string, unknown> | null,
     create: 'ok' as 'ok' | 'refuse' | 'lost',
     userOnRead: false,
     readFails: false,
+    /** The planning.role records that exist and are active. */
+    roles: [3, 4] as number[],
   }
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
   const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
@@ -38,10 +40,14 @@ function mockOdoo() {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, any>
     wire.push({ path, body })
     if (path === '/json/2/res.users/search_read') return json(200, mode.responsible ? [mode.responsible] : [])
+    if (path === '/json/2/planning.role/search_read') {
+      const asked = body.domain[0][2] as number[]
+      return json(200, mode.roles.filter((id) => asked.includes(id)).map((id) => ({ id })))
+    }
     if (path === '/json/2/hr.employee/create') {
       if (mode.create === 'refuse') return json(403, { name: 'odoo.exceptions.AccessError', message: 'Access denied' })
       const vals = body.vals_list[0]
-      const record = { id: 41 + employees.length, name: vals.name as string, company_id: [vals.company_id, 'DIG'] as [number, string], user_id: vals.user_id as false }
+      const record = { id: 41 + employees.length, name: vals.name as string, company_id: [vals.company_id, 'DIG'] as [number, string], user_id: vals.user_id as false, planning_role_ids: ((vals.planning_role_ids?.[0]?.[2] ?? []) as number[]) }
       employees.push(record)
       // "lost": Odoo created the employee, but the answer never arrived.
       if (mode.create === 'lost') throw new TypeError('connection reset')
@@ -58,7 +64,7 @@ function mockOdoo() {
   return { wire, employees, mode, fetchImpl }
 }
 
-async function chain(options: { actionOn?: boolean; lostAnswer?: boolean } = {}) {
+async function chain(options: { actionOn?: boolean; lostAnswer?: boolean; planning?: { planningRoleIds: number[]; defaultPlanningRoleId?: number } } = {}) {
   const odoo = mockOdoo()
   const projects = parseProjects({
     projects: [
@@ -67,7 +73,7 @@ async function chain(options: { actionOn?: boolean; lostAnswer?: boolean } = {})
         tokenSha256: sha256Hex(TOKEN),
         companyId: 2,
         models: { 'planning.slot': { fields: ['name'], methods: ['search_read'] } },
-        ...(options.actionOn === false ? {} : { actions: { createEmployee: { responsibleUserId: 9 } } }),
+        ...(options.actionOn === false ? {} : { actions: { createEmployee: { responsibleUserId: 9, ...options.planning } } }),
       },
     ],
   })
@@ -281,5 +287,55 @@ test('chain: two technicians with the same name are two employees and two accoun
     await post(c, cookie, { requestId: 'req-second-0123456789', username: 'els2' })
     assert.deepEqual(c.odoo.employees.map((employee) => [employee.id, employee.name]), [[41, 'Els Bakker'], [42, 'Els Bakker']])
     assert.deepEqual(c.api.accounts.list().filter((a) => a.name === 'Els Bakker').map((a) => a.personId).sort(), ['employee:41', 'employee:42'])
+  })
+})
+
+test('chain: with planning roles configured Odoo gets them, from the configuration only, and the planner is told how many were confirmed', async () => {
+  await withChain(async (c) => {
+    const cookie = await planner(c)
+    const sneaky = await post(c, cookie, { planningRoleIds: [1], planning_role_ids: [[6, 0, [1]]], defaultPlanningRoleId: 1 })
+    assert.equal(sneaky.status, 400, 'the browser cannot choose roles')
+    assert.equal(c.odoo.wire.length, 0)
+
+    const answer = await post(c, cookie)
+    assert.equal(answer.status, 201)
+    assert.equal(answer.json.planningRoles, 2)
+    assert.deepEqual(c.odoo.wire.map((entry) => entry.path), [
+      '/json/2/res.users/search_read', '/json/2/planning.role/search_read', '/json/2/hr.employee/create', '/json/2/hr.employee/search_read',
+    ])
+    const [created] = creates(c)
+    assert.deepEqual(created.body.vals_list, [{
+      name: 'Els Bakker', company_id: 2, hr_responsible_id: 9, user_id: false, date_version: amsterdamToday(),
+      planning_role_ids: [[6, 0, [3, 4]]], default_planning_role_id: 3,
+    }])
+    assert.deepEqual(c.odoo.employees.map((employee) => employee.planning_role_ids), [[3, 4]])
+    const again = await post(c, cookie)
+    assert.equal(again.json.planningRoles, 2, 'a repeat tells the same')
+    assert.equal(creates(c).length, 1)
+  }, { planning: { planningRoleIds: [3, 4], defaultPlanningRoleId: 3 } })
+})
+
+test('chain: a configured planning role that is gone stops everything before an employee is made', async () => {
+  await withChain(async (c) => {
+    c.odoo.mode.roles = [3]
+    const cookie = await planner(c)
+    const refused = await post(c, cookie)
+    assert.equal(refused.status, 502)
+    assert.match(String(refused.json.error), /planningsrol/i)
+    assert.equal(refused.json.retry, 'safe')
+    assert.equal(creates(c).length, 0)
+    assert.equal(c.api.accounts.list().length, 2, 'no account was made (only the two logins of the set-up)')
+    c.odoo.mode.roles = [3, 4]
+    assert.equal((await post(c, cookie)).status, 201, 'the same request works once the role is back')
+    assert.equal(creates(c).length, 1)
+  }, { planning: { planningRoleIds: [3, 4] } })
+})
+
+test('chain: without planning roles configured the planner is told that none were set', async () => {
+  await withChain(async (c) => {
+    const answer = await post(c, await planner(c))
+    assert.equal(answer.json.planningRoles, 0)
+    assert.ok(!c.odoo.wire.some((entry) => entry.path.includes('planning.role')), 'no role check without roles')
+    assert.ok(!('planning_role_ids' in creates(c)[0].body.vals_list[0]))
   })
 })
