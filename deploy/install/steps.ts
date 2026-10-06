@@ -429,14 +429,14 @@ export async function uninstall(sys: Sys, facts: Facts, options: UninstallOption
   }
   await sys.run('docker', ['network', 'rm', `${COMPOSE_PROJECT}_default`])
   done.push('Odoo-gateway gestopt')
-  const network = await sys.run('docker', ['network', 'rm', NETWORK])
-  done.push(ok(network) ? `netwerk ${NETWORK} verwijderd` : `netwerk ${NETWORK} bleef staan (nog in gebruik)`)
+  if (!ok(await sys.run('docker', ['network', 'inspect', NETWORK]))) done.push(`netwerk ${NETWORK} bestond niet meer`)
+  else done.push(ok(await sys.run('docker', ['network', 'rm', NETWORK])) ? `netwerk ${NETWORK} verwijderd` : `netwerk ${NETWORK} bleef staan (er hangt nog iets aan)`)
 
   if (options.purge) {
-    await sys.run('docker', ['rmi', SANDBOX_IMAGE])
+    await sys.run('docker', ['rmi', SANDBOX_IMAGE, `${COMPOSE_PROJECT}-odoo-gateway`])
     for (const dir of [PATHS.root, PATHS.etc]) await sys.remove(dir)
     await sys.run('userdel', [USER])
-    done.push(`${PATHS.root}, ${PATHS.etc} en de gebruiker ${USER} verwijderd`)
+    done.push(`${PATHS.root}, ${PATHS.etc} en de gebruiker ${USER} verwijderd (reservekopieën van het Caddyfile blijven naast het bestand staan)`)
   } else {
     done.push(`code, gegevens en geheimen blijven staan (${PATHS.root}, ${PATHS.etc}); zet "purge" erbij om ze te verwijderen`)
   }
