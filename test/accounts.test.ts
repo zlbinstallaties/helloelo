@@ -271,3 +271,29 @@ test('the id of a new account is never one that is taken', () => {
   const second = accounts.create({ username: 'els', name: 'Els', role: 'monteur', personId: 'employee:2', password: PASSWORD })
   assert.equal(second.id, 'u_2')
 })
+
+test('precheck: the user name and name of a new account are checked before anything else is done, and nothing is saved', () => {
+  const { accounts, state } = store(null, { reservedUsernames: ['noodadmin'] })
+  addMonteur(accounts, 'jan', 'employee:7')
+  const writes = state.writes
+  assert.deepEqual(accounts.precheck({ username: '  Els.B ', name: ' Els Bakker ' }), { username: 'els.b', name: 'Els Bakker' })
+  assertError(() => accounts.precheck({ username: 'JAN', name: 'Jan' }), 'conflict', /bestaat al/)
+  assertError(() => accounts.precheck({ username: 'noodadmin', name: 'Nep' }), 'conflict', /bestaat al/)
+  assertError(() => accounts.precheck({ username: 'a b', name: 'Jan' }), 'invalid', /gebruikersnaam/i)
+  assertError(() => accounts.precheck({ username: 'els', name: '' }), 'invalid', /naam/)
+  assertError(() => accounts.precheck({ username: 'els', name: 'x'.repeat(81) }), 'invalid', /naam/)
+  assert.equal(state.writes, writes, 'nothing was written')
+})
+
+test('precheck on a damaged file is an error too, so nothing is started on top of it', () => {
+  const { accounts } = store('{ kapot')
+  assert.throws(() => accounts.precheck({ username: 'els', name: 'Els' }), AccountsFileError)
+})
+
+test('a name with a line break or another control character is refused, also when the account is made', () => {
+  const { accounts } = store()
+  for (const name of ['Jan\nde Vries', 'Jan\u0000', 'Jan\tde', 'Jan\u007f']) {
+    assertError(() => accounts.precheck({ username: 'jan', name }), 'invalid', /naam/)
+    assertError(() => accounts.create({ username: 'jan', name, role: 'monteur', personId: 'employee:7', password: PASSWORD }), 'invalid', /naam/)
+  }
+})

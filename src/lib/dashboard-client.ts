@@ -1,3 +1,4 @@
+import { api, ApiError } from './api-client.ts'
 import type { DashboardResponse } from './dashboard-types.ts'
 
 /*
@@ -12,8 +13,9 @@ export function dashboardParams(date: string, scope: DashboardResponse['scope'],
 }
 
 /**
- * Calls /api/dashboard and returns the answer. Anything else becomes an Error with a message that can be shown:
- * the message of the server when it sent one, otherwise `fallback` with the HTTP status.
+ * Calls /api/dashboard and returns the answer. Anything else becomes an `ApiError` with a message that can be
+ * shown: the message of the server when it sent one, otherwise `fallback` with the HTTP status. The status
+ * stays in the error, so the screen can send a person whose session ended (401) back to the login.
  */
 export async function requestDashboard(
   params: URLSearchParams,
@@ -21,17 +23,7 @@ export async function requestDashboard(
   fallback: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DashboardResponse> {
-  let response: Response
-  try {
-    response = await fetchImpl(`/api/dashboard?${params}`, { method })
-  } catch {
-    throw new Error('De server is niet bereikbaar.')
-  }
-  const payload = (await response.json().catch(() => null)) as (Partial<DashboardResponse> & { error?: unknown }) | null
-  if (!response.ok) {
-    const message = typeof payload?.error === 'string' && payload.error ? payload.error : `${fallback} (HTTP ${response.status})`
-    throw new Error(message)
-  }
-  if (!payload || !Array.isArray(payload.appointments)) throw new Error('Onverwacht antwoord van de server.')
+  const payload = await api<Partial<DashboardResponse>>(`/api/dashboard?${params}`, { method, fallback }, fetchImpl)
+  if (!Array.isArray(payload.appointments)) throw new ApiError(200, 'Onverwacht antwoord van de server.')
   return payload as DashboardResponse
 }

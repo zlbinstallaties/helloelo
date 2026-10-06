@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { ApiError } from '../src/lib/api-client.ts'
 import { dashboardParams, requestDashboard } from '../src/lib/dashboard-client.ts'
 import type { DashboardResponse } from '../src/lib/dashboard-types.ts'
 
@@ -81,4 +82,25 @@ test('a success answer that is not a dashboard answer is an error, not an empty 
   }
   const text = fakeFetch(() => new Response('ok', { status: 200 }))
   await assert.rejects(requestDashboard(params, 'POST', 'x', text.fetchImpl), { message: 'Onverwacht antwoord van de server.' })
+})
+
+test('refreshing carries the header of the dashboard, loading does not', async () => {
+  const seen: Array<{ method: string | undefined; header: string | undefined }> = []
+  const fetchImpl = (async (_url: string, init?: RequestInit) => {
+    seen.push({ method: init?.method, header: (init?.headers as Record<string, string> | undefined)?.['x-dig-dashboard'] })
+    return json(RESPONSE)
+  }) as unknown as typeof fetch
+  const params = dashboardParams('2026-10-06', 'day', '')
+  await requestDashboard(params, 'GET', 'x', fetchImpl)
+  await requestDashboard(params, 'POST', 'x', fetchImpl)
+  assert.deepEqual(seen, [{ method: 'GET', header: undefined }, { method: 'POST', header: '1' }])
+})
+
+test('a person whose session ended is recognisable by the status of the error', async () => {
+  const { fetchImpl } = fakeFetch(() => json({ error: 'Niet ingelogd.' }, 401))
+  await assert.rejects(requestDashboard(dashboardParams('2026-10-06', 'day', ''), 'GET', 'x', fetchImpl), (error) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.status, 401)
+    return true
+  })
 })

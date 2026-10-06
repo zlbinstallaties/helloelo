@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -17,13 +17,16 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { ReactNode } from 'react'
+import { AppHeader } from '@/components/app-header'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { ApiError } from '#/lib/api-client'
 import { dashboardParams, requestDashboard } from '#/lib/dashboard-client'
 import type { DashboardAppointment, DashboardAppointmentVisit, DashboardResponse } from '#/lib/dashboard-types'
 import { MAX_RECORDS } from '#/lib/paging'
+import { useMe } from '#/lib/session'
 
 export const Route = createFileRoute('/')({ component: Dashboard })
 
@@ -57,6 +60,16 @@ function formatDate(value: string) {
 
 function Dashboard() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const me = useMe()
+  // Logins on and nobody logged in: to the login screen. Everything below waits until it is clear who is looking.
+  const needsLogin = me.data?.authMode === 'on' && !me.data.user
+  const ready = Boolean(me.data) && !needsLogin
+  const isMonteur = me.data?.user?.role === 'monteur'
+  const canRefresh = me.data?.canRefresh === true
+  useEffect(() => {
+    if (needsLogin) void navigate({ to: '/login' })
+  }, [needsLogin, navigate])
   const [date, setDate] = useState(todayInAmsterdam)
   const [scope, setScope] = useState<DashboardResponse['scope']>('day')
   const [technician, setTechnician] = useState('')
@@ -66,7 +79,17 @@ function Dashboard() {
     queryKey,
     queryFn: () => requestDashboard(dashboardParams(date, scope, technician), 'GET', 'De afspraken konden niet worden geladen.'),
     staleTime: 60_000,
+    enabled: ready,
+    // A session that ended is not an error to try again.
+    retry: (count, error) => !(error instanceof ApiError && error.status === 401) && count < 2,
   })
+  const sessionEnded = query.error instanceof ApiError && query.error.status === 401
+  useEffect(() => {
+    if (sessionEnded) {
+      queryClient.clear()
+      void navigate({ to: '/login' })
+    }
+  }, [sessionEnded, queryClient, navigate])
 
   // The POST answers with the fresh data for this view, so it is used as is: no second read of Odoo behind it.
   // When Odoo cannot be read the old data stays on screen and the failure is shown, with how old that data is.
@@ -90,33 +113,22 @@ function Dashboard() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
-              <Wrench className="size-5" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">DIG · Odoo 20</p>
-              <h1 className="text-xl font-semibold tracking-tight">Monteursdashboard</h1>
-            </div>
-          </div>
-          <div className="hidden items-center gap-2 rounded-full border border-border bg-muted px-3 py-2 text-xs font-medium text-muted-foreground sm:flex">
-            <span className="size-2 rounded-full bg-chart-2" /> Alleen-lezen · testomgeving
-          </div>
-        </div>
-      </header>
+      <AppHeader me={me.data} active="dashboard" />
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
         <section className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="mb-2 text-sm font-medium text-primary">{query.data?.company.name ?? 'De Installatiegroep B.V. [TEST]'}</p>
-            <h2 className="max-w-2xl text-3xl font-semibold leading-tight sm:text-4xl">De werkdag van je monteurs, helder in beeld.</h2>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Planning komt uit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">planning.slot</code>. DIG-bezoeken worden aangevuld vanuit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">svs.tech.visit</code>.</p>
+            <h2 className="max-w-2xl text-3xl font-semibold leading-tight sm:text-4xl">{isMonteur ? 'Jouw werkdag, helder in beeld.' : 'De werkdag van je monteurs, helder in beeld.'}</h2>
+            {!isMonteur && (
+              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Planning komt uit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">planning.slot</code>. DIG-bezoeken worden aangevuld vanuit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">svs.tech.visit</code>.</p>
+            )}
           </div>
-          <button type="button" onClick={() => refresh.mutate()} disabled={query.isFetching || refresh.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold shadow-sm transition hover:bg-muted disabled:cursor-wait disabled:opacity-60">
-            <RefreshCw className={`size-4 ${query.isFetching || refresh.isPending ? 'animate-spin' : ''}`} /> Ververs Odoo-data
-          </button>
+          {canRefresh && (
+            <button type="button" onClick={() => refresh.mutate()} disabled={query.isFetching || refresh.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold shadow-sm transition hover:bg-muted disabled:cursor-wait disabled:opacity-60">
+              <RefreshCw className={`size-4 ${query.isFetching || refresh.isPending ? 'animate-spin' : ''}`} /> Ververs Odoo-data
+            </button>
+          )}
         </section>
 
         <section className="mb-6 grid gap-3 sm:grid-cols-3" aria-label="Overzicht">
@@ -127,9 +139,11 @@ function Dashboard() {
 
         <section className="mb-7 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5" aria-label="Filters">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold"><SlidersHorizontal className="size-4 text-primary" /> Weergave</div>
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.2fr_auto] md:items-end">
+          <div className={`grid gap-3 md:items-end ${isMonteur ? 'md:grid-cols-[1fr_1.2fr_auto]' : 'md:grid-cols-[1fr_1fr_1.2fr_auto]'}`}>
             <label className="grid gap-1.5 text-sm font-medium">Datum<input type="date" value={date} onChange={(event) => { setDate(event.target.value); setScope('day'); setSelected(null) }} className="h-10 rounded-xl border border-input bg-background px-3 font-normal outline-none ring-offset-background focus:ring-2 focus:ring-ring" /></label>
-            <label className="grid gap-1.5 text-sm font-medium">Monteur<select value={technician} onChange={(event) => { setTechnician(event.target.value); setSelected(null) }} className="h-10 rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-ring"><option value="">Alle monteurs</option>{query.data?.technicians.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+            {!isMonteur && (
+              <label className="grid gap-1.5 text-sm font-medium">Monteur<select value={technician} onChange={(event) => { setTechnician(event.target.value); setSelected(null) }} className="h-10 rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-ring"><option value="">Alle monteurs</option>{query.data?.technicians.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+            )}
             <div className="grid gap-1.5 text-sm font-medium"><span>Periode</span><div className="flex h-10 rounded-xl border border-input bg-background p-1">{(['day', 'upcoming', 'all'] as const).map((item) => <button key={item} type="button" onClick={() => { setScope(item); setSelected(null) }} className={`flex-1 rounded-lg px-3 text-xs font-semibold transition ${scope === item ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>{item === 'day' ? 'Vandaag' : item === 'upcoming' ? 'Komend' : 'Alle'}</button>)}</div></div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="size-2 rounded-full bg-chart-2" /> Cache: maximaal 5 minuten</div>
           </div>
@@ -142,7 +156,7 @@ function Dashboard() {
             <AlertDescription>Het dashboard leest maximaal {MAX_RECORDS.toLocaleString('nl-NL')} planningen en {MAX_RECORDS.toLocaleString('nl-NL')} bezoeken, de nieuwste eerst. De oudste ontbreken, en een bezoek kan daardoor als "Niet gepland" verschijnen.</AlertDescription>
           </Alert>
         )}
-        {query.isLoading && <LoadingState />}
+        {(me.isLoading || needsLogin || query.isLoading) && <LoadingState />}
         {query.isError && <ErrorState message={query.error.message} onRetry={() => query.refetch()} />}
         {!query.isLoading && !query.isError && appointments.length === 0 && <EmptyState date={date} scope={scope} onUpcoming={() => setScope('upcoming')} onAll={() => setScope('all')} />}
         {!query.isLoading && !query.isError && appointments.length > 0 && <Appointments key={`${date}|${scope}|${technician}`} appointments={appointments} onSelect={setSelected} />}

@@ -72,6 +72,8 @@ const app = spawn('node', ['scripts/serve.mjs'], {
     NODE_ENV: 'production',
     PORT: String(probePort),
     HOST: '127.0.0.1',
+    // The probe looks at the data with demo data, not at the login: logins are off here.
+    DIG_AUTH: 'off',
     DIG_GATEWAY_URL: `http://127.0.0.1:${gatewayPort}`,
     DIG_GATEWAY_TOKEN: TOKEN,
   },

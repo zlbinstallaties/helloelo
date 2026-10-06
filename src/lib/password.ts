@@ -1,4 +1,5 @@
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto'
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './password-limits.ts'
 
 /*
  * Passwords of the dashboard accounts. Only a scrypt hash is ever stored, in the same format as the preview
@@ -10,8 +11,7 @@ const KEY_LENGTH = 32
 const SALT_LENGTH = 16
 const STORED_FORMAT = /^scrypt:([0-9a-f]{32}):([0-9a-f]{64})$/
 
-export const MIN_PASSWORD_LENGTH = 12
-export const MAX_PASSWORD_LENGTH = 200
+export { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH }
 
 export function hashPassword(password: string, salt: Buffer = randomBytes(SALT_LENGTH)): string {
   return `scrypt:${salt.toString('hex')}:${scryptSync(password, salt, KEY_LENGTH).toString('hex')}`

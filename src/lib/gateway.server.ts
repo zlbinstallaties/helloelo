@@ -1,4 +1,7 @@
 import '@tanstack/react-start/server-only'
+import { GatewayError } from '#/lib/gateway-error'
+import { createEmployeeViaGateway } from '#/lib/gateway-employee'
+import type { GatewayOutcome } from '#/lib/gateway-employee'
 import { PAGE_SIZE, readAllPages } from '#/lib/paging'
 
 /*
@@ -11,17 +14,7 @@ import { PAGE_SIZE, readAllPages } from '#/lib/paging'
  *   DIG_GATEWAY_TOKEN  project token for this app
  */
 
-export class GatewayError extends Error {
-  status: number
-  code: string | null
-
-  constructor(message: string, status: number, code: string | null = null) {
-    super(message)
-    this.name = 'GatewayError'
-    this.status = status
-    this.code = code
-  }
-}
+export { GatewayError }
 
 function config() {
   const url = process.env.DIG_GATEWAY_URL
@@ -67,4 +60,15 @@ export async function searchRead<T>(
  */
 export async function searchReadAll<T extends { id: number }>(model: string, fields: string[], order: string) {
   return readAllPages<T>((offset, limit) => searchRead<T>(model, fields, { limit, offset, order }))
+}
+
+/**
+ * The one write of the dashboard: a technician as an employee in Odoo, without an Odoo user (see
+ * src/lib/gateway-employee.ts). Only a request id and a name are sent. The gateway decides company, responsible
+ * and values, and refuses it unless its config switches the action on for this token.
+ */
+export async function createEmployee(input: { requestId: string; name: string }): Promise<GatewayOutcome> {
+  if (!gatewayConfigured()) return { kind: 'not_enabled', message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+  const { url, token } = config()
+  return createEmployeeViaGateway({ url, token, ...input })
 }

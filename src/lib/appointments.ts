@@ -110,6 +110,15 @@ export function personHasId(person: DashboardPerson, id: string) {
   return person.id === id || Boolean(person.alsoIds?.includes(id))
 }
 
+/** The people of the planning, once each (by id): who an account can be linked to. */
+export function planningPeople(appointments: DashboardAppointment[]): DashboardPerson[] {
+  const byId = new Map<string, DashboardPerson>()
+  for (const appointment of appointments) {
+    for (const person of appointment.people) if (!byId.has(person.id)) byId.set(person.id, person)
+  }
+  return [...byId.values()]
+}
+
 const KIND_LABEL: Record<string, string> = { employee: 'medewerker', user: 'gebruiker' }
 
 /*

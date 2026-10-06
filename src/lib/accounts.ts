@@ -149,7 +149,21 @@ export function createAccountStore(options: AccountStoreOptions) {
   function checkName(value: unknown) {
     const name = typeof value === 'string' ? value.trim() : ''
     if (name.length < 1 || name.length > 80) throw new AccountError('invalid', 'De naam moet 1 tot 80 tekens zijn.')
+    if ([...name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+      throw new AccountError('invalid', 'De naam mag geen regeleinden of andere stuurtekens bevatten.')
+    }
     return name
+  }
+
+  function checkUsername(accounts: StoredAccount[], value: unknown) {
+    const username = normalizeUsername(value)
+    if (!USERNAME.test(username)) {
+      throw new AccountError('invalid', 'De gebruikersnaam moet 3 tot 40 tekens zijn: letters, cijfers, punt, streepje of underscore, beginnend met een letter of cijfer.')
+    }
+    if (reserved.has(username) || accounts.some((item) => item.username === username)) {
+      throw new AccountError('conflict', 'Deze gebruikersnaam bestaat al.')
+    }
+    return username
   }
 
   function checkRole(value: unknown): Role {
@@ -201,15 +215,18 @@ export function createAccountStore(options: AccountStoreOptions) {
       return load().find((item) => item.id === id)?.sessionVersion ?? null
     },
 
+    /**
+     * Checks what can be checked before the person exists in Odoo: the user name (valid, free) and the name.
+     * Saves nothing. Returns them in the form they will be stored.
+     */
+    precheck(input: { username: string; name: string }): { username: string; name: string } {
+      const accounts = load()
+      return { username: checkUsername(accounts, input.username), name: checkName(input.name) }
+    },
+
     create(input: NewAccount): PublicAccount {
       const accounts = load()
-      const username = normalizeUsername(input.username)
-      if (!USERNAME.test(username)) {
-        throw new AccountError('invalid', 'De gebruikersnaam moet 3 tot 40 tekens zijn: letters, cijfers, punt, streepje of underscore, beginnend met een letter of cijfer.')
-      }
-      if (reserved.has(username) || accounts.some((item) => item.username === username)) {
-        throw new AccountError('conflict', 'Deze gebruikersnaam bestaat al.')
-      }
+      const username = checkUsername(accounts, input.username)
       const name = checkName(input.name)
       const role = checkRole(input.role)
       const personId = checkPerson(input.personId, role)

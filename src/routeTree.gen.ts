@@ -10,12 +10,38 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccountRouteImport } from './routes/account'
+import { Route as BeheerRouteImport } from './routes/beheer'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiDashboardRouteImport } from './routes/api/dashboard'
+import { Route as ApiEmployeesRouteImport } from './routes/api/employees'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiAccountsIndexRouteImport } from './routes/api/accounts/index'
+import { Route as ApiAccountsIdRouteImport } from './routes/api/accounts/$id'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
+import { Route as ApiAuthPasswordRouteImport } from './routes/api/auth/password'
+import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountRoute = AccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BeheerRoute = BeheerRouteImport.update({
+  id: '/beheer',
+  path: '/beheer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDashboardRoute = ApiDashboardRouteImport.update({
@@ -23,40 +49,166 @@ const ApiDashboardRoute = ApiDashboardRouteImport.update({
   path: '/api/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEmployeesRoute = ApiEmployeesRouteImport.update({
+  id: '/api/employees',
+  path: '/api/employees',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAccountsIndexRoute = ApiAccountsIndexRouteImport.update({
+  id: '/api/accounts/',
+  path: '/api/accounts/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountsIdRoute = ApiAccountsIdRouteImport.update({
+  id: '/api/accounts/$id',
+  path: '/api/accounts/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthMeRoute = ApiAuthMeRouteImport.update({
+  id: '/api/auth/me',
+  path: '/api/auth/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthPasswordRoute = ApiAuthPasswordRouteImport.update({
+  id: '/api/auth/password',
+  path: '/api/auth/password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountsIdPasswordRoute = ApiAccountsIdPasswordRouteImport.update({
+  id: '/password',
+  path: '/password',
+  getParentRoute: () => ApiAccountsIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/accounts': typeof ApiAccountsIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/dashboard' | '/api/health'
+  fullPaths:
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/accounts/'
+    | '/api/accounts/$id/password'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/dashboard' | '/api/health'
-  id: '__root__' | '/' | '/api/dashboard' | '/api/health'
+  to:
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/accounts'
+    | '/api/accounts/$id/password'
+  id:
+    | '__root__'
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/accounts/'
+    | '/api/accounts/$id/password'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountRoute: typeof AccountRoute
+  BeheerRoute: typeof BeheerRoute
+  LoginRoute: typeof LoginRoute
   ApiDashboardRoute: typeof ApiDashboardRoute
+  ApiEmployeesRoute: typeof ApiEmployeesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiAccountsIdRoute: typeof ApiAccountsIdRouteWithChildren
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthMeRoute: typeof ApiAuthMeRoute
+  ApiAuthPasswordRoute: typeof ApiAuthPasswordRoute
+  ApiAccountsIndexRoute: typeof ApiAccountsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +220,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/account': {
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/beheer': {
+      id: '/beheer'
+      path: '/beheer'
+      fullPath: '/beheer'
+      preLoaderRoute: typeof BeheerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/dashboard': {
       id: '/api/dashboard'
       path: '/api/dashboard'
       fullPath: '/api/dashboard'
       preLoaderRoute: typeof ApiDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/employees': {
+      id: '/api/employees'
+      path: '/api/employees'
+      fullPath: '/api/employees'
+      preLoaderRoute: typeof ApiEmployeesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -82,13 +262,84 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/accounts/': {
+      id: '/api/accounts/'
+      path: '/api/accounts'
+      fullPath: '/api/accounts/'
+      preLoaderRoute: typeof ApiAccountsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/accounts/$id': {
+      id: '/api/accounts/$id'
+      path: '/api/accounts/$id'
+      fullPath: '/api/accounts/$id'
+      preLoaderRoute: typeof ApiAccountsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/me': {
+      id: '/api/auth/me'
+      path: '/api/auth/me'
+      fullPath: '/api/auth/me'
+      preLoaderRoute: typeof ApiAuthMeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/password': {
+      id: '/api/auth/password'
+      path: '/api/auth/password'
+      fullPath: '/api/auth/password'
+      preLoaderRoute: typeof ApiAuthPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/accounts/$id/password': {
+      id: '/api/accounts/$id/password'
+      path: '/password'
+      fullPath: '/api/accounts/$id/password'
+      preLoaderRoute: typeof ApiAccountsIdPasswordRouteImport
+      parentRoute: typeof ApiAccountsIdRoute
+    }
   }
 }
 
+interface ApiAccountsIdRouteChildren {
+  ApiAccountsIdPasswordRoute: typeof ApiAccountsIdPasswordRoute
+}
+
+const ApiAccountsIdRouteChildren: ApiAccountsIdRouteChildren = {
+  ApiAccountsIdPasswordRoute: ApiAccountsIdPasswordRoute,
+}
+
+const ApiAccountsIdRouteWithChildren = ApiAccountsIdRoute._addFileChildren(
+  ApiAccountsIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccountRoute: AccountRoute,
+  BeheerRoute: BeheerRoute,
+  LoginRoute: LoginRoute,
   ApiDashboardRoute: ApiDashboardRoute,
+  ApiEmployeesRoute: ApiEmployeesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiAccountsIdRoute: ApiAccountsIdRouteWithChildren,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthMeRoute: ApiAuthMeRoute,
+  ApiAuthPasswordRoute: ApiAuthPasswordRoute,
+  ApiAccountsIndexRoute: ApiAccountsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

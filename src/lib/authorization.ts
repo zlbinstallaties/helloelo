@@ -5,7 +5,8 @@ import type { DashboardAppointment } from './dashboard-types.ts'
 /*
  * What a logged-in person may see and do. No I/O, so it is unit-tested in test/.
  *
- * - An admin sees every appointment, with the links to Odoo, may refresh the data from Odoo and manages accounts.
+ * - An admin (the planner) sees every appointment, with the links to Odoo, may refresh the data from Odoo, manages
+ *   accounts and may add a technician as an employee in Odoo.
  * - A technician sees only the appointments of the person their account is linked to (`personId`), without links
  *   to Odoo (they have no Odoo account), and cannot refresh or manage accounts. A technician without a person, or
  *   with a person nobody is planned as, sees nothing, never everything.
@@ -23,6 +24,8 @@ export type User = {
 
 export const canRefresh = (user: User) => user.role === 'admin'
 export const canManageAccounts = (user: User) => user.role === 'admin'
+/** Adding a technician as an employee in Odoo: only a planner (admin) with a login of their own. */
+export const canCreateEmployees = (user: User) => user.role === 'admin'
 
 function withoutOdooLinks(appointment: DashboardAppointment): DashboardAppointment {
   return {
