@@ -40,7 +40,7 @@ async function upstream() {
   return { server, port, seen }
 }
 
-async function setup(state: () => PreviewState | Promise<PreviewState>, live?: Pick<LiveResolver, 'exists' | 'resolve'>) {
+async function setup(state: () => PreviewState | Promise<PreviewState>, live?: Pick<LiveResolver, 'exists' | 'resolve'>, trustProxy = false) {
   const up = await upstream()
   const ensured: string[] = []
   const projects = new Map<string, PreviewProject>([['dashboard', { id: 'dashboard', workdir: '/x' }]])
@@ -56,6 +56,7 @@ async function setup(state: () => PreviewState | Promise<PreviewState>, live?: P
     },
     projects,
     live,
+    trustProxy,
     secureCookies: true,
     log: () => {},
   })
@@ -75,7 +76,7 @@ async function setup(state: () => PreviewState | Promise<PreviewState>, live?: P
   }
 }
 
-function call(port: number, path: string, opts: { method?: string; host?: string; cookie?: string; body?: string } = {}) {
+function call(port: number, path: string, opts: { method?: string; host?: string; cookie?: string; body?: string; headers?: Record<string, string> } = {}) {
   return new Promise<{ status: number; headers: IncomingHttpHeaders; body: string }>((resolve, reject) => {
     const req = request(
       {
@@ -86,6 +87,7 @@ function call(port: number, path: string, opts: { method?: string; host?: string
         headers: {
           host: opts.host ?? 'dashboard.preview.test',
           ...(opts.cookie ? { cookie: opts.cookie } : {}),
+          ...opts.headers,
           ...(opts.body ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
         },
       },
@@ -355,6 +357,44 @@ test('websocket upgrades work on the published hostname too, with the same check
       })
     assert.match(await liveUpgrade('https://evil.example'), /^HTTP\/1.1 403/)
     assert.match(await liveUpgrade('http://dashboard-live.preview.test'), /101 Switching Protocols/)
+  } finally {
+    await env.close()
+  }
+})
+
+test('behind a trusted TLS proxy the login limit is per visitor, not for everyone behind the proxy', async () => {
+  const env = await setup(() => ({ state: 'starting' }), undefined, true)
+  try {
+    const attempt = (ip: string, password: string) =>
+      call(env.port, '/_dig/login', { method: 'POST', body: `password=${password}`, headers: { 'x-forwarded-for': `${ip}, 172.17.0.1` } })
+    for (let i = 0; i < 10; i++) await attempt('203.0.113.9', 'nope')
+    assert.equal((await attempt('203.0.113.9', PASSWORD)).status, 429, 'the attacker is blocked')
+    assert.equal((await attempt('198.51.100.4', PASSWORD)).status, 303, 'another visitor behind the same proxy is not')
+  } finally {
+    await env.close()
+  }
+})
+
+test('without trustProxy a visitor cannot dodge the limit by sending their own X-Forwarded-For', async () => {
+  const env = await setup(() => ({ state: 'starting' }))
+  try {
+    for (let i = 0; i < 10; i++) await call(env.port, '/_dig/login', { method: 'POST', body: 'password=nope', headers: { 'x-forwarded-for': `10.0.0.${i}` } })
+    const blocked = await call(env.port, '/_dig/login', { method: 'POST', body: `password=${PASSWORD}`, headers: { 'x-forwarded-for': '10.9.9.9' } })
+    assert.equal(blocked.status, 429)
+  } finally {
+    await env.close()
+  }
+})
+
+test('behind a trusted proxy the app is told the real client and that the visitor used https', async () => {
+  let env!: Awaited<ReturnType<typeof setup>>
+  env = await setup(() => ({ state: 'ready', target: env.target }), undefined, true)
+  try {
+    const cookie = await loginCookie(env.port)
+    await call(env.port, '/x', { cookie, headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'https' } })
+    const seen = env.up.seen.at(-1)!
+    assert.equal(seen.headers['x-forwarded-for'], '203.0.113.9')
+    assert.equal(seen.headers['x-forwarded-proto'], 'https')
   } finally {
     await env.close()
   }
