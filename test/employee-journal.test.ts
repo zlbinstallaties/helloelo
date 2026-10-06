@@ -171,3 +171,19 @@ test('the number of confirmed planning roles is saved with the employee, and a b
     assert.throws(() => journal(file({ planningRoles })).journal.list(), JournalFileError, JSON.stringify(planningRoles))
   }
 })
+
+test('the planning roles of a request are written down with it, in the order chosen; none when there are none', () => {
+  const { journal: j, io } = journal()
+  j.begin({ requestId: REQUEST, name: 'Jan de Vries', username: 'jan', by: 'u_planner', planningRoleIds: [4, 3] })
+  j.begin({ requestId: 'req-without-roles-0123', name: 'Els', username: 'els', by: 'u_planner', planningRoleIds: [] })
+  j.begin({ requestId: 'req-undefined-roles-012', name: 'Piet', username: 'piet', by: 'u_planner' })
+  const again = createJournal({ io })
+  assert.deepEqual(again.get(REQUEST)?.planningRoleIds, [4, 3])
+  assert.equal(again.get('req-without-roles-0123')?.planningRoleIds, undefined)
+  assert.equal(again.get('req-undefined-roles-012')?.planningRoleIds, undefined)
+  const entry = { requestId: REQUEST, state: 'creating', name: 'Jan', username: 'jan', by: 'u', at: '2026-10-06T10:00:00.000Z', updatedAt: '2026-10-06T10:00:00.000Z' }
+  const file = (planningRoleIds: unknown) => JSON.stringify({ version: 1, requests: [{ ...entry, planningRoleIds }] })
+  for (const bad of ['3', [0], [-1], [1.5], ['3'], [1, 2, 3, 4, 5, 6], null, {}]) {
+    assert.throws(() => journal(file(bad)).journal.list(), JournalFileError, JSON.stringify(bad))
+  }
+})

@@ -7,7 +7,7 @@ import { createAuth } from '#/lib/auth'
 import { getDigDashboardData } from '#/lib/cache'
 import { createJournal } from '#/lib/employee-journal'
 import { JournalFileError } from '#/lib/employee-journal'
-import { createEmployee } from '#/lib/gateway.server'
+import { createEmployee, listPlanningRoles } from '#/lib/gateway.server'
 import { createHandlers } from '#/lib/handlers'
 import type { Handlers } from '#/lib/handlers'
 import { generatePassword, isPasswordHash } from '#/lib/password'
@@ -113,6 +113,7 @@ export function getHandlers(): Handlers {
     loadData: (refresh) => (refresh ? getDigDashboardData.refresh() : getDigDashboardData()),
     odooBaseUrl: process.env.ODOO_PUBLIC_URL ?? DEFAULT_ODOO_PUBLIC_URL,
     createEmployee,
+    listPlanningRoles,
     generatePassword,
   })
   return cached

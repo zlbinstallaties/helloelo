@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createEmployeeViaGateway } from '../src/lib/gateway-employee.ts'
+import { createEmployeeViaGateway, listPlanningRolesViaGateway } from '../src/lib/gateway-employee.ts'
 import type { GatewayOutcome } from '../src/lib/gateway-employee.ts'
 
 const TOKEN = 'gateway-token-very-secret'
@@ -121,4 +121,52 @@ test('the Odoo message is passed on only when it is a plain class name, not free
   assert.match(plain.message, /odoo\.exceptions\.AccessError/)
   const free = (await run(() => answer(502, { error: 'odoo_rejected', message: 'Jan de Vries <jan@example.com> mag dit niet' })).outcome) as { message: string }
   assert.ok(!free.message.includes('jan@example.com'))
+})
+
+test('the chosen planning roles go along, only when there are any, and nothing else about them', async () => {
+  const send = async (planningRoleIds?: readonly number[]) => {
+    const calls: Array<{ body: Record<string, unknown> }> = []
+    const fetchImpl = (async (_url: string | URL, init?: RequestInit) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return answer(200, { id: 41, name: 'Jan', verified: true, planningRoles: 2 })
+    }) as unknown as typeof fetch
+    await createEmployeeViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, requestId: REQUEST, name: 'Jan de Vries', planningRoleIds, fetchImpl })
+    return calls[0].body
+  }
+  assert.deepEqual(await send([4, 3]), { requestId: REQUEST, name: 'Jan de Vries', planningRoleIds: [4, 3] }, 'order kept: the first is the default')
+  assert.deepEqual(await send([]), { requestId: REQUEST, name: 'Jan de Vries' })
+  assert.deepEqual(await send(undefined), { requestId: REQUEST, name: 'Jan de Vries' })
+})
+
+function listRun(reply: () => Response | Promise<Response>) {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return reply()
+  }) as unknown as typeof fetch
+  return { calls, result: listPlanningRolesViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, fetchImpl }) }
+}
+
+test('the list of planning roles is a plain GET with the token, and only well-formed roles are taken over', async () => {
+  const { calls, result } = listRun(() => answer(200, { roles: [{ id: 3, name: 'Monteur' }, { id: 0, name: 'Nul' }, { id: 4, name: '  ' }, { id: '5', name: 'Tekst' }, { id: 6 }, null, { id: 7, name: 'Planner', extra: 'x' }] }))
+  assert.deepEqual(await result, { ok: true, roles: [{ id: 3, name: 'Monteur' }, { id: 7, name: 'Planner' }] })
+  assert.equal(calls[0].url, 'http://odoo-gateway:8070/v1/planning-roles')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal((calls[0].init.headers as Record<string, string>).authorization, `Bearer ${TOKEN}`)
+  assert.equal(calls[0].init.body, undefined)
+})
+
+test('the list of planning roles: clear messages for a wrong token, an action that is off, an Odoo problem or no connection', async () => {
+  const failure = async (reply: () => Response | Promise<Response>) => {
+    const result = await listRun(reply).result
+    assert.equal(result.ok, false)
+    return result.ok ? '' : result.message
+  }
+  assert.match(await failure(() => answer(401, { error: 'unauthorized' })), /token/)
+  assert.match(await failure(() => answer(403, { error: 'action_not_allowed' })), /niet aan/)
+  for (const reply of [() => answer(502, { error: 'odoo_error' }), () => answer(200, { roles: 'x' }), () => answer(200, 'geen json'), () => answer(200, {})]) {
+    assert.match(await failure(reply), /planningsrollen konden niet/)
+  }
+  assert.match(await failure(() => { throw new TypeError('connection reset') }), /planningsrollen konden niet/)
+  assert.ok(!(await failure(() => answer(401, { error: 'x' }))).includes(TOKEN), 'the token is never in a message')
 })

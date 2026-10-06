@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiDashboardRouteImport } from './routes/api/dashboard'
 import { Route as ApiEmployeesRouteImport } from './routes/api/employees'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiPlanningRolesRouteImport } from './routes/api/planning-roles'
 import { Route as ApiAccountsIndexRouteImport } from './routes/api/accounts/index'
 import { Route as ApiAccountsIdRouteImport } from './routes/api/accounts/$id'
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
@@ -57,6 +58,11 @@ const ApiEmployeesRoute = ApiEmployeesRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPlanningRolesRoute = ApiPlanningRolesRouteImport.update({
+  id: '/api/planning-roles',
+  path: '/api/planning-roles',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAccountsIndexRoute = ApiAccountsIndexRouteImport.update({
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
   '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
   '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
   '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/api/dashboard'
     | '/api/employees'
     | '/api/health'
+    | '/api/planning-roles'
     | '/api/accounts/$id'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/api/dashboard'
     | '/api/employees'
     | '/api/health'
+    | '/api/planning-roles'
     | '/api/accounts/$id'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/api/dashboard'
     | '/api/employees'
     | '/api/health'
+    | '/api/planning-roles'
     | '/api/accounts/$id'
     | '/api/auth/login'
     | '/api/auth/logout'
@@ -203,6 +215,7 @@ export interface RootRouteChildren {
   ApiDashboardRoute: typeof ApiDashboardRoute
   ApiEmployeesRoute: typeof ApiEmployeesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiPlanningRolesRoute: typeof ApiPlanningRolesRoute
   ApiAccountsIdRoute: typeof ApiAccountsIdRouteWithChildren
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
@@ -260,6 +273,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/planning-roles': {
+      id: '/api/planning-roles'
+      path: '/api/planning-roles'
+      fullPath: '/api/planning-roles'
+      preLoaderRoute: typeof ApiPlanningRolesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/accounts/': {
@@ -334,6 +354,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDashboardRoute: ApiDashboardRoute,
   ApiEmployeesRoute: ApiEmployeesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiPlanningRolesRoute: ApiPlanningRolesRoute,
   ApiAccountsIdRoute: ApiAccountsIdRouteWithChildren,
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,

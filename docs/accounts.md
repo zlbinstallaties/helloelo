@@ -24,7 +24,9 @@ Een monteur zonder gekoppelde persoon, of met een persoon die nergens is ingepla
 
 ## Monteur toevoegen (de planner)
 
-1. Planner kiest **Beheer, Monteur toevoegen** en vult een naam en een gebruikersnaam in. Meer is niet nodig.
+1. Planner kiest **Beheer, Monteur toevoegen**, vult een naam en een gebruikersnaam in en vinkt de **planningsrollen** aan
+   die de monteur moet krijgen. De rollen komen uit Odoo (Planning, Configuratie, Rollen) en worden daar aangemaakt; het
+   dashboard maakt er geen. De eerste die je aanvinkt is de standaardrol (hoogstens 5).
 2. De server controleert rol, sessie en invoer, en of het account kan bestaan (vrije gebruikersnaam), **voordat** Odoo
    wordt gevraagd.
 3. De aanvraag komt in het journaal (`employee-requests.json`), dan vraagt het dashboard de gateway om één
@@ -35,7 +37,7 @@ Een monteur zonder gekoppelde persoon, of met een persoon die nergens is ingepla
 6. Het scherm toont het Odoo-nummer en het wachtwoord, **één keer**. Bij een fout staat er een foutmelding en geen
    succes; er wordt dan geen account gemaakt.
 
-Wat de browser meestuurt is alleen `requestId`, `name` en `username`. Bedrijf, verantwoordelijke, waarden, model en
+Wat de browser meestuurt is alleen `requestId`, `name`, `username` en `planningRoleIds` (nummers van rollen uit de lijst). Bedrijf, verantwoordelijke, waarden, model en
 rol kunnen er niet in: onbekende velden worden geweigerd, ook door de gateway.
 
 ### Wat er naar Odoo gaat
@@ -45,13 +47,15 @@ Per aanmaak, en niets anders (`src/lib/odoo-client.ts`, getest met een nageboots
 | Aanroep | Doel |
 |---|---|
 | `res.users` `search_read`, één record, velden `id active share company_ids` | is de verantwoordelijke actief, intern en van het bedrijf |
-| `planning.role` `search_read`, alleen als er rollen zijn ingesteld, veld `id` | bestaan de ingestelde planningsrollen en zijn ze niet gearchiveerd |
-| `hr.employee` `create`, één record met `name`, `company_id`, `hr_responsible_id`, `user_id: false`, `date_version` en, als ingesteld, `planning_role_ids` en `default_planning_role_id` | de medewerker |
-| `hr.employee` `search_read`, één record, velden `id name company_id user_id active` (plus `planning_role_ids` als er rollen zijn ingesteld) | terugkijken: geen Odoo-gebruiker, juiste bedrijf, de rollen |
+| `planning.role` `search_read`, zonder filter, velden `id name` | de lijst met rollen voor het scherm (de planner kiest daaruit) |
+| `planning.role` `search_read` op de gekozen nummers, veld `id` | bestaan de gekozen rollen en zijn ze niet gearchiveerd |
+| `hr.employee` `create`, één record met `name`, `company_id`, `hr_responsible_id`, `user_id: false`, `date_version` en, als er rollen zijn gekozen, `planning_role_ids` en `default_planning_role_id` | de medewerker |
+| `hr.employee` `search_read`, één record, velden `id name company_id user_id active` (plus `planning_role_ids` als er rollen zijn gekozen) | terugkijken: geen Odoo-gebruiker, juiste bedrijf, de rollen |
 
-Er wordt nooit een `res.users` aangemaakt of gewijzigd, en nooit een planning of dienst. De planningsrol komt uit de
-gatewayconfig (`planningRoleIds`), nooit uit de browser; zonder rol kan een dienst met een rol niet aan de monteur worden
-toegewezen, en het scherm zegt dat ("Nog geen planningsrol").
+Er wordt nooit een `res.users` aangemaakt of gewijzigd, en nooit een planning of dienst. De planningsrollen kiest de
+planner uit de rollen die in Odoo staan; de gateway controleert ze (bestaan, niet gearchiveerd, en bij een beperking van
+het project toegestaan). Zonder rol kan een dienst met een rol niet aan de monteur worden toegewezen, en het scherm zegt
+dat ("Nog geen planningsrol").
 
 ### Wat Odoo 20 er zelf bij doet
 
@@ -156,7 +160,7 @@ bezoek zonder planning is alleen voor planners zichtbaar.
   "Employee created" en "Congratulations! May I recommend ... onboarding plan", beide door de aanroepende gebruiker.
 - Planning is een Enterprise-module; de broncode is hier niet gelezen. Wat is waargenomen (door de gebruiker, lokaal): een
   dienst met de functie Monteur kan alleen worden toegewezen aan iemand die die functie heeft; zonder werkt het niet.
-  Daarom zet de gateway bij het aanmaken een vaste planningsrol (`planningRoleIds`). De velden zijn `planning_role_ids` en
+  Daarom kiest de planner bij het toevoegen de rollen, en zet de gateway ze bij het aanmaken. De velden zijn `planning_role_ids` en
   `default_planning_role_id` (naar `planning.role`); dat Odoo ze in de aanroep van het dashboard aanneemt is **alleen met
   nagebootste antwoorden getest**, niet tegen een echte Odoo.
 - Hoe jullie Odoo `employee_ids` en `user_ids` van een dienst aanlevert (aangenomen: `[id, naam]`-paren).

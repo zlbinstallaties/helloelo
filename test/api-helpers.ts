@@ -2,7 +2,7 @@ import { createAccountStore } from '../src/lib/accounts.ts'
 import type { AccountIo } from '../src/lib/accounts.ts'
 import { createAuth } from '../src/lib/auth.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
-import type { GatewayOutcome } from '../src/lib/gateway-employee.ts'
+import type { GatewayOutcome, PlanningRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
 import { hashPassword } from '../src/lib/password.ts'
 import { createLoginLimiter, createSessions } from '../src/lib/sessions.ts'
@@ -47,7 +47,7 @@ export const DATA: DashboardData = {
 
 export const GENERATED = 'Tijd-Elijk-Pass-Word'
 
-export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secure?: boolean; createEmployee?: (input: { requestId: string; name: string }) => Promise<GatewayOutcome> } = {}) {
+export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secure?: boolean; createEmployee?: (input: { requestId: string; name: string; planningRoleIds?: readonly number[] }) => Promise<GatewayOutcome>; listPlanningRoles?: () => Promise<PlanningRolesOutcome> } = {}) {
   const state = { text: null as string | null }
   const io: AccountIo = { read: () => state.text, write: (text) => (state.text = text) }
   const journalState = { text: null as string | null }
@@ -65,7 +65,10 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
   const control = { failWith: null as Error | null }
   // What the dashboard sends to Odoo (through the gateway), and what Odoo answers. Nothing here is a real Odoo.
   const odoo = {
-    calls: [] as Array<{ requestId: string; name: string }>,
+    calls: [] as Array<{ requestId: string; name: string; planningRoleIds?: readonly number[] }>,
+    /** What the gateway says the planning roles are. */
+    roles: (): PlanningRolesOutcome | Promise<PlanningRolesOutcome> => ({ ok: true, roles: [{ id: 3, name: 'Monteur' }, { id: 4, name: 'Planner' }] }),
+    roleCalls: 0,
     outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const mode = options.mode ?? 'on'
@@ -89,6 +92,12 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
       (async (input) => {
         odoo.calls.push(input)
         return odoo.outcome()
+      }),
+    listPlanningRoles:
+      options.listPlanningRoles ??
+      (async () => {
+        odoo.roleCalls += 1
+        return odoo.roles()
       }),
     generatePassword: () => GENERATED,
   })

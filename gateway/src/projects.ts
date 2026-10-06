@@ -29,10 +29,11 @@ export interface ModelPolicy {
  */
 export interface CreateEmployeePolicy {
   responsibleUserId: number
-  /** Planning roles (`planning.role` ids) every new employee gets: a shift with a role can only go to someone who has it. */
-  planningRoleIds: readonly number[]
-  /** One of `planningRoleIds`; Odoo pre-selects it when a shift is made for the employee. */
-  defaultPlanningRoleId: number | null
+  /**
+   * The `planning.role` ids the planner may give a new employee, when the project wants to limit them. null: every
+   * existing, active role. A shift with a role can only go to someone who has that role.
+   */
+  allowedPlanningRoleIds: readonly number[] | null
   /** At most this many creations per hour for the project, as a brake on a runaway client. */
   maxPerHour: number
 }
@@ -53,7 +54,7 @@ export interface Project {
 export const ACTIONS = ['createEmployee'] as const
 const DEFAULT_MAX_PER_HOUR = 20
 const HARD_MAX_PER_HOUR = 200
-const MAX_PLANNING_ROLES = 5
+const MAX_ALLOWED_ROLES = 50
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
 const MODEL_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/
@@ -103,7 +104,7 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
     fail(`${projectId}: createEmployee must be an object with responsibleUserId`)
   }
   for (const key of Object.keys(entry)) {
-    if (!['responsibleUserId', 'maxPerHour', 'planningRoleIds', 'defaultPlanningRoleId'].includes(key)) {
+    if (!['responsibleUserId', 'maxPerHour', 'allowedPlanningRoleIds'].includes(key)) {
       fail(`${projectId}: createEmployee has an unknown setting ${key}`)
     }
   }
@@ -114,20 +115,18 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
   if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
     fail(`${projectId}: createEmployee.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
   }
-  const roles = entry.planningRoleIds ?? []
-  if (!Array.isArray(roles) || roles.length > MAX_PLANNING_ROLES || roles.some((id) => !Number.isInteger(id) || id <= 0) || new Set(roles).size !== roles.length) {
-    fail(`${projectId}: createEmployee.planningRoleIds must be a list of at most ${MAX_PLANNING_ROLES} different positive integers`)
-  }
-  const defaultRole = entry.defaultPlanningRoleId ?? null
-  if (defaultRole !== null && (!Number.isInteger(defaultRole) || !roles.includes(defaultRole))) {
-    fail(`${projectId}: createEmployee.defaultPlanningRoleId must be one of planningRoleIds`)
+  const allowed = entry.allowedPlanningRoleIds ?? null
+  if (
+    allowed !== null &&
+    (!Array.isArray(allowed) || allowed.length < 1 || allowed.length > MAX_ALLOWED_ROLES || allowed.some((id) => !Number.isInteger(id) || id <= 0) || new Set(allowed).size !== allowed.length)
+  ) {
+    fail(`${projectId}: createEmployee.allowedPlanningRoleIds must be a list of 1 to ${MAX_ALLOWED_ROLES} different positive integers`)
   }
   return {
     createEmployee: {
       responsibleUserId: entry.responsibleUserId as number,
       maxPerHour: maxPerHour as number,
-      planningRoleIds: roles as number[],
-      defaultPlanningRoleId: defaultRole as number | null,
+      allowedPlanningRoleIds: allowed as number[] | null,
     },
   }
 }

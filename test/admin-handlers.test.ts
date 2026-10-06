@@ -77,6 +77,7 @@ test('add a technician: the browser cannot send company, responsible, user, mode
     { company_id: 3 }, { companyId: 3 }, { responsibleUserId: 5 }, { hr_responsible_id: 5 }, { responsible: 5 },
     { user_id: 5 }, { userId: 5 }, { model: 'res.users' }, { method: 'write' }, { vals: { user_id: 5 } }, { role: 'admin' },
     { password: 'zelf-gekozen-wachtwoord' }, { personId: 'employee:7' }, { groups_id: [1] },
+    { planning_role_ids: [[6, 0, [1]]] }, { defaultPlanningRoleId: 1 }, { roleId: 1 },
   ]) {
     const answer = await read(await addTechnician(api, cookie, extra))
     assert.equal(answer.status, 400, JSON.stringify(extra))
@@ -373,4 +374,37 @@ test('add a technician: the answer tells how many planning roles Odoo confirmed'
   const answer = await read(await addTechnician(api, await plannerCookie(api)))
   assert.equal(answer.status, 201)
   assert.equal(answer.json.planningRoles, 2)
+})
+
+test('add a technician: the planning roles chosen go to the gateway, and a wrong choice is a clear error', async () => {
+  const api = setup()
+  const cookie = await plannerCookie(api)
+  const answer = await read(await addTechnician(api, cookie, { planningRoleIds: [4, 3] }))
+  assert.equal(answer.status, 201)
+  assert.deepEqual(api.odoo.calls, [{ requestId: REQUEST, name: 'Els Bakker', planningRoleIds: [4, 3] }])
+  const bad = await read(await addTechnician(api, cookie, { requestId: 'req-other-0123456789ab', username: 'els2', planningRoleIds: [0] }))
+  assert.equal(bad.status, 400)
+  assert.match(bad.json.error, /planningsrollen/)
+  assert.equal(api.odoo.calls.length, 1)
+})
+
+test('planning roles: only a logged-in admin gets the list, with logins off there is none, and a gateway problem is a clear error', async () => {
+  const listRoles = (api: Api, cookie: string | undefined) => api.handlers.planningRolesList(request('/api/planning-roles', { cookie }))
+  const api = setup()
+  const ok = await read(await listRoles(api, await plannerCookie(api)))
+  assert.equal(ok.status, 200)
+  assert.deepEqual(ok.json.roles, [{ id: 3, name: 'Monteur' }, { id: 4, name: 'Planner' }])
+  assert.equal(ok.headers.get('cache-control'), 'no-store')
+  assert.equal((await read(await listRoles(api, await monteurCookie(api)))).status, 403)
+  assert.equal((await read(await listRoles(api, undefined))).status, 401)
+  assert.equal(api.odoo.roleCalls, 1, 'the gateway was asked for the admin only')
+
+  api.odoo.roles = () => ({ ok: false, message: 'De planningsrollen konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' })
+  const failed = await read(await listRoles(api, await plannerCookie(api)))
+  assert.equal(failed.status, 502)
+  assert.match(failed.json.error, /planningsrollen konden niet/)
+
+  const off = setup({ mode: 'off' })
+  assert.equal((await read(await listRoles(off, undefined))).status, 404)
+  assert.equal(off.odoo.roleCalls, 0)
 })

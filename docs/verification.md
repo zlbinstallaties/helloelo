@@ -104,7 +104,7 @@ de VPS, de testserver of productie gedaan.
 | Wat Odoo zelf toevoegde | een resource (`resource_id`), een eerste versie met de datum van vandaag (6 okt.), werkrooster 40 uur per week, contract "Niet in dienst", en twee interne notities ("Employee created" en de onboardingnotitie). Het werkcontact is niet bekeken |
 | Planning | de gebruiker zag dat een dienst met de functie Monteur alleen aan iemand met die functie kan worden toegewezen; zonder die functie werkt het niet. Een eerdere opmerking van mij dat een monteur zonder rol ook in Planning kwam was een verkeerd gelezen antwoord en is ingetrokken |
 
-Gevolg: de gateway kan een vaste planningsrol meegeven (`planningRoleIds`), met een controle vooraf en teruglezen (zie hieronder, "Planningsrol bij het aanmaken"). Niet gezien: het bedrijf van de medewerker, de logregel van de gateway voor het aanmaken en of het antwoord `verified: true` gaf, wie als verantwoordelijke
+Gevolg: de planner kiest bij het toevoegen de planningsrollen, en de gateway geeft ze mee, met een controle vooraf en teruglezen (zie hieronder, "Planningsrollen bij het aanmaken"). Niet gezien: het bedrijf van de medewerker, de logregel van de gateway voor het aanmaken en of het antwoord `verified: true` gaf, wie als verantwoordelijke
 op het formulier stond (het scherm daarvan is niet bekeken), de herhaling met dezelfde aanvraag tegen deze Odoo, en het
 dashboard-overzicht (zonder jullie module `svs` kan het de bezoeken niet lezen).
 
@@ -112,22 +112,23 @@ Wat het opleverde voor de code: `/v1/schema` meldt nu een model dat de database 
 falen (`unknownModel`); en voor de handleiding: Odoo 20 vraagt Python 3.12 en PostgreSQL 16 of hoger, en de Enterprise-download
 is een Python-pakket zonder `odoo-bin` (`docs/lokaal-testen.md`).
 
-## Planningsrol bij het aanmaken
+## Planningsrollen bij het aanmaken, gekozen door de planner
 
-`planningRoleIds` en `defaultPlanningRoleId` in de gatewayconfig worden bij het aanmaken meegegeven (`planning_role_ids` als
-Odoo-opdracht `[[6, 0, [id's]]]`, `default_planning_role_id`). Vooraf controleert de gateway dat de rollen bestaan en niet
-zijn gearchiveerd (`409 planning_role_not_allowed`); achteraf leest hij ze terug en meldt hoeveel hij bevestigd ziet
-(`planningRoles`); het scherm toont dat of waarschuwt "Nog geen planningsrol". De browser kan de rol niet kiezen (onbekende
-velden geven 400).
+De planner vinkt bij "Monteur toevoegen" rollen aan die uit Odoo komen (`GET /v1/planning-roles`, een vaste leesaanroep van
+`planning.role`). De keuze gaat als `planningRoleIds` naar de gateway, die ze controleert (bestaan, niet gearchiveerd, en bij
+een beperking in de config toegestaan: `allowedPlanningRoleIds`), ze meegeeft als `planning_role_ids` (Odoo-opdracht
+`[[6, 0, [id's]]]`) met de eerste als `default_planning_role_id`, ze teruglees en meldt hoeveel hij bevestigd ziet
+(`planningRoles`). Het scherm toont de rollen of waarschuwt "Nog geen planningsrol". Een eerdere versie had één vaste rol in de
+gatewayconfig; dat is vervangen omdat de planner de rollen zelf wil kiezen.
 
 | Controle | Uitkomst |
 |---|---|
-| Gateway en client | 12 nieuwe tests; de rol gaat alleen mee als hij is ingesteld; ongeldige lijsten (dubbel, meer dan 5, 0, negatief, tekst, standaard niet in de lijst) worden bij het laden van de config of vóór verzenden geweigerd |
-| Dashboard | het aantal bevestigde rollen gaat door de service, het journaal (ook bij een herhaling en bij een aanvraag waarvan alleen het account nog ontbrak) en het antwoord |
-| Hele keten met nagebootste Odoo | rol-aanvraag naar Odoo bevat precies de ingestelde rollen; een rol die weg is stopt alles vóór er een medewerker is |
-| Echte processen en Chromium (demo-Odoo) | mét rol: scherm noemt de rol en de aanmaak bevat de opdracht `[[6,0,[1]]]` en `user_id: false`; zonder rol: waarschuwing op het scherm en geen rol naar Odoo |
-| Opzettelijke fouten | 25 in gateway, client en dashboard; allemaal gevangen |
-| Niet gedaan | tegen een echte Odoo 20: of `planning_role_ids` en `default_planning_role_id` in `create` worden aangenomen, en of de rol dan in Planning werkt |
+| Gateway en client | de rollen van een verzoek zijn een korte lijst van verschillende positieve nummers (anders 400); andere namen blijven 400; een verzoek met dezelfde id maar andere rollen of een andere volgorde is geen herhaling; de lijstroute werkt alleen voor een project met de actie, alleen met GET, en alleen met de toegestane rollen |
+| Dashboard | de keuze gaat door de handler, de service en het journaal (ook bij herhalingen), de lijst is alleen voor een ingelogde admin, en een mislukte lijst is een duidelijke fout |
+| Hele keten met nagebootste Odoo | lijst, keuze, `planning_role_ids` `[[6,0,[4,3]]]` met standaard 4, een rol die weg is stopt alles vóór er een medewerker is, een beperking van het project |
+| Echte processen en Chromium (demo-Odoo) | de lijst toont de rollen op naam zonder de gearchiveerde, de waarschuwing verdwijnt na kiezen, de aanmaak bevat de opdracht met de gekozen volgorde en `user_id: false`; zonder rol: waarschuwing en geen rol naar Odoo |
+| Opzettelijke fouten | 25 + 25 in gateway, client en dashboard; allemaal gevangen |
+| Niet gedaan | tegen een echte Odoo 20: of `planning_role_ids` en `default_planning_role_id` in `create` worden aangenomen, of het lezen van `planning.role` werkt, en of de rol dan in Planning werkt |
 
 ## Lokaal testpakket
 

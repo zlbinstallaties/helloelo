@@ -18,6 +18,9 @@ export type AccountsResponse = {
   planningError: string | null
 }
 
+/** A planning role (`planning.role`) of Odoo that a technician can be given. */
+export type PlanningRole = { id: number; name: string }
+
 export type TechnicianCreated = {
   employeeId: number
   verified: boolean

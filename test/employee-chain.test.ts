@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { createGateway } from '../gateway/src/server.ts'
 import { parseProjects, sha256Hex } from '../gateway/src/projects.ts'
 import { createOdooClient } from '../src/lib/odoo-client.ts'
-import { createEmployeeViaGateway } from '../src/lib/gateway-employee.ts'
+import { createEmployeeViaGateway, listPlanningRolesViaGateway } from '../src/lib/gateway-employee.ts'
 import { GENERATED, login, read, request, setup } from './api-helpers.ts'
 
 /*
@@ -41,6 +41,8 @@ function mockOdoo() {
     wire.push({ path, body })
     if (path === '/json/2/res.users/search_read') return json(200, mode.responsible ? [mode.responsible] : [])
     if (path === '/json/2/planning.role/search_read') {
+      // An empty domain is the list for the planner; otherwise it is the check of chosen ids.
+      if (body.domain.length === 0) return json(200, mode.roles.map((id) => ({ id, name: `Rol ${id}` })))
       const asked = body.domain[0][2] as number[]
       return json(200, mode.roles.filter((id) => asked.includes(id)).map((id) => ({ id })))
     }
@@ -64,7 +66,7 @@ function mockOdoo() {
   return { wire, employees, mode, fetchImpl }
 }
 
-async function chain(options: { actionOn?: boolean; lostAnswer?: boolean; planning?: { planningRoleIds: number[]; defaultPlanningRoleId?: number } } = {}) {
+async function chain(options: { actionOn?: boolean; lostAnswer?: boolean; allowedRoles?: number[] } = {}) {
   const odoo = mockOdoo()
   const projects = parseProjects({
     projects: [
@@ -73,7 +75,7 @@ async function chain(options: { actionOn?: boolean; lostAnswer?: boolean; planni
         tokenSha256: sha256Hex(TOKEN),
         companyId: 2,
         models: { 'planning.slot': { fields: ['name'], methods: ['search_read'] } },
-        ...(options.actionOn === false ? {} : { actions: { createEmployee: { responsibleUserId: 9, ...options.planning } } }),
+        ...(options.actionOn === false ? {} : { actions: { createEmployee: { responsibleUserId: 9, ...(options.allowedRoles && { allowedPlanningRoleIds: options.allowedRoles }) } } }),
       },
     ],
   })
@@ -93,7 +95,8 @@ async function chain(options: { actionOn?: boolean; lostAnswer?: boolean; planni
     return response
   }) as unknown as typeof fetch
   const api = setup({
-    createEmployee: (input) => createEmployeeViaGateway({ url, token: TOKEN, requestId: input.requestId, name: input.name, fetchImpl, timeoutMs: 5000 }),
+    createEmployee: (input) => createEmployeeViaGateway({ url, token: TOKEN, requestId: input.requestId, name: input.name, planningRoleIds: input.planningRoleIds, fetchImpl, timeoutMs: 5000 }),
+    listPlanningRoles: () => listPlanningRolesViaGateway({ url, token: TOKEN, timeoutMs: 5000 }),
   })
   return { api, odoo, toGateway, close: () => new Promise<void>((resolve) => server.close(() => resolve())) }
 }
@@ -290,52 +293,90 @@ test('chain: two technicians with the same name are two employees and two accoun
   })
 })
 
-test('chain: with planning roles configured Odoo gets them, from the configuration only, and the planner is told how many were confirmed', async () => {
+const rolesList = async (c: Awaited<ReturnType<typeof chain>>, cookie: string | undefined) =>
+  read(await c.api.handlers.planningRolesList(request('/api/planning-roles', { cookie })))
+
+test('chain: the planner sees the roles of Odoo, chooses some, and Odoo gets exactly those (the first is the default)', async () => {
   await withChain(async (c) => {
     const cookie = await planner(c)
-    const sneaky = await post(c, cookie, { planningRoleIds: [1], planning_role_ids: [[6, 0, [1]]], defaultPlanningRoleId: 1 })
-    assert.equal(sneaky.status, 400, 'the browser cannot choose roles')
-    assert.equal(c.odoo.wire.length, 0)
+    const list = await rolesList(c, cookie)
+    assert.equal(list.status, 200)
+    assert.deepEqual(list.json.roles, [{ id: 3, name: 'Rol 3' }, { id: 4, name: 'Rol 4' }])
 
-    const answer = await post(c, cookie)
+    const answer = await post(c, cookie, { planningRoleIds: [4, 3] })
     assert.equal(answer.status, 201)
     assert.equal(answer.json.planningRoles, 2)
     assert.deepEqual(c.odoo.wire.map((entry) => entry.path), [
-      '/json/2/res.users/search_read', '/json/2/planning.role/search_read', '/json/2/hr.employee/create', '/json/2/hr.employee/search_read',
+      '/json/2/planning.role/search_read', '/json/2/res.users/search_read', '/json/2/planning.role/search_read', '/json/2/hr.employee/create', '/json/2/hr.employee/search_read',
     ])
     const [created] = creates(c)
     assert.deepEqual(created.body.vals_list, [{
       name: 'Els Bakker', company_id: 2, hr_responsible_id: 9, user_id: false, date_version: amsterdamToday(),
-      planning_role_ids: [[6, 0, [3, 4]]], default_planning_role_id: 3,
+      planning_role_ids: [[6, 0, [4, 3]]], default_planning_role_id: 4,
     }])
-    assert.deepEqual(c.odoo.employees.map((employee) => employee.planning_role_ids), [[3, 4]])
-    const again = await post(c, cookie)
+    assert.deepEqual(c.odoo.employees.map((employee) => employee.planning_role_ids), [[4, 3]])
+    const again = await post(c, cookie, { planningRoleIds: [4, 3] })
     assert.equal(again.json.planningRoles, 2, 'a repeat tells the same')
     assert.equal(creates(c).length, 1)
-  }, { planning: { planningRoleIds: [3, 4], defaultPlanningRoleId: 3 } })
+    assert.equal((await post(c, cookie, { planningRoleIds: [3, 4] })).status, 409, 'other order or other roles: not the same request')
+    assert.equal(creates(c).length, 1)
+  })
 })
 
-test('chain: a configured planning role that is gone stops everything before an employee is made', async () => {
+test('chain: odd roles from the browser are refused before the gateway or Odoo hear anything', async () => {
+  await withChain(async (c) => {
+    const cookie = await planner(c)
+    for (const planningRoleIds of ['3', 3, null, [0], [-1], [1.5], ['3'], [3, 3], [1, 2, 3, 4, 5, 6]]) {
+      const answer = await post(c, cookie, { planningRoleIds })
+      assert.equal(answer.status, 400, JSON.stringify(planningRoleIds))
+    }
+    const sneaky = await post(c, cookie, { planning_role_ids: [[6, 0, [1]]], defaultPlanningRoleId: 1 })
+    assert.equal(sneaky.status, 400)
+    assert.equal(c.odoo.wire.length, 0)
+  })
+})
+
+test('chain: a chosen role that is gone stops everything before an employee is made, and trying again works once it is back', async () => {
   await withChain(async (c) => {
     c.odoo.mode.roles = [3]
     const cookie = await planner(c)
-    const refused = await post(c, cookie)
+    const refused = await post(c, cookie, { planningRoleIds: [3, 4] })
     assert.equal(refused.status, 502)
     assert.match(String(refused.json.error), /planningsrol/i)
     assert.equal(refused.json.retry, 'safe')
     assert.equal(creates(c).length, 0)
-    assert.equal(c.api.accounts.list().length, 2, 'no account was made (only the two logins of the set-up)')
     c.odoo.mode.roles = [3, 4]
-    assert.equal((await post(c, cookie)).status, 201, 'the same request works once the role is back')
+    assert.equal((await post(c, cookie, { planningRoleIds: [3, 4] })).status, 201, 'the same request works once the role is back')
     assert.equal(creates(c).length, 1)
-  }, { planning: { planningRoleIds: [3, 4] } })
+  })
 })
 
-test('chain: without planning roles configured the planner is told that none were set', async () => {
+test('chain: a project that limits the roles shows and accepts only those', async () => {
+  await withChain(async (c) => {
+    const cookie = await planner(c)
+    assert.deepEqual((await rolesList(c, cookie)).json.roles, [{ id: 3, name: 'Rol 3' }])
+    const refused = await post(c, cookie, { planningRoleIds: [4] })
+    assert.equal(refused.status, 502)
+    assert.match(String(refused.json.error), /planningsrol/i)
+    assert.equal(creates(c).length, 0)
+    assert.equal((await post(c, cookie, { planningRoleIds: [3] })).status, 201)
+  }, { allowedRoles: [3] })
+})
+
+test('chain: without roles chosen the planner is told that none were set, and Odoo is not asked about roles', async () => {
   await withChain(async (c) => {
     const answer = await post(c, await planner(c))
     assert.equal(answer.json.planningRoles, 0)
     assert.ok(!c.odoo.wire.some((entry) => entry.path.includes('planning.role')), 'no role check without roles')
     assert.ok(!('planning_role_ids' in creates(c)[0].body.vals_list[0]))
+  })
+})
+
+test('chain: a monteur and a visitor cannot list the roles, and the gateway is not asked', async () => {
+  await withChain(async (c) => {
+    const monteur = (await login(c.api, 'jan')).cookie
+    assert.equal((await rolesList(c, monteur)).status, 403)
+    assert.equal((await rolesList(c, undefined)).status, 401)
+    assert.equal(c.odoo.wire.length, 0)
   })
 })

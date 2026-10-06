@@ -107,7 +107,7 @@ leesrechten op Planning en de DIG-bezoekformulieren, en zet je die ook niet op `
 Doe dit **voordat** je de API-sleutel in Odoo aanmaakt, want het script schrijft het bestand waar de sleutel in moet:
 
 ```bash
-bun run local:setup --odoo-url http://127.0.0.1:8071 --database dig20-test --company-id 1 --responsible-id 2 --planning-role-id 1
+bun run local:setup --odoo-url http://127.0.0.1:8071 --database dig20-test --company-id 1 --responsible-id 2
 ```
 
 Het script toont één keer het adminwachtwoord (het staat daarna alleen als hash op schijf) en schrijft `.local/`.
@@ -120,9 +120,9 @@ sed -i '' "s|^ODOO_API_KEY=.*|ODOO_API_KEY=$(pbpaste)|" .local/gateway.env
 
 Kopieer niets anders voordat je dit doet. Draai `local:setup` opnieuw met `--force` voor een nieuw token en
 wachtwoord. Het script weigert `*.odoo.sh` en `*.odoo.com`, net als de gateway. Zonder `--responsible-id` staat
-"Monteur toevoegen" uit. Met `--planning-role-id` krijgt elke nieuwe monteur die planningsrol (ook als standaardrol):
-zonder rol kun je hem niet aan een dienst met een rol toewijzen. Het nummer van de rol (hier `1`, de rol `monteur`) staat in de
-adresbalk als je de rol opent bij Planning, Configuratie, Rollen.
+"Monteur toevoegen" uit. De planningsrollen kies je per monteur in het
+dashboard uit de rollen die in Odoo staan (Planning, Configuratie, Rollen): zonder rol kun je een monteur niet aan een
+dienst met een rol toewijzen.
 
 ## 4. Starten en controleren
 
@@ -141,18 +141,18 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
 
 ## 5. De proef
 
-1. **Beheer, Monteur toevoegen**: naam `Proef Monteur`, de voorgestelde gebruikersnaam. Noteer het Odoo-nummer en het
-   wachtwoord.
+1. **Beheer, Monteur toevoegen**: naam `Proef Monteur`, de voorgestelde gebruikersnaam, en vink de rol(len) aan (bijvoorbeeld
+   `monteur`; maak hem eerst in Odoo aan bij Planning, Configuratie, Rollen). Noteer het Odoo-nummer en het wachtwoord.
 2. Controleer in Odoo (Medewerkers):
    - de medewerker bestaat, in het juiste bedrijf, met de juiste verantwoordelijke;
    - **Gerelateerde gebruiker is leeg**, en onder Instellingen, Gebruikers is er geen nieuwe gebruiker bij gekomen;
    - Odoo heeft zelf een werkcontact en een interne notitie in de chatter gemaakt (verwacht, zie `docs/accounts.md`);
    - er is geen planning of dienst aangemaakt.
 3. **Planning:** maak een dienst met de rol `monteur` en wijs de nieuwe monteur eraan toe. Volgens de gebruiker werkt dat
-   alleen als de medewerker die functie heeft; daarom geeft de gateway hem de ingestelde planningsrol (`--planning-role-id`).
-   Of Odoo 20 de rollen in de aanmaak van het dashboard aanneemt is nog niet tegen een echte Odoo gezien: kijk bij
-   `proef monteur` in Werknemers of het veld *Roles* is gevuld en of hij te kiezen is bij de dienst. Het scherm van het
-   dashboard zegt hoeveel rollen Odoo bevestigde.
+   alleen als de medewerker die functie heeft; daarom kiest de planner de rollen bij het toevoegen. Of Odoo 20 de rollen in
+   de aanmaak van het dashboard aanneemt is nog niet tegen een echte Odoo gezien: kijk bij de nieuwe medewerker in
+   Werknemers of het veld *Roles* is gevuld (en *Default Role*: de eerste rol die je aanvinkte) en of hij te kiezen is
+   bij de dienst. Het scherm van het dashboard zegt hoeveel rollen Odoo bevestigde.
 4. Klik in het scherm nog eens op toevoegen met dezelfde gegevens (herhaling): er mag geen tweede medewerker komen.
 5. Log in als de nieuwe monteur: hij ziet alleen zijn eigen afspraken en geen Beheer. Hij staat pas in de lijst van de
    planning zodra hij is ingepland.

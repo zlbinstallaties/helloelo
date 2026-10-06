@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only'
 import { GatewayError } from '#/lib/gateway-error'
-import { createEmployeeViaGateway } from '#/lib/gateway-employee'
-import type { GatewayOutcome } from '#/lib/gateway-employee'
+import { createEmployeeViaGateway, listPlanningRolesViaGateway } from '#/lib/gateway-employee'
+import type { GatewayOutcome, PlanningRolesOutcome } from '#/lib/gateway-employee'
 import { PAGE_SIZE, readAllPages } from '#/lib/paging'
 
 /*
@@ -67,8 +67,14 @@ export async function searchReadAll<T extends { id: number }>(model: string, fie
  * src/lib/gateway-employee.ts). Only a request id and a name are sent. The gateway decides company, responsible
  * and values, and refuses it unless its config switches the action on for this token.
  */
-export async function createEmployee(input: { requestId: string; name: string }): Promise<GatewayOutcome> {
+export async function createEmployee(input: { requestId: string; name: string; planningRoleIds?: readonly number[] }): Promise<GatewayOutcome> {
   if (!gatewayConfigured()) return { kind: 'not_enabled', message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
   const { url, token } = config()
   return createEmployeeViaGateway({ url, token, ...input })
+}
+
+export async function listPlanningRoles(): Promise<PlanningRolesOutcome> {
+  if (!gatewayConfigured()) return { ok: false, message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+  const { url, token } = config()
+  return listPlanningRolesViaGateway({ url, token })
 }

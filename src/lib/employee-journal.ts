@@ -21,6 +21,8 @@ export type JournalEntry = {
   state: JournalState
   name: string
   username: string
+  /** The planning roles the planner chose (`planning.role` ids), in the order chosen; none when absent. */
+  planningRoleIds?: number[]
   /** The account (id) of the planner who asked. */
   by: string
   at: string
@@ -75,6 +77,7 @@ function parse(text: string | null): JournalEntry[] {
       typeof e.name !== 'string' || typeof e.username !== 'string' || typeof e.by !== 'string' ||
       typeof e.at !== 'string' || typeof e.updatedAt !== 'string' ||
       (e.employeeId !== undefined && !(Number.isInteger(e.employeeId) && (e.employeeId as number) > 0)) ||
+      (e.planningRoleIds !== undefined && !(Array.isArray(e.planningRoleIds) && e.planningRoleIds.length <= 5 && e.planningRoleIds.every((id) => Number.isInteger(id) && (id as number) > 0))) ||
       (e.verified !== undefined && typeof e.verified !== 'boolean') ||
       (e.planningRoles !== undefined && !(Number.isInteger(e.planningRoles) && (e.planningRoles as number) >= 0 && (e.planningRoles as number) <= 99)) ||
       (e.accountId !== undefined && typeof e.accountId !== 'string')
@@ -122,11 +125,14 @@ export function createJournal(options: { io: AccountIo; now?: () => Date }) {
       return load().find((entry) => entry.requestId === requestId)
     },
 
-    begin(input: { requestId: string; name: string; username: string; by: string }): JournalEntry {
+    begin(input: { requestId: string; name: string; username: string; by: string; planningRoleIds?: readonly number[] }): JournalEntry {
       const entries = load()
       if (entries.some((entry) => entry.requestId === input.requestId)) throw new JournalError('exists', 'Deze aanvraag is al vastgelegd.')
       const at = now().toISOString()
-      const entry: JournalEntry = { requestId: input.requestId, state: 'creating', name: input.name, username: input.username, by: input.by, at, updatedAt: at }
+      const entry: JournalEntry = {
+        requestId: input.requestId, state: 'creating', name: input.name, username: input.username, by: input.by, at, updatedAt: at,
+        ...(input.planningRoleIds && input.planningRoleIds.length > 0 && { planningRoleIds: [...input.planningRoleIds] }),
+      }
       save([...entries, entry])
       return entry
     },

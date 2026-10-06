@@ -15,7 +15,8 @@ De gateway **leest**. Er is één benoemde actie die schrijft en die voor elk pr
 | `GET` | `/v1/schema` | Toegestane modellen, methoden en velden met type, label en relatie (via `fields_get`) |
 | `POST` | `/v1/models/<model>/search_read` | `{fields?, domain?, limit?, offset?, order?}` → `{records, count, limit, offset}` |
 | `POST` | `/v1/models/<model>/search_count` | `{domain?}` → `{count}` |
-| `POST` | `/v1/actions/create_employee` | `{requestId, name}` → `{id, name, verified}`; alleen voor projecten met de actie (zie "Acties") |
+| `GET` | `/v1/planning-roles` | `{roles: [{id, name}]}`: de planningsrollen die een planner een nieuwe monteur kan geven; alleen voor projecten met de actie |
+| `POST` | `/v1/actions/create_employee` | `{requestId, name, planningRoleIds?}` → `{id, name, verified, planningRoles}`; alleen voor projecten met de actie (zie "Acties") |
 
 Elke `/v1`-aanroep vereist `Authorization: Bearer <projecttoken>`.
 
@@ -49,35 +50,34 @@ alleen de hash komt in de config. `id` is altijd toegestaan.
 Een project kan een vaste, benoemde actie krijgen. Zonder `actions` in de config kan het project er geen:
 
 ```json
-"actions": { "createEmployee": { "responsibleUserId": <id van een Odoo-gebruiker>, "planningRoleIds": [<id van planning.role>], "defaultPlanningRoleId": <een daarvan>, "maxPerHour": 20 } }
+"actions": { "createEmployee": { "responsibleUserId": <id van een Odoo-gebruiker>, "maxPerHour": 20 } }
 ```
 
-`planningRoleIds` (hoogstens 5 verschillende, optioneel) en `defaultPlanningRoleId` (optioneel, moet er een van zijn) zijn de
-planningsrollen die elke nieuwe medewerker krijgt. **Zonder rol kan een dienst met een rol niet aan hem worden
-toegewezen** (waarneming op een lokale Odoo 20 Enterprise); stel dus de rol van jullie monteurs in. De id's verschillen per
-Odoo-database.
+Optioneel: `"allowedPlanningRoleIds": [<id van planning.role>, ...]` beperkt de rollen die een planner mag kiezen (1 tot 50
+verschillende nummers). Zonder deze lijst mag elke bestaande, niet-gearchiveerde planningsrol.
 
-**`create_employee`** maakt één `hr.employee` aan voor een monteur, **zonder Odoo-gebruiker**. Het verzoek bevat alleen
-`requestId` (16 tot 64 letters, cijfers, `-` of `_`) en `name` (1 tot 80 tekens, geen stuurtekens); elke andere
-parameter geeft `400 unknown_parameter`. Alles anders staat vast in de gateway:
+**`create_employee`** maakt één `hr.employee` aan voor een monteur, **zonder Odoo-gebruiker**. Het verzoek bevat
+`requestId` (16 tot 64 letters, cijfers, `-` of `_`), `name` (1 tot 80 tekens, geen stuurtekens) en eventueel
+`planningRoleIds` (hoogstens 5 verschillende nummers van `planning.role`, in de volgorde van de keuze; anders
+`400 invalid_planning_roles`); elke andere parameter geeft `400 unknown_parameter`. Alles anders staat vast in de gateway:
 
 - `company_id` is het bedrijf van het project; `hr_responsible_id` is `responsibleUserId` uit de config;
-  `user_id` is altijd `false`; `date_version` is de datum van vandaag in Amsterdam; `planning_role_ids` (Odoo-opdracht
-  `[[6, 0, [id's]]]`) en `default_planning_role_id` komen uit `planningRoleIds` en `defaultPlanningRoleId`, en ontbreken als die
-  niet zijn ingesteld. Er is geen veld waarmee een
+  `user_id` is altijd `false`; `date_version` is de datum van vandaag in Amsterdam. Alleen als het verzoek rollen heeft
+  komen er `planning_role_ids` (Odoo-opdracht `[[6, 0, [id's]]]`) en `default_planning_role_id` (de eerste gekozen rol) bij. Er is geen veld waarmee een
   verzoek hier iets aan verandert, en geen ander model of andere methode.
 - Bij elke aanvraag controleert de gateway dat de verantwoordelijke bestaat, actief is, een interne gebruiker is
   (geen portaal) en bij het bedrijf hoort; anders `409 responsible_not_allowed` en wordt er niets aangemaakt.
-- Zijn er planningsrollen ingesteld, dan controleert de gateway bij elke aanvraag ook dat ze bestaan en niet zijn
-  gearchiveerd (`planning.role`); anders `409 planning_role_not_allowed` en wordt er niets aangemaakt.
+- Heeft het verzoek rollen, dan controleert de gateway dat ze bij het project zijn toegestaan (als er een lijst is) en dat ze
+  in Odoo bestaan en niet zijn gearchiveerd (`planning.role`); anders `409 planning_role_not_allowed` en wordt er niets
+  aangemaakt.
 - Daarna leest de gateway de medewerker terug: heeft die toch een Odoo-gebruiker of staat hij in een ander bedrijf,
   dan `500 employee_invariant_violated` met het nummer. Lukt het terugkijken niet, dan is het antwoord
-  `verified: false`. `planningRoles` in het antwoord is het aantal ingestelde rollen dat Odoo bij het terugkijken bevestigt
-  (0 als er geen zijn ingesteld, of als het terugkijken niet lukte of een rol niet liet zien).
+  `verified: false`. `planningRoles` in het antwoord is het aantal gekozen rollen dat Odoo bij het terugkijken bevestigt
+  (0 als er geen zijn gekozen, of als het terugkijken niet lukte of een rol niet liet zien).
 - Een project kan maximaal `maxPerHour` (standaard 20, hoogstens 200) medewerkers per uur laten aanmaken (`429`).
 
 Herhalingen: dezelfde `requestId` met dezelfde naam geeft hetzelfde antwoord met `replayed: true` zonder Odoo te
-vragen; tegelijk lopende herhaling `409 in_progress`; een andere naam `409 request_id_reused`. Antwoordde Odoo met een
+vragen; tegelijk lopende herhaling `409 in_progress`; een andere naam of andere rollen (ook in een andere volgorde) `409 request_id_reused`. Antwoordde Odoo met een
 fout, dan is er niets aangemaakt en mag dezelfde aanvraag opnieuw (`502 odoo_rejected`). Is er **geen bruikbaar
 antwoord** (time-out, netwerk), dan blijft de `requestId` geblokkeerd (`504`/`409 outcome_unknown`): de medewerker
 kan bestaan en wordt niet nog eens aangemaakt. Dit geheugen zit in het proces (24 uur); na een herstart is het weg.
@@ -92,8 +92,8 @@ bij het aanmaken zelf toevoegt (werkcontact, interne notitie, geen gebruiker).
 
 Geprobeerd op een lokale Odoo 20 Enterprise met `admin` (zie `docs/verification.md`, "Eerste keer tegen een echte Odoo 20"):
 Odoo nam de aanroep (`/json/2/hr.employee/create` met `vals_list`, `hr_responsible_id` en `date_version` in de waarden van de
-medewerker) aan. Niet geprobeerd tegen een echte Odoo: de rollen in dezelfde aanroep (`planning_role_ids`,
-`default_planning_role_id`; alleen met nagebootste antwoorden getest), de testserver, productie en een gebruiker met alleen
+medewerker) aan. Niet geprobeerd tegen een echte Odoo: de rollen (`planning_role_ids`, `default_planning_role_id`, en het
+lezen van `planning.role`; alleen met nagebootste antwoorden getest), de testserver, productie en een gebruiker met alleen
 Medewerkers: Officer. Het teruglezen
 is streng: alleen `user_id: false` telt als "geen Odoo-gebruiker".
 

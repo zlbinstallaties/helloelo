@@ -118,5 +118,7 @@ test('planning.role: only the asked ids that exist; archived ones only with acti
     assert.deepEqual((await read([1, 2, 3, 99])).body, [{ id: 1 }, { id: 2 }])
     assert.deepEqual((await read([3], { active_test: false })).body, [{ id: 3 }])
     assert.deepEqual((await read([99])).body, [])
+    const everything = await call('planning.role', 'search_read', { domain: [], fields: ['id', 'name'], order: 'name, id', limit: 200, context })
+    assert.deepEqual(everything.body, [{ id: 1, name: 'Monteur' }, { id: 2, name: 'Planner' }], 'the list: active roles by name, the archived one left out')
   })
 })

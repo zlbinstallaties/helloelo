@@ -110,6 +110,8 @@ export interface OdooClient {
   checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck>
   /** Which of these `planning.role` ids exist and are active. */
   checkPlanningRoles(params: { ids: readonly number[]; companyId: number }): Promise<number[]>
+  /** The active planning roles (`planning.role`), by name: what a planner can give a new employee. */
+  listPlanningRoles(params: { companyId: number }): Promise<Array<{ id: number; name: string }>>
   /** `planningRoles: true` also reads `planning_role_ids` (the Planning module must be installed). */
   readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null>
 }
@@ -398,6 +400,21 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     return (payload as Array<Record<string, unknown>>).map((row) => row?.id).filter((id): id is number => isId(id) && params.ids.includes(id))
   }
 
+  async function listPlanningRoles(params: { companyId: number }): Promise<Array<{ id: number; name: string }>> {
+    checkCompany(params.companyId)
+    const payload = await call('planning.role', 'search_read', {
+      domain: [],
+      fields: ['id', 'name'],
+      order: 'name, id',
+      limit: 200,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo planning.role returned an unexpected response', 200)
+    return (payload as Array<Record<string, unknown>>)
+      .filter((row) => isId(row?.id) && typeof row.name === 'string' && row.name.trim() !== '')
+      .map((row) => ({ id: row.id as number, name: (row.name as string).slice(0, 80) }))
+  }
+
   async function readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null> {
     if (!isId(params?.id)) throw new OdooError('id is required', 0)
     checkCompany(params.companyId)
@@ -424,5 +441,5 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  return { searchRead, searchCount, fieldsGet, createEmployee, checkResponsible, checkPlanningRoles, readEmployee }
+  return { searchRead, searchCount, fieldsGet, createEmployee, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee }
 }

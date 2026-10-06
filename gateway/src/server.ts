@@ -12,7 +12,9 @@ import { findProject, type Project, type ReadMethod } from './projects.ts'
  *   GET  /v1/schema                          allowlisted models and fields
  *   POST /v1/models/<model>/search_read      {fields?, domain?, limit?, offset?, order?}
  *   POST /v1/models/<model>/search_count     {domain?}
- *   POST /v1/actions/create_employee         {requestId, name}: an hr.employee without an Odoo user,
+ *   GET  /v1/planning-roles                  the planning roles a planner can give a new employee (only for
+ *                                            a project that has the createEmployee action)
+ *   POST /v1/actions/create_employee         {requestId, name, planningRoleIds?}: an hr.employee without an Odoo user,
  *                                            only for projects whose config has the action (off by default)
  *
  * Every /v1 call needs `Authorization: Bearer <project token>`. The project
@@ -45,6 +47,7 @@ export interface GatewayOptions {
 const MAX_BODY_BYTES = 64 * 1024
 const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
 const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
+const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
 const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 
 interface Context {
@@ -196,6 +199,13 @@ export function createGateway(options: GatewayOptions) {
       if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
       ctx.project = authenticate(req, projects)
       return schema(ctx.project)
+    }
+
+    if (url.pathname === PLANNING_ROLES_ROUTE) {
+      if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'planning.role'
+      ctx.project = authenticate(req, projects)
+      return actions.listPlanningRoles(ctx.project)
     }
 
     if (url.pathname === CREATE_EMPLOYEE_ROUTE) {

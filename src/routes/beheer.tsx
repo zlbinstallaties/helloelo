@@ -20,11 +20,12 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError, api } from '#/lib/api-client'
-import type { AccountRow, AccountsResponse, TechnicianCreated } from '#/lib/admin-types'
+import type { AccountRow, AccountsResponse, PlanningRole, TechnicianCreated } from '#/lib/admin-types'
 import { newRequestId } from '#/lib/request-id'
 import { useMe } from '#/lib/session'
 import { suggestUsername } from '#/lib/username'
@@ -32,6 +33,7 @@ import { suggestUsername } from '#/lib/username'
 export const Route = createFileRoute('/beheer')({ component: Beheer })
 
 const ACCOUNTS_KEY = ['accounts']
+const ROLES_KEY = ['planning-roles']
 const select =
   'h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
@@ -133,10 +135,22 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
   const [requestId, setRequestId] = useState(() => newRequestId())
   const [done, setDone] = useState<TechnicianCreated | null>(null)
   const [blocked, setBlocked] = useState<string | null>(null)
+  // The planning roles of Odoo, in the order the planner ticked them: the first one is the default role.
+  const [chosen, setChosen] = useState<number[]>([])
+  const roles = useQuery({
+    queryKey: ROLES_KEY,
+    queryFn: () => api<{ roles: PlanningRole[] }>('/api/planning-roles', { fallback: 'De planningsrollen konden niet uit Odoo worden gelezen.' }),
+    retry: false,
+  })
+  const roleName = (id: number) => roles.data?.roles.find((role) => role.id === id)?.name ?? `rol ${id}`
 
   const create = useMutation({
     mutationFn: () =>
-      api<TechnicianCreated>('/api/employees', { method: 'POST', body: { requestId, name, username }, fallback: 'Het toevoegen is niet gelukt.' }),
+      api<TechnicianCreated>('/api/employees', {
+        method: 'POST',
+        body: { requestId, name, username, ...(chosen.length > 0 && { planningRoleIds: chosen }) },
+        fallback: 'Het toevoegen is niet gelukt.',
+      }),
     onSuccess: (data) => {
       setDone(data)
       setBlocked(null)
@@ -158,10 +172,12 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
     setName('')
     setUsername('')
     setUsernameEdited(false)
+    setChosen([])
     setDone(null)
     setBlocked(null)
     create.reset()
     setRequestId(newRequestId())
+    void roles.refetch()
   }
 
   function submit(event: FormEvent) {
@@ -187,15 +203,26 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
               <AlertDescription>
                 In Odoo staat de medewerker met nummer <strong>{done.employeeId}</strong>
                 {done.account && <> en het account <strong>{done.account.username}</strong> is gekoppeld aan dat nummer</>}.
-                {done.planningRoles > 0 && <> Hij heeft in Odoo {done.planningRoles === 1 ? 'de planningsrol' : `${done.planningRoles} planningsrollen`} en is te kiezen bij een dienst met die rol.</>}
+                {chosen.length > 0 && done.planningRoles === chosen.length && (
+                  <> Hij heeft in Odoo {chosen.length === 1 ? 'de planningsrol' : 'de planningsrollen'} <strong>{chosen.map(roleName).join(', ')}</strong> en is te kiezen bij een dienst met {chosen.length === 1 ? 'die rol' : 'zo\'n rol'}.</>
+                )}
               </AlertDescription>
             </Alert>
-            {done.planningRoles === 0 && (
+            {chosen.length === 0 && (
               <Alert>
                 <AlertTriangle className="size-4" />
                 <AlertTitle>Nog geen planningsrol</AlertTitle>
                 <AlertDescription>
-                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur de rol in Odoo (Werknemers, veld Roles), of laat de beheerder in de gateway een planningsrol instellen.
+                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur de rol in Odoo (Werknemers, veld Roles).
+                </AlertDescription>
+              </Alert>
+            )}
+            {chosen.length > 0 && done.planningRoles < chosen.length && (
+              <Alert variant="destructive">
+                <AlertTriangle className="size-4" />
+                <AlertTitle>Niet alle planningsrollen bevestigd</AlertTitle>
+                <AlertDescription>
+                  Je koos {chosen.length} {chosen.length === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {done.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Roles) en controleer of de rol er staat.
                 </AlertDescription>
               </Alert>
             )}
@@ -236,6 +263,46 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
               <p className="text-xs text-muted-foreground">3 tot 40 tekens: letters, cijfers, punt, streepje of underscore.</p>
             </div>
 
+            <fieldset className="grid gap-2 md:col-span-2" disabled={Boolean(blocked)}>
+              <legend className="text-sm font-medium">Planningsrollen (functies uit Odoo)</legend>
+              {roles.isPending && <p className="text-sm text-muted-foreground">Rollen uit Odoo laden…</p>}
+              {roles.isError && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="size-4" />
+                  <AlertTitle>De rollen konden niet worden gelezen</AlertTitle>
+                  <AlertDescription className="space-y-2">
+                    <p>{roles.error.message}</p>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void roles.refetch()}>Opnieuw proberen</Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+              {roles.data && roles.data.roles.length === 0 && (
+                <p className="text-sm text-muted-foreground">Er zijn nog geen planningsrollen in Odoo. Maak ze aan in Odoo bij Planning, Configuratie, Rollen en vernieuw deze pagina.</p>
+              )}
+              {roles.data && roles.data.roles.length > 0 && (
+                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                  {roles.data.roles.map((role) => (
+                    <div key={role.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`role-${role.id}`}
+                        checked={chosen.includes(role.id)}
+                        disabled={!chosen.includes(role.id) && chosen.length >= 5}
+                        onCheckedChange={(checked) => setChosen((current) => (checked === true ? (current.includes(role.id) ? current : [...current, role.id]) : current.filter((id) => id !== role.id)))}
+                      />
+                      <Label htmlFor={`role-${role.id}`} className="font-normal">
+                        {role.name}
+                        {chosen[0] === role.id && chosen.length > 1 && <span className="ml-1 text-xs text-muted-foreground">(standaard)</span>}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. De eerste rol die je aanvinkt is de standaardrol (hoogstens 5).
+                {chosen.length === 0 && ' Zonder rol kun je de monteur nog niet aan zo\'n dienst toewijzen.'}
+              </p>
+            </fieldset>
+
             {blocked && (
               <div className="md:col-span-2">
                 <Alert variant="destructive">
@@ -267,7 +334,7 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
             )}
 
             <div className="md:col-span-2">
-              <Button type="submit" disabled={create.isPending || Boolean(blocked) || !name.trim() || !username}>
+              <Button type="submit" disabled={create.isPending || Boolean(blocked) || !name.trim() || !username || chosen.length > 5}>
                 <UserPlus className="size-4" /> {create.isPending ? 'Bezig met aanmaken in Odoo' : 'Monteur toevoegen'}
               </Button>
             </div>

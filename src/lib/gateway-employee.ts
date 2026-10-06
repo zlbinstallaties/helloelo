@@ -67,6 +67,8 @@ export async function createEmployeeViaGateway(options: {
   token: string
   requestId: string
   name: string
+  /** `planning.role` ids the planner chose; sent only when there are any. */
+  planningRoleIds?: readonly number[]
   fetchImpl?: typeof fetch
   timeoutMs?: number
 }): Promise<GatewayOutcome> {
@@ -81,7 +83,7 @@ export async function createEmployeeViaGateway(options: {
       const response = await doFetch(new URL('/v1/actions/create_employee', options.url), {
         method: 'POST',
         headers: { authorization: `Bearer ${options.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ requestId: options.requestId, name: options.name }),
+        body: JSON.stringify({ requestId: options.requestId, name: options.name, ...(options.planningRoleIds && options.planningRoleIds.length > 0 && { planningRoleIds: options.planningRoleIds }) }),
         signal: controller.signal,
       })
       const body = await response.json().catch(() => null)
@@ -95,5 +97,31 @@ export async function createEmployeeViaGateway(options: {
     return { kind: 'unknown', message: UNKNOWN }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+export type PlanningRole = { id: number; name: string }
+export type PlanningRolesOutcome = { ok: true; roles: PlanningRole[] } | { ok: false; message: string }
+
+/** The planning roles a planner can give a new employee, read through the gateway (which reads them from Odoo). */
+export async function listPlanningRolesViaGateway(options: { url: string; token: string; fetchImpl?: typeof fetch; timeoutMs?: number }): Promise<PlanningRolesOutcome> {
+  const doFetch = options.fetchImpl ?? fetch
+  try {
+    const response = await doFetch(new URL('/v1/planning-roles', options.url), {
+      method: 'GET',
+      headers: { authorization: `Bearer ${options.token}` },
+      signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
+    })
+    const body = (await response.json().catch(() => null)) as { roles?: unknown } | null
+    if (response.status === 401) return { ok: false, message: 'Het gateway-token van het dashboard is niet geldig. Neem contact op met de beheerder.' }
+    if (response.status === 403) return { ok: false, message: 'Het aanmaken van monteurs in Odoo staat niet aan op de server. Neem contact op met de beheerder.' }
+    if (response.status !== 200 || !Array.isArray(body?.roles)) return { ok: false, message: 'De planningsrollen konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' }
+    const roles = (body.roles as unknown[])
+      .map((role) => role as { id?: unknown; name?: unknown })
+      .filter((role): role is PlanningRole => isId(role?.id) && typeof role.name === 'string' && role.name.trim() !== '')
+      .map((role) => ({ id: role.id, name: role.name }))
+    return { ok: true, roles }
+  } catch {
+    return { ok: false, message: 'De planningsrollen konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' }
   }
 }

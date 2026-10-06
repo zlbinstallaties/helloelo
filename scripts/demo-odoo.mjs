@@ -62,10 +62,14 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       return [200, USERS.filter((user) => user.id === id && (user.active || !activeTest)).map((user) => pick(user, wanted))]
     }
     if (model === 'planning.role' && method === 'search_read') {
+      // An empty domain is the list of roles; a domain on the id is the check of chosen ids.
+      const everything = !Array.isArray(body.domain) || body.domain.length === 0
       const asked = body.domain?.[0]?.[2]
       const activeTest = body.context?.active_test !== false
       const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'name']
-      return [200, ROLES.filter((role) => Array.isArray(asked) && asked.includes(role.id) && (role.active || !activeTest)).map((role) => pick(role, wanted))]
+      const rows = ROLES.filter((role) => (everything || (Array.isArray(asked) && asked.includes(role.id))) && (role.active || !activeTest))
+      if (everything) rows.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
+      return [200, rows.map((role) => pick(role, wanted))]
     }
     if (model === 'hr.employee' && method === 'search_read') {
       const id = idFilter(body.domain)

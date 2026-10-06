@@ -26,7 +26,7 @@ const STALE_CREATING_MS = 2 * 60_000
 export interface EmployeeServiceDeps {
   accounts: AccountStore
   journal: Journal
-  createEmployee: (input: { requestId: string; name: string }) => Promise<GatewayOutcome>
+  createEmployee: (input: { requestId: string; name: string; planningRoleIds?: readonly number[] }) => Promise<GatewayOutcome>
   generatePassword: () => string
   now?: () => Date
 }
@@ -75,7 +75,19 @@ function statusOf(error: AccountError) {
   return error.code === 'invalid' ? 400 : error.code === 'conflict' ? 409 : 404
 }
 
-export async function createTechnician(deps: EmployeeServiceDeps, user: User, input: { requestId?: unknown; name?: unknown; username?: unknown }): Promise<TechnicianResult> {
+/** At most this many roles for one employee (the gateway holds the same limit). */
+const MAX_ROLES = 5
+
+/** The roles of a request: absent means none; otherwise a short list of different positive integers, or null. */
+function parseRoles(value: unknown): number[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_ROLES || value.some((id) => !Number.isInteger(id) || id <= 0) || new Set(value).size !== value.length) return null
+  return [...value]
+}
+
+const sameRoles = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((id, index) => id === b[index])
+
+export async function createTechnician(deps: EmployeeServiceDeps, user: User, input: { requestId?: unknown; name?: unknown; username?: unknown; planningRoleIds?: unknown }): Promise<TechnicianResult> {
   if (!canCreateEmployees(user)) return fail(403, 'Geen toegang.')
   const now = deps.now ?? (() => new Date())
 
@@ -83,10 +95,12 @@ export async function createTechnician(deps: EmployeeServiceDeps, user: User, in
   if (!requestId) return fail(400, 'De aanvraag is ongeldig: het aanvraag-id ontbreekt of heeft een verkeerde vorm.')
   const name = typeof input.name === 'string' ? input.name.trim() : ''
   const username = normalizeUsername(input.username)
+  const roles = parseRoles(input.planningRoleIds)
+  if (roles === null) return fail(400, `De planningsrollen zijn ongeldig: kies hoogstens ${MAX_ROLES} verschillende rollen uit de lijst.`)
 
   try {
     const entry = deps.journal.get(requestId)
-    if (entry) return await continueRequest(deps, now, entry, name, username)
+    if (entry) return await continueRequest(deps, now, entry, name, username, roles)
 
     // 1. A new request. Everything that can be checked now is checked, so that no employee is made for an account
     //    that cannot follow.
@@ -99,8 +113,8 @@ export async function createTechnician(deps: EmployeeServiceDeps, user: User, in
     }
 
     // 2. Written down before Odoo hears about it. Nothing is asked if this cannot be written.
-    deps.journal.begin({ requestId, name: checked.name, username: checked.username, by: user.id })
-    const outcome = await deps.createEmployee({ requestId, name: checked.name })
+    deps.journal.begin({ requestId, name: checked.name, username: checked.username, by: user.id, planningRoleIds: roles })
+    const outcome = await deps.createEmployee({ requestId, name: checked.name, ...(roles.length > 0 && { planningRoleIds: roles }) })
 
     switch (outcome.kind) {
       case 'created':
@@ -136,10 +150,10 @@ function unexpected(error: unknown): TechnicianResult {
 }
 
 /** A request id that was seen before: repeat, still running, unsure, or half done. */
-async function continueRequest(deps: EmployeeServiceDeps, now: () => Date, entry: JournalEntry, name: string, username: string): Promise<TechnicianResult> {
-  // Only while the account is still missing may the user name change; the name never may.
-  if (entry.name !== name || (entry.state !== 'created' && entry.username !== username)) {
-    return fail(409, 'Deze aanvraag hoort bij een andere naam of gebruikersnaam.')
+async function continueRequest(deps: EmployeeServiceDeps, now: () => Date, entry: JournalEntry, name: string, username: string, roles: readonly number[]): Promise<TechnicianResult> {
+  // Only while the account is still missing may the user name change; the name and the roles never may.
+  if (entry.name !== name || !sameRoles(entry.planningRoleIds ?? [], roles) || (entry.state !== 'created' && entry.username !== username)) {
+    return fail(409, 'Deze aanvraag hoort bij een andere naam, gebruikersnaam of andere planningsrollen.')
   }
   switch (entry.state) {
     case 'done':

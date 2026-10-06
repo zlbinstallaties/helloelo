@@ -60,7 +60,7 @@ test('without an actions block a project can do no action, and the example confi
 
 test('createEmployee needs the Odoo user who is responsible, and has a default cap per hour', () => {
   const [project] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
-  assert.deepEqual(project.actions, { createEmployee: { responsibleUserId: 9, maxPerHour: 20, planningRoleIds: [], defaultPlanningRoleId: null } })
+  assert.deepEqual(project.actions, { createEmployee: { responsibleUserId: 9, maxPerHour: 20, allowedPlanningRoleIds: null } })
   const [capped] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, maxPerHour: 5 } } }))
   assert.equal(capped.actions.createEmployee?.maxPerHour, 5)
 })
@@ -91,17 +91,16 @@ test('actions do not widen the models a project can read', () => {
   assert.equal(Object.hasOwn(projects[0].models, 'hr.employee'), false)
 })
 
-test('planning roles for new employees: a short list of different ids, and a default that is one of them', () => {
-  const [project] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 } } }))
-  assert.deepEqual(project.actions.createEmployee?.planningRoleIds, [3, 4])
-  assert.equal(project.actions.createEmployee?.defaultPlanningRoleId, 3)
-  const [onlyRoles] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, planningRoleIds: [3] } } }))
-  assert.equal(onlyRoles.actions.createEmployee?.defaultPlanningRoleId, null)
+test('the planning roles a planner may choose: no limit by default, otherwise a list of different positive ids', () => {
+  const [open] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(open.actions.createEmployee?.allowedPlanningRoleIds, null)
+  const [limited] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, allowedPlanningRoleIds: [3, 4] } } }))
+  assert.deepEqual(limited.actions.createEmployee?.allowedPlanningRoleIds, [3, 4])
   const create = (settings: Record<string, unknown>) => config({ actions: { createEmployee: { responsibleUserId: 9, ...settings } } })
-  for (const planningRoleIds of ['3', 3, [0], [-1], [1.5], ['3'], [3, 3], [1, 2, 3, 4, 5, 6], [null]]) {
-    assert.throws(() => parseProjects(create({ planningRoleIds })), /planningRoleIds/, JSON.stringify(planningRoleIds))
+  for (const allowedPlanningRoleIds of ['3', 3, [], [0], [-1], [1.5], ['3'], [3, 3], [null], Array.from({ length: 51 }, (_, i) => i + 1)]) {
+    assert.throws(() => parseProjects(create({ allowedPlanningRoleIds })), /allowedPlanningRoleIds/, JSON.stringify(allowedPlanningRoleIds).slice(0, 40))
   }
-  for (const settings of [{ defaultPlanningRoleId: 3 }, { planningRoleIds: [3], defaultPlanningRoleId: 4 }, { planningRoleIds: [3], defaultPlanningRoleId: '3' }, { planningRoleIds: [3], defaultPlanningRoleId: 0 }]) {
-    assert.throws(() => parseProjects(create(settings)), /defaultPlanningRoleId/, JSON.stringify(settings))
+  for (const old of ['planningRoleIds', 'defaultPlanningRoleId']) {
+    assert.throws(() => parseProjects(create({ [old]: [3] })), /unknown/, old)
   }
 })

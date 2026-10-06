@@ -402,3 +402,40 @@ test('the number of confirmed planning roles is passed on, saved, and told again
   assert.equal(second.gateway.calls.length, 1, 'Odoo is not asked again')
   assert.equal(accounts.list().length, 1, 'the first set-up has its one account')
 })
+
+test('the roles chosen by the planner go to the gateway, are written down, and must be the same on a repeat', async () => {
+  const { run, gateway, journal } = setup()
+  const first = ok(await run(planner, { planningRoleIds: [4, 3] }))
+  assert.equal(first.status, 201)
+  assert.deepEqual(journal.get(REQUEST)?.planningRoleIds, [4, 3])
+  const repeat = ok(await run(planner, { planningRoleIds: [4, 3] }))
+  assert.equal(repeat.replayed, true)
+  assert.equal(gateway.calls.length, 1)
+  for (const other of [[3, 4], [3], undefined, []]) {
+    refused(await run(planner, { planningRoleIds: other }), 409, /andere/)
+  }
+  assert.equal(gateway.calls.length, 1)
+})
+
+test('what the gateway is asked: the roles only when there are any, as a list, and nothing else', async () => {
+  const { run, gateway } = setup()
+  let next = 50
+  gateway.outcome = () => ({ kind: 'created', id: next++, verified: true, planningRoles: 0, replayed: false })
+  const asked = async (requestId: string, username: string, planningRoleIds?: unknown) => {
+    const before = gateway.calls.length
+    ok(await run(planner, { requestId, username, ...(planningRoleIds !== undefined && { planningRoleIds }) }))
+    return gateway.calls[before] as unknown as Record<string, unknown>
+  }
+  assert.deepEqual(await asked('req-with-roles-0123456789', 'met', [4, 3]), { requestId: 'req-with-roles-0123456789', name: 'Jan de Vries', planningRoleIds: [4, 3] })
+  assert.deepEqual(await asked('req-no-roles-012345678901', 'zonder'), { requestId: 'req-no-roles-012345678901', name: 'Jan de Vries' })
+  assert.deepEqual(await asked('req-empty-roles-0123456789', 'leeg', []), { requestId: 'req-empty-roles-0123456789', name: 'Jan de Vries' })
+})
+
+test('odd roles are refused before anything is written or asked', async () => {
+  const { run, gateway, journalFile } = setup()
+  for (const planningRoleIds of ['3', 3, null, {}, [0], [-1], [1.5], ['3'], [3, 3], [1, 2, 3, 4, 5, 6], [null]]) {
+    refused(await run(planner, { planningRoleIds }), 400, /planningsrollen/)
+  }
+  assert.equal(gateway.calls.length, 0)
+  assert.equal(journalFile.state.text, null)
+})

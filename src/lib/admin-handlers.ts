@@ -66,7 +66,7 @@ export function createAdminHandlers(ctx: Context) {
         if (!deps.accounts || !deps.journal) return fail(503, 'Inloggen is niet ingesteld op de server.')
         const body = await readJsonBody(request)
         if (!body.ok) return body.response
-        const unknown = unknownField(body.body, ['requestId', 'name', 'username'])
+        const unknown = unknownField(body.body, ['requestId', 'name', 'username', 'planningRoleIds'])
         if (unknown) return unknown
         if (!canCreateEmployees(guard.user)) return fail(403, 'Geen toegang.')
         const result = await createTechnician(
@@ -81,6 +81,18 @@ export function createAdminHandlers(ctx: Context) {
           { employeeId: result.employeeId, verified: result.verified, planningRoles: result.planningRoles, replayed: result.replayed, account: result.account, password: result.password },
           result.status,
         )
+      })
+    },
+
+    /** GET /api/planning-roles: the roles a planner can choose for a new technician (read from Odoo through the gateway). */
+    planningRolesList(request: Request): Promise<Response> {
+      return guarded(async () => {
+        const guard = adminGuard(request)
+        if (!guard.ok) return guard.response
+        if (!canCreateEmployees(guard.user)) return fail(403, 'Geen toegang.')
+        const outcome = await deps.listPlanningRoles()
+        if (!outcome.ok) return fail(502, outcome.message)
+        return json({ roles: outcome.roles })
       })
     },
 
