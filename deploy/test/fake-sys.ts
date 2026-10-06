@@ -128,10 +128,14 @@ export function fakeServer(options: FakeOptions = {}) {
       if (rest[0] === 'version') return result('Docker Compose version v5.3.1')
       if (rest.includes('up')) {
         containers.set('dig-platform-odoo-gateway-1', { labels: ['com.docker.compose.project=dig-platform', 'com.docker.compose.service=odoo-gateway'] })
+        networks.set('dig-platform_default', { internal: false })
         return result()
       }
       if (rest.includes('down')) {
+        // Like the real thing: without the variables the compose file cannot even be read.
+        if (!rest.includes('--env-file')) return result('', 1, 'required variable ODOO_BASE_URL is missing a value')
         containers.delete('dig-platform-odoo-gateway-1')
+        networks.delete('dig-platform_default')
         return result()
       }
     }

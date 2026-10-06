@@ -323,6 +323,9 @@ export interface Check {
   ok: boolean
 }
 
+/** The addresses we check answer with a page or a redirect; any error status means something is wrong. */
+const healthy = (status: number | null) => status !== null && status >= 200 && status < 400
+
 export async function verify(sys: Sys, state: InstallState, facts: Facts, waitForCertificateMs = 120_000): Promise<Check[]> {
   const local = [
     { name: 'preview-proxy (lokaal)', url: `http://${facts.bridgeIp}:${PREVIEW_PORT}/_dig/login` },
@@ -335,17 +338,17 @@ export async function verify(sys: Sys, state: InstallState, facts: Facts, waitFo
   const results: Check[] = []
   for (const item of local) {
     const status = await sys.http(item.url)
-    results.push({ ...item, status, ok: status !== null && status < 500 })
+    results.push({ ...item, status, ok: healthy(status) })
   }
   const deadline = sys.now().getTime() + waitForCertificateMs
   for (const item of publicUrls) {
     let status = await sys.http(item.url)
     // The first request for a new hostname makes Caddy fetch a certificate, which takes a few seconds.
-    while ((status === null || status >= 500) && sys.now().getTime() < deadline) {
+    while (!healthy(status) && sys.now().getTime() < deadline) {
       await sys.sleep(5000)
       status = await sys.http(item.url)
     }
-    results.push({ ...item, status, ok: status !== null && status < 500 })
+    results.push({ ...item, status, ok: healthy(status) })
   }
   return results
 }
@@ -420,10 +423,12 @@ export async function uninstall(sys: Sys, facts: Facts, options: UninstallOption
   const containers = await ownContainers(sys)
   if (containers.length) await sys.run('docker', ['rm', '-f', ...containers])
   done.push(`${containers.length} containers van dit systeem verwijderd`)
-  if (await sys.exists(app('deploy/docker-compose.yml'))) {
-    await sys.run('docker', ['compose', '--project-name', COMPOSE_PROJECT, '-f', app('deploy/docker-compose.yml'), 'down', '--remove-orphans'], { timeoutMs: 120_000 })
-    done.push('Odoo-gateway gestopt')
+  // The compose file needs its variables to be read at all, so "down" gets the same env file as "up".
+  if ((await sys.exists(app('deploy/docker-compose.yml'))) && (await sys.exists(`${PATHS.etc}/stack.env`))) {
+    await sys.run('docker', ['compose', '--project-name', COMPOSE_PROJECT, '-f', app('deploy/docker-compose.yml'), '--env-file', `${PATHS.etc}/stack.env`, 'down', '--remove-orphans'], { timeoutMs: 120_000 })
   }
+  await sys.run('docker', ['network', 'rm', `${COMPOSE_PROJECT}_default`])
+  done.push('Odoo-gateway gestopt')
   const network = await sys.run('docker', ['network', 'rm', NETWORK])
   done.push(ok(network) ? `netwerk ${NETWORK} verwijderd` : `netwerk ${NETWORK} bleef staan (nog in gebruik)`)
 

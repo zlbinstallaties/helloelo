@@ -275,6 +275,7 @@ test('uninstall takes away only what the installer added, restoring the web serv
   assert.deepEqual([...s.active], [])
   assert.deepEqual([...s.containers.keys()].sort(), ['dig-builder-test-builder-1', 'odoo20-test-db-1', 'odoo20-test-odoo-1'], 'only our own containers are gone')
   assert.ok(!s.networks.has('dig-preview'))
+  assert.ok(!s.networks.has('dig-platform_default'), 'the network of the gateway is removed too')
   assert.ok(s.files.has(`${PATHS.etc}/install.json`), 'without purge the code, data and secrets stay')
   assert.ok(s.users.has('dig-builder'))
   assert.ok(s.images.has('dig-sandbox:1'))
