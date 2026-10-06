@@ -58,7 +58,7 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
     },
     async readEmployee(params) {
       calls.push({ method: 'readEmployee', params })
-      return { id: params.id, name: lastName, companyId: params.companyId, userId: null, active: true }
+      return { id: params.id, name: lastName, companyId: params.companyId, userId: null, userLinked: false, active: true }
     },
     ...overrides,
   }
@@ -346,8 +346,10 @@ test('two different people with the same name are two employees: there are such 
 
 test('read-back: an employee that came out with an Odoo user or in another company is reported, never as a success', async () => {
   for (const record of [
-    { id: 41, name: 'Jan de Vries', companyId: 2, userId: 5, active: true },
-    { id: 41, name: 'Jan de Vries', companyId: 3, userId: null, active: true },
+    { id: 41, name: 'Jan de Vries', companyId: 2, userId: 5, userLinked: true, active: true },
+    { id: 41, name: 'Jan de Vries', companyId: 2, userId: null, userLinked: true, active: true }, // a user is linked, its id was unreadable
+    { id: 41, name: 'Jan de Vries', companyId: 3, userId: null, userLinked: false, active: true },
+    { id: 41, name: 'Jan de Vries', companyId: null, userId: null, userLinked: false, active: true }, // company unreadable
   ]) {
     const { odoo, count } = fakeOdoo({ async readEmployee() { return record } })
     await withGateway(odoo, async (gw) => {

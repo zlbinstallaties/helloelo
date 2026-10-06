@@ -84,8 +84,13 @@ export interface EmployeeRecord {
   id: number
   name: string
   companyId: number | null
-  /** The Odoo user linked to the employee; null means the employee has no Odoo login. */
+  /** The Odoo user linked to the employee, when Odoo gave its id in a shape we understand. */
   userId: number | null
+  /**
+   * True unless Odoo said `user_id` is empty (`false`). Also true when a user is linked but its id could not be read,
+   * so an unexpected answer never counts as "no Odoo login".
+   */
+  userLinked: boolean
   active: boolean
 }
 
@@ -274,6 +279,13 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
   }
 
   const isId = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0
+  /** The id of a related record: Odoo 20 sends `[id, display_name]` for a many2one; a bare id or `{id}` is accepted too. */
+  const relatedId = (value: unknown): number | null => {
+    if (isId(value)) return value
+    if (Array.isArray(value)) return isId(value[0]) ? value[0] : null
+    if (value && typeof value === 'object' && isId((value as { id?: unknown }).id)) return (value as { id: number }).id
+    return null
+  }
   const hasControlCharacter = (value: string) => [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
 
   function validDate(value: unknown): value is string {
@@ -346,7 +358,8 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       exists: true,
       active: row.active === true,
       internal: row.share === false,
-      inCompany: Array.isArray(row.company_ids) && row.company_ids.includes(params.companyId),
+      // `company_ids` is a many2many: Odoo 20 sends a list of ids; a list of `[id, name]` pairs is accepted too.
+      inCompany: Array.isArray(row.company_ids) && row.company_ids.some((item) => relatedId(item) === params.companyId),
     }
   }
 
@@ -354,7 +367,8 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (!isId(params?.id)) throw new OdooError('id is required', 0)
     checkCompany(params.companyId)
     const payload = await call('hr.employee', 'search_read', {
-      domain: [['id', '=', params.id], ['company_id', '=', params.companyId]],
+      // No company in the domain: an employee in another company must show up as such, not as "not found".
+      domain: [['id', '=', params.id]],
       fields: ['id', 'name', 'company_id', 'user_id', 'active'],
       limit: 1,
       context: { allowed_company_ids: [params.companyId], active_test: false },
@@ -362,12 +376,13 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (!Array.isArray(payload)) throw new OdooError('Odoo hr.employee returned an unexpected response', 200)
     const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
     if (!row) return null
-    const idOf = (value: unknown) => (Array.isArray(value) && isId(value[0]) ? value[0] : isId(value) ? value : null)
     return {
       id: params.id,
       name: typeof row.name === 'string' ? row.name : '',
-      companyId: idOf(row.company_id),
-      userId: idOf(row.user_id),
+      companyId: relatedId(row.company_id),
+      userId: relatedId(row.user_id),
+      // Only an explicit empty value means "no Odoo login"; a missing field or an odd shape counts as linked.
+      userLinked: row.user_id !== false && row.user_id !== null,
       active: row.active === true,
     }
   }

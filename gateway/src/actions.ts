@@ -136,7 +136,7 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
         let verified = false
         try {
           const record = await odoo.readEmployee({ id, companyId: project.companyId })
-          if (record && (record.userId !== null || record.companyId !== project.companyId)) {
+          if (record && (record.userLinked || record.companyId !== project.companyId)) {
             entry.state = 'done'
             entry.failure = new GatewayError(500, 'employee_invariant_violated', 'the employee was created but is not as intended', { id })
             throw entry.failure

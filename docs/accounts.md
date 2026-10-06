@@ -49,6 +49,28 @@ Per aanmaak, en niets anders (`src/lib/odoo-client.ts`, getest met een nageboots
 
 Er wordt nooit een `res.users` aangemaakt of gewijzigd, en nooit een planning of dienst.
 
+### Wat Odoo 20 er zelf bij doet
+
+Gelezen in de Odoo 20.0-broncode (`hr`, `rpc`), niet uitgeprobeerd. Een `hr.employee` is in Odoo 20 een koppeling met
+een `hr.version` (`_inherits`): `hr_responsible_id` en `date_version` horen bij die versie, worden bij `create` in de
+waarden van de medewerker meegegeven en daar door Odoo uit elkaar gehaald. Beide zijn verplicht (standaard: de
+aanroepende gebruiker en vandaag), en ze hebben `groups="hr.group_hr_user"`. Bij het aanmaken maakt Odoo zelf ook:
+
+- een `resource.resource` en de eerste `hr.version` (zonder contract: `contract_date_start` blijft leeg);
+- een **werkcontact** (`res.partner`) met de naam van de medewerker. Dat is een contactkaart, geen gebruiker en geen
+  login, maar het is wel een extra record in Odoo;
+- een avatar, en een **interne notitie** in de chatter van de medewerker met de tekst "Congratulations! May I recommend
+  you to setup an onboarding plan?". Dat is een log, geen mail (`_message_log_batch`).
+
+Daarom geldt voor de gebruiker achter de gateway-sleutel dat hij **HR-medewerker (`hr.group_hr_user`) moet zijn**, anders
+kan Odoo het aanmaken of de velden `hr_responsible_id` en `date_version` weigeren (veldrechten `groups=...`; dat gedrag is
+niet uitgeprobeerd). Dat is meer dan leesrechten: gebruik voor het
+live dashboard een eigen gateway met een eigen sleutel, zodat die rechten niet voor andere projecten gelden.
+
+Het domein van `hr_responsible_id` in Odoo is: interne gebruiker, van het bedrijf, en lid van `hr.group_hr_user`. Dat
+domein is een filter voor het formulier; Odoo past het niet toe bij een `create` via de API, en de gateway controleert
+de groep niet (wel: bestaat, actief, intern, bedrijf). Kies dus als verantwoordelijke een HR-medewerker.
+
 ### Dubbele aanvragen
 
 Een aanvraag heeft een `requestId` die de browser bij het openen van het formulier maakt en bij elke herhaling
@@ -119,10 +141,17 @@ bezoek zonder planning is alleen voor planners zichtbaar.
 
 ## Niet bewezen
 
-- **Niets is tegen een echte Odoo geprobeerd.** De vorm van de aanroepen (`create` met `vals_list`, de velden
-  `date_version`, `hr_responsible_id`, `share`, `company_ids`) volgt het schema dat is opgegeven, maar is alleen met
-  nagebootste antwoorden getest. Controleer eerst op de testserver met `/v1/schema` (`fields_get`) en let op `missing`.
-- Of `date_version` de datum van vandaag (Amsterdam) hoort te zijn, en welke standaardwaarden Odoo 20 verder zelf zet.
+- **Niets is tegen een echte Odoo geprobeerd.** De aanroepen en antwoorden zijn vergeleken met de Odoo 20.0-broncode
+  (zie "Wat Odoo 20 er zelf bij doet"): `POST /json/2/<model>/<methode>` met `vals_list` bij `create`, een lijst met
+  nummers als antwoord, `[id, naam]` voor een many2one en een lijst nummers voor een many2many (`company_ids`). Met
+  een draaiende Odoo is het niet gecontroleerd; de gateway leest daarom antwoorden streng (een onbekende vorm van
+  `user_id` geldt als "gekoppeld", een ontbrekende `share` als "niet intern").
+- Rechten en regels van **jullie** database (toegangsregels, eigen modules zoals `svs`, de sleutelgebruiker en zijn
+  groepen) staan niet in de broncode. Controleer op de testserver met `/v1/schema` (`fields_get`, let op `missing`).
+- Of de contextsleutels `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` alle volgers voorkomen, en of de
+  interne onboardingnotitie bij jullie is uitgezet of anders gaat.
+- Planning is in Odoo een Enterprise-module; de broncode ervan is niet gelezen. Dat `planning.slot.employee_ids` naar
+  `hr.employee` wijst, komt van de opdrachtgever.
 - Hoe de echte Odoo `employee_ids` en `user_ids` aanlevert (aangenomen: `[id, naam]`-paren).
 
 ## Wat nog moet: een gepubliceerd dashboard

@@ -245,6 +245,39 @@ test('responsible check: a user qualifies only when they exist, are active, are 
   assert.deepEqual(await run([{ id: 8, active: true, share: false, company_ids: [2] }]), { exists: false, active: false, internal: false, inCompany: false }, 'a different record is no match')
 })
 
+test('employee read-back fails closed: only an explicit empty user_id means "no Odoo user"', async () => {
+  const read = async (patch) => {
+    const rows = [{ id: 41, name: 'Jan de Vries', company_id: [2, 'DIG'], user_id: false, active: true, ...patch }]
+    return createOdooClient({ ...base, fetch: mockFetch(200, rows) }).readEmployee({ id: 41, companyId: 2 })
+  }
+  for (const user_id of [false, null]) assert.equal((await read({ user_id })).userLinked, false, JSON.stringify(user_id))
+  // Odoo 20 sends [id, name]; a bare id and an {id} object are read too; anything else is still "linked".
+  for (const user_id of [[5, 'Jan'], 5, { id: 5 }]) {
+    const record = await read({ user_id })
+    assert.equal(record.userLinked, true, JSON.stringify(user_id))
+    assert.equal(record.userId, 5, JSON.stringify(user_id))
+  }
+  for (const user_id of [true, 'Jan', [], ['x', 'Jan'], {}, 0, 'false']) {
+    const record = await read({ user_id })
+    assert.equal(record.userLinked, true, `unreadable ${JSON.stringify(user_id)} must count as linked`)
+    assert.equal(record.userId, null, JSON.stringify(user_id))
+  }
+  const missing = await createOdooClient({ ...base, fetch: mockFetch(200, [{ id: 41, name: 'Jan', company_id: [2, 'DIG'], active: true }]) }).readEmployee({ id: 41, companyId: 2 })
+  assert.equal(missing.userLinked, true, 'a missing user_id is not proof of "no user"')
+  for (const company_id of [[3, 'Other'], { id: 3 }, 3]) assert.equal((await read({ company_id })).companyId, 3, JSON.stringify(company_id))
+  for (const company_id of [false, 'DIG', []]) assert.equal((await read({ company_id })).companyId, null, JSON.stringify(company_id))
+})
+
+test('responsible check reads many2many company_ids as ids or as [id, name] pairs, and nothing else', async () => {
+  const run = async (company_ids) => createOdooClient({ ...base, fetch: mockFetch(200, [{ id: 9, active: true, share: false, company_ids }]) }).checkResponsible({ userId: 9, companyId: 2 })
+  assert.equal((await run([1, 2])).inCompany, true)
+  assert.equal((await run([[2, 'DIG']])).inCompany, true)
+  assert.equal((await run([{ id: 2 }])).inCompany, true)
+  for (const value of [[], [1, 3], ['2'], [[3, 'Other']], 2, false, null, 'DIG']) assert.equal((await run(value)).inCompany, false, JSON.stringify(value))
+  const noShare = await createOdooClient({ ...base, fetch: mockFetch(200, [{ id: 9, active: true, company_ids: [2] }]) }).checkResponsible({ userId: 9, companyId: 2 })
+  assert.equal(noShare.internal, false, 'a missing share flag is not proof of an internal user')
+})
+
 test('responsible check reads one fixed res.users record with fixed fields', async () => {
   const calls = []
   const client = createOdooClient({ ...base, fetch: mockFetch(200, [], calls) })
@@ -263,13 +296,17 @@ test('employee read-back: one fixed hr.employee record in the company; user_id f
   const calls = []
   const rows = [{ id: 41, name: 'Jan de Vries', company_id: [2, 'DIG'], user_id: false, active: true }]
   const client = createOdooClient({ ...base, fetch: mockFetch(200, rows, calls) })
-  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, userId: null, active: true })
+  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, userId: null, userLinked: false, active: true })
   assert.equal(calls[0].url, 'https://odoo.example.com/json/2/hr.employee/search_read')
   const body = JSON.parse(calls[0].init.body)
-  assert.deepEqual(body.domain, [['id', '=', 41], ['company_id', '=', 2]])
+  // No company in the domain: an employee that ended up in another company is reported as such, not as missing.
+  assert.deepEqual(body.domain, [['id', '=', 41]])
   assert.deepEqual(body.fields, ['id', 'name', 'company_id', 'user_id', 'active'])
+  assert.deepEqual(body.context, { allowed_company_ids: [2], active_test: false })
   const withUser = createOdooClient({ ...base, fetch: mockFetch(200, [{ ...rows[0], user_id: [5, 'Jan'] }]) })
-  assert.equal((await withUser.readEmployee({ id: 41, companyId: 2 })).userId, 5)
+  const linked = await withUser.readEmployee({ id: 41, companyId: 2 })
+  assert.equal(linked.userId, 5)
+  assert.equal(linked.userLinked, true)
   const none = createOdooClient({ ...base, fetch: mockFetch(200, []) })
   assert.equal(await none.readEmployee({ id: 41, companyId: 2 }), null)
 })

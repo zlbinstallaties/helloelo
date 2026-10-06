@@ -76,8 +76,13 @@ Geef de actie aan een **eigen project en token** voor het live dashboard, nooit 
 de agent: elke code die dat token heeft, kan er medewerkers mee aanmaken. De voorbeeldconfig heeft geen acties en
 geen verzonnen gebruikers-id.
 
-Wat niet is geprobeerd: een aanroep tegen een echte Odoo. De vorm van de aanroep (`create` met `vals_list`) en de
-velden `date_version`, `hr_responsible_id`, `share` en `company_ids` zijn alleen met nagebootste antwoorden getest.
+De Odoo-gebruiker achter `ODOO_API_KEY` moet voor deze actie HR-medewerker zijn (`hr.group_hr_user`); geef de actie
+daarom aan een eigen gateway met een eigen sleutel. Zie `docs/accounts.md`, "Wat Odoo 20 er zelf bij doet", voor wat Odoo
+bij het aanmaken zelf toevoegt (werkcontact, interne notitie, geen gebruiker).
+
+Wat niet is geprobeerd: een aanroep tegen een echte Odoo. De aanroep is vergeleken met de Odoo 20.0-broncode
+(`/json/2/hr.employee/create` met `vals_list`, `hr_responsible_id` en `date_version` in de waarden van de medewerker) en
+getest met nagebootste antwoorden. Het teruglezen is streng: alleen `user_id: false` telt als "geen Odoo-gebruiker".
 
 ## Veiligheidsregels
 
@@ -123,7 +128,7 @@ In Compose heeft de gateway geen gepubliceerde host-poort; apps bereiken hem int
 
 ## Verificatie
 
-- 50 gateway-tests en 21 clienttests geslaagd (2026-10-06), waaronder de actie; `tsc -p gateway` zonder fouten.
+- 50 gateway-tests en 23 clienttests geslaagd (2026-10-06), waaronder de actie; `tsc -p gateway` zonder fouten.
 - End-to-end rooktest van `main.ts` tegen een lokale nep-Odoo (JSON-2) geslaagd (eerdere sessie).
 - Niet uitgevoerd: Docker-image bouwen (geen Docker-daemon in de ontwikkelomgeving) en een
   aanroep tegen de echte Odoo 20-testserver.

@@ -39,7 +39,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Controle | Status | Bevinding |
 |---|---|---|
 | Odoo-methoden | Geslaagd, met één bewuste schrijfactie | Voor de data gebruikt het dashboard alleen `search_read` via `src/lib/gateway.server.ts`; de gateway staat op modellen alleen `search_read` en `search_count` toe. De enige schrijfactie is "monteur als medewerker aanmaken" (zie "Monteur toevoegen"): een `hr.employee` zonder Odoo-gebruiker, door een planner, en standaard uit. Er is geen algemene schrijfroute, geen aanmaak van `res.users`, planning of dienst. |
-| Geen berichten, geen configuratiewijzigingen | Geslaagd voor huidige code, met één voorbehoud | Geen mail-, chatter- of notificatiecall in dashboardcode. De aanmaak van een medewerker stuurt in de context `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` mee om volgers en mails te vermijden; dat is niet in een echte Odoo geprobeerd. |
+| Geen berichten, geen configuratiewijzigingen | Geslaagd voor de dashboardcode, met voorbehoud bij het aanmaken | Geen mail-, chatter- of notificatiecall in dashboardcode. De aanmaak van een medewerker stuurt in de context `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` mee om volgers en mails te vermijden; dat is niet in een echte Odoo geprobeerd. Odoo 20 zelf legt bij het aanmaken van een medewerker een interne notitie in de chatter vast (een log, geen mail) en maakt een werkcontact aan (`docs/accounts.md`). |
 | Bedrijfsafscherming | Geslaagd, bij de gateway | `company_id = 2` komt uit de projectconfig van de gateway en wordt aan domain en context toegevoegd; de browser kan dat niet meesturen. `TEST_COMPANY_ID` in `src/lib/cache.ts` is alleen voor weergave. Dit vervangt geen gebruikersauthenticatie. |
 | Authenticatie van het dashboard zelf | Gebouwd en aangesloten, getest met mocks; **niet geschikt voor een gepubliceerd dashboard** | Accounts die een planner aanmaakt, scrypt-wachtwoorden, getekende sessies, inlogbeperking, noodaccount, bevoegdheden (een monteur ziet alleen zijn eigen afspraken, zonder Odoo-links, kan niet vernieuwen of beheren) en de header `X-Dig-Dashboard` bij elke wijziging; zonder `DIG_SESSION_SECRET` is het dashboard dicht (503), `DIG_AUTH=off` zet het bewust open. Gecontroleerd met unit-tests, met de gebouwde server over echte HTTP (25 controles) en in Chromium (26 controles voor het hoofdverhaal en 10 voor foutgevallen); die laatste drie zijn wegwerpscripts buiten de repository. Een gepubliceerd dashboard kan de accounts niet bewaren: zie `docs/accounts.md`, "Wat nog moet". |
 | Monteur toevoegen (schrijfactie naar Odoo) | Getest met mocks en in Chromium; **niets tegen een echte Odoo geprobeerd** | Zie hieronder. |
@@ -76,9 +76,18 @@ De logica is met opzettelijke fouten gecontroleerd: 34 in de service, handlers e
 twee gelijkwaardig; voor de andere twee zijn tests toegevoegd), 28 in de gateway-actie (vier overlevers, allemaal
 gelijkwaardig omdat de beveiliging dubbel is uitgevoerd; elk paar tegelijk uitgeschakeld is wel gevangen) en 16 in de Odoo-client (alle gevangen).
 
-**Niet bewezen:** (1) de vorm van de aanroepen tegen een echte Odoo 20: `create` met `vals_list`, de velden `date_version`,
-`hr_responsible_id`, `share` en `company_ids`, en wat Odoo verder zelf instelt; (2) of de gebruikte context-sleutels mails
-voorkomen; (3) welke Odoo-gebruiker als verantwoordelijke moet gelden: die staat bewust nergens in de repository.
+**Gelezen in de Odoo 20.0-broncode** (`addons/hr`, `addons/rpc/controllers/json2.py`, `odoo/orm`; 2026-10-06): de aanroep
+`POST /json/2/hr.employee/create` met `vals_list` en `context` bovenaan klopt met de controller; `hr_responsible_id` en
+`date_version` zijn velden van `hr.version`, verplicht, en worden bij `create` uit de waarden van de medewerker gehaald;
+`with_company(<nummer>)` werkt met een bedrijfsnummer; een leeg many2one is `false`, een gevuld `[id, naam]`, een many2many
+een lijst nummers. Gevolg voor de code: het teruglezen is strenger gemaakt (een onleesbare `user_id` geldt als gekoppeld,
+een medewerker in een ander bedrijf wordt als zodanig gemeld) en `company_ids` wordt als nummers of paren gelezen
+(2 nieuwe en 2 aangepaste tests; 7 opzettelijke fouten, allemaal gevangen). Daarbij bleek dat Odoo zelf een werkcontact (`res.partner`, geen
+gebruiker) en een interne notitie aanmaakt, en dat de sleutelgebruiker HR-medewerker moet zijn (`docs/accounts.md`).
+
+**Niet bewezen:** (1) alles tegen een draaiende Odoo: rechten, toegangsregels en eigen modules van jullie database, en of de
+contextsleutels volgers en meldingen helemaal voorkomen; (2) de Enterprise-module Planning, waarvan de broncode niet is
+gelezen; (3) welke Odoo-gebruiker als verantwoordelijke moet gelden: die staat bewust nergens in de repository.
 
 ## Builder en buildservice: stand van zaken
 
