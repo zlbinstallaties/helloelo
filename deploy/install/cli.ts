@@ -200,7 +200,13 @@ export async function apply(deps: Deps, options: { yes?: boolean; source?: Sourc
   const checks = await verify(sys, state, facts, (options.waitSeconds ?? 120) * 1000)
   for (const c of checks) prompts.say(`  ${c.ok ? 'ok     ' : 'FOUT   '} ${c.name}: ${c.status ?? 'geen antwoord'}  ${c.url}`)
   const a = addresses(state)
-  prompts.say(`\nKlaar. Open ${a.builder} en log in met het wachtwoord dat je net koos.`)
+  const failed = checks.filter((c) => !c.ok)
+  if (failed.length) {
+    prompts.say(`\nGeïnstalleerd, maar ${failed.length === checks.length ? 'geen enkel adres' : 'niet elk adres'} antwoordt al. Meestal is een nieuw certificaat nog onderweg: wacht een minuut en draai "status".`)
+    prompts.say('Blijft het fout? Kijk met: journalctl -u caddy -n 50 --no-pager   en   journalctl -u dig-builder-app -n 50 --no-pager')
+  } else {
+    prompts.say(`\nKlaar. Open ${a.builder} en log in met het wachtwoord dat je net koos.`)
+  }
   if (!state.odooApiKey) prompts.say('Er is nog geen Odoo-sleutel ingesteld, dus de apps tonen geen gegevens. Voer het script opnieuw uit zodra je die hebt.')
   if (!state.anthropicApiKey) prompts.say('Er is nog geen Claude-sleutel ingesteld, dus de bouwagent kan nog niet werken. Voer het script opnieuw uit zodra je die hebt.')
   return checks.every((c) => c.ok) ? 0 : 2

@@ -74,6 +74,7 @@ test('a first installation does every step, writes the right files with the righ
   const run = await install(s)
   assert.equal(run.code, 0, run.said.join('\n'))
   assert.equal(run.left(), 0, 'all answers were used')
+  assert.match(run.said.join('\n'), /Klaar\. Open https:\/\/bouwen\.srv1938209\.hstgr\.cloud/)
 
   // users, code, image, network, gateway, services
   assert.ok(s.users.has('dig-builder'))
@@ -266,6 +267,19 @@ test('an existing Docker network of that name that is not internal is not touche
   assert.equal(run.code, 1)
   assert.match(run.said.join('\n'), /niet intern/)
   assert.ok(!s.calls.some((c) => c.cmd === 'docker' && c.args[0] === 'network' && ['rm', 'create'].includes(c.args[1])))
+})
+
+test('when the public addresses do not answer yet, the installer says so instead of "Klaar"', async () => {
+  const s = server()
+  const http = s.sys.http
+  s.sys.http = async (url) => (url.startsWith('https://bouwen.') || url.includes('.apps.') ? 502 : http(url))
+  const script = scriptedPrompts(FIRST_RUN)
+  const code = await apply({ sys: s.sys, prompts: script.prompts }, { yes: true, waitSeconds: 0 })
+  assert.equal(code, 2)
+  const said = script.said.join('\n')
+  assert.match(said, /Geïnstalleerd, maar niet elk adres antwoordt al/)
+  assert.ok(!said.includes('Klaar. Open'))
+  assert.match(said, /journalctl -u caddy/)
 })
 
 test('status reports services and addresses; before an installation it says so', async () => {

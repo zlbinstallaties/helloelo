@@ -1,5 +1,9 @@
 # DIG Builder installeren op de Hostinger-VPS
 
+> **Nieuw:** voor de VPS met de Odoo-testserver is er een installatiescript dat dit allemaal doet en de bestaande Caddy
+> respecteert: zie `docs/dig-builder-install.md`. Dit document beschrijft de handmatige route voor een server zonder eigen
+> webserver.
+
 Zo komen de gateway, de sandbox en de previews op een eigen server. Dit is nog **niet** op een
 echte server uitgevoerd: ik heb geen toegang tot de VPS. De losse onderdelen zijn wel getest
 (zie `docs/odoo-gateway.md`, `docs/dig-builder-sandbox.md`); de Caddy-configuratie en de
