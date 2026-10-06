@@ -3,9 +3,18 @@
 - Alle teksten die gebruikers zien zijn Nederlands. Datums en tijden worden getoond in `Europe/Amsterdam`.
 - Stack: TanStack Start (SSR op Node), React 19, Tailwind 4 en shadcn/ui-componenten in `src/components/ui`.
   Hergebruik die componenten; voeg geen nieuwe UI-bibliotheken toe.
-- Odoo wordt alleen gelezen, uitsluitend via `src/lib/gateway.server.ts` (`searchRead`). Geen directe
-  Odoo-aanroepen en geen schrijfacties. De gateway staat alleen de velden toe die `odoo_schema` laat zien;
-  een nieuw veld voeg je toe aan de lijst in `src/lib/cache.ts` en aan de types in `src/lib/dashboard-types.ts`.
+- Odoo wordt gelezen via `src/lib/gateway.server.ts` (`searchRead`, `searchReadAll`). Geen directe Odoo-aanroepen.
+  De gateway staat alleen de velden toe die `odoo_schema` laat zien; een nieuw veld voeg je toe aan de lijst in
+  `src/lib/cache.ts` en aan de types in `src/lib/dashboard-types.ts`.
+- Er is **één** schrijfactie, en die is van een mens: een planner voegt een monteur toe als medewerker in Odoo, zonder
+  Odoo-account (`src/lib/employee-service.ts`, `gateway-employee.ts`, `admin-handlers.ts`, in de gateway
+  `gateway/src/actions.ts`; `docs/accounts.md`). Voeg geen andere schrijfacties toe, en wijzig, kopieer of verbreed
+  deze niet: wat er naar Odoo gaat (alleen `requestId` en naam), wie het mag, het journaal en de volgorde zijn met
+  opzet vast. Dat hoort bij een opdracht die daar expliciet over gaat en door een mens wordt beoordeeld.
+- Inloggen en rechten (`src/lib/accounts.ts`, `auth.ts`, `authorization.ts`, `sessions.ts`, `password.ts`,
+  `handlers.ts`, `admin-handlers.ts`) wijzig je alleen als de opdracht daarover gaat. Elke route gaat via de handlers
+  in `src/lib/handlers.ts`; maak geen route die daar omheen gaat, en laat een monteur nooit meer zien dan zijn eigen
+  afspraken. `DIG_AUTH=off` is alleen voor previews en ontwikkeling.
 - Geen geheimen, tokens of sleutels in bestanden. Servercode leest ze uit `process.env`. Bestanden die
   `*.server.ts` heten worden nooit vanuit clientcode geïmporteerd.
 - Routes staan in `src/routes` (bestandsgebaseerd). `src/routeTree.gen.ts` wordt gegenereerd door de build;

@@ -169,3 +169,4 @@ exports/
 
 # package-lock.json is auto-generated and shouldn't block git operations
 package-lock.json
+data/

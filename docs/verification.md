@@ -9,9 +9,9 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Onderdeel | Controle | Uitkomst |
 |---|---|---|
 | Dashboard | `bun run typecheck`, `bun run lint`, `bun run build` | geslaagd, geen meldingen |
-| Dashboard | `bun run test:app` | 119 van 119 geslaagd (`appointments`, `dashboard-client`, `paging`, `ttl-cache`, en voor accounts: `password`, `sessions`, `accounts`, `auth`, `authorization`) |
-| Odoo-client | `bun run test:odoo` | 11 van 11 geslaagd |
-| Gateway | `bun run test:gateway`, `bun run typecheck:gateway` | 23 van 23 geslaagd, typecheck zonder fouten |
+| Dashboard | `bun run test:app` | 247 van 247 geslaagd (afspraken, paginering, cache, dashboard-client; accounts, wachtwoorden, sessies, bevoegdheden, handlers; monteur toevoegen: journaal, service, gateway-koppeling en de hele keten) |
+| Odoo-client | `bun run test:odoo` | 21 van 21 geslaagd, waarvan 10 voor de aanmaakactie |
+| Gateway | `bun run test:gateway`, `bun run typecheck:gateway` | 50 van 50 geslaagd (waarvan 27 voor de actie en de configuratie ervan), typecheck zonder fouten |
 | Sandbox | `bun run test:sandbox`, `bun run typecheck:sandbox` | 39 geslaagd, 3 overgeslagen: de Docker-integratietests slaan zichzelf over zonder daemon |
 | Agent | `bun run test:agent`, `bun run typecheck:agent` | 37 van 37 geslaagd, typecheck zonder fouten |
 | Builder-app | `bun run test:builder-app`, `bun run typecheck:builder-app` | 54 van 54 geslaagd, typecheck zonder fouten. De afhankelijkheden van `agent/` moeten eerst geïnstalleerd zijn (`cd agent && bun install`), anders falen deze tests met `ERR_MODULE_NOT_FOUND` voor `@anthropic-ai/sdk`. |
@@ -26,6 +26,7 @@ expliciet als "niet uitgevoerd" of als historisch.
   bekende installatiepoging faalde op `Invalid field 'group_ids' in 'ir.actions.client'`; dat veld
   staat nu alleen nog op de `ir.actions.act_window` `action_dig_builder_project`, maar de herstelde
   installatie is niet opnieuw uitgevoerd.
+- Alles wat de aanmaak van een medewerker naar een echte Odoo stuurt: er is bewust niets echt geschreven.
 - De Docker-integratietests van de sandbox en het publiceren met een echte daemon. Eerdere sessies
   meldden die als geslaagd (`docs/dig-builder-sandbox.md`); vandaag niet herhaald.
 - Een run met de echte Claude API vanuit de builder-app (de proefruns zijn wel gedraaid, zie
@@ -37,10 +38,11 @@ expliciet als "niet uitgevoerd" of als historisch.
 
 | Controle | Status | Bevinding |
 |---|---|---|
-| Alleen-lezen Odoo-methoden | Geslaagd | Het dashboard roept alleen `search_read` aan via `src/lib/gateway.server.ts`. De gateway staat alleen `search_read` en `search_count` toe en weigert andere methoden al bij het laden van de projectconfig. |
-| Geen berichten, geen configuratiewijzigingen | Geslaagd voor huidige code | Geen mail-, chatter- of notificatiecall en geen schrijfactie in dashboardcode. |
+| Odoo-methoden | Geslaagd, met één bewuste schrijfactie | Voor de data gebruikt het dashboard alleen `search_read` via `src/lib/gateway.server.ts`; de gateway staat op modellen alleen `search_read` en `search_count` toe. De enige schrijfactie is "monteur als medewerker aanmaken" (zie "Monteur toevoegen"): een `hr.employee` zonder Odoo-gebruiker, door een planner, en standaard uit. Er is geen algemene schrijfroute, geen aanmaak van `res.users`, planning of dienst. |
+| Geen berichten, geen configuratiewijzigingen | Geslaagd voor huidige code, met één voorbehoud | Geen mail-, chatter- of notificatiecall in dashboardcode. De aanmaak van een medewerker stuurt in de context `mail_create_nosubscribe` en `mail_auto_subscribe_no_notify` mee om volgers en mails te vermijden; dat is niet in een echte Odoo geprobeerd. |
 | Bedrijfsafscherming | Geslaagd, bij de gateway | `company_id = 2` komt uit de projectconfig van de gateway en wordt aan domain en context toegevoegd; de browser kan dat niet meesturen. `TEST_COMPANY_ID` in `src/lib/cache.ts` is alleen voor weergave. Dit vervangt geen gebruikersauthenticatie. |
-| Authenticatie van het dashboard zelf | Kern gebouwd, **nog niet aangesloten** | Het dashboard vraagt nog steeds niet om een login. Etappe 1 van `docs/accounts.md` is klaar: accounts die een admin aanmaakt, wachtwoorden (scrypt), getekende sessies, inlogbeperking, noodaccount en bevoegdheden (een monteur ziet alleen zijn eigen afspraken, zonder links naar Odoo). Gedekt door 71 nieuwe tests; de logica is met 34 opzettelijke fouten gecontroleerd en elke fout werd door een test gevonden (twee gelijkwaardige varianten daargelaten). Nog niet: routes, schermen en opslag op schijf (etappe 2), en een gepubliceerd dashboard dat eigen accounts kan bewaren (etappe 3). |
+| Authenticatie van het dashboard zelf | Gebouwd en aangesloten, getest met mocks; **niet geschikt voor een gepubliceerd dashboard** | Accounts die een planner aanmaakt, scrypt-wachtwoorden, getekende sessies, inlogbeperking, noodaccount, bevoegdheden (een monteur ziet alleen zijn eigen afspraken, zonder Odoo-links, kan niet vernieuwen of beheren) en de header `X-Dig-Dashboard` bij elke wijziging; zonder `DIG_SESSION_SECRET` is het dashboard dicht (503), `DIG_AUTH=off` zet het bewust open. Gecontroleerd met unit-tests, met de gebouwde server over echte HTTP (25 controles) en in Chromium (26 controles voor het hoofdverhaal en 10 voor foutgevallen); die laatste drie zijn wegwerpscripts buiten de repository. Een gepubliceerd dashboard kan de accounts niet bewaren: zie `docs/accounts.md`, "Wat nog moet". |
+| Monteur toevoegen (schrijfactie naar Odoo) | Getest met mocks en in Chromium; **niets tegen een echte Odoo geprobeerd** | Zie hieronder. |
 | Geheimen in browsercode | Geslaagd op code-inspectie | `DIG_GATEWAY_TOKEN` staat alleen in `src/lib/gateway.server.ts`, dat een server-only import heeft. Alleen `.env.example` staat in git; `.env` en `.env.*` zijn uitgesloten. |
 | Meerdere bezoeken per afspraak | Geslaagd | Opgelost via proefrun 1 en 2 (`docs/proefrun-resultaten.md`). Een afspraak toont alle bezoeken; de status is die van het eerste bezoek dat nog niet is afgerond. Een test op 3000 willekeurige datasets bewaakt dat elk bezoek precies één keer op het scherm staat. |
 | Bezoek met niet-geladen planning | Geslaagd | Zo'n bezoek valt terug op een geladen planning die het bezoek opsomt, en blijft anders als "Niet gepland" zichtbaar. |
@@ -51,6 +53,32 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Lange lijst in delen | Geslaagd in Chromium, geen geautomatiseerde test | De lijst toont 100 afspraken, met onderaan "100 van 5.200 afspraken getoond" en een knop "Toon 100 meer" (`Appointments` in `src/routes/index.tsx`). Bij 100 of minder verandert er niets. De overzichtskaarten bovenaan tellen alle afspraken, niet alleen de getoonde. Wisselen van datum, periode of monteur zet de lijst terug op 100; vernieuwen houdt de stand. Met de echte keten bekeken (nep-Odoo met 80, 350 en 5300 planningen): de eerste weergave van 5200 afspraken duurde ongeveer 1,5 seconde in plaats van ongeveer 8, het detailpaneel opent ook voor kaarten die later zijn toegevoegd, en de laatste klik toont "Alle 350 afspraken getoond" zonder knop. Dit is met een wegwerpscript gecontroleerd dat niet in de repository staat; er is geen test in `test/`, omdat het component alleen uit weergave bestaat. |
 | Lege toestand | Geslaagd | Een selectie zonder resultaat toont een lege toestand met knoppen voor "komend" en "alle". |
 | Zelfstandige draai | Eerder geslaagd, niet herhaald | Dashboard zonder HelloLeo of Cloudflare, tegen een nagebootste Odoo via de gateway, op Node en als preview in de sandbox. Niet getest tegen de echte Odoo 20-testserver. |
+
+## Monteur toevoegen: wat is gecontroleerd
+
+De planner voegt een monteur toe; de gateway maakt een `hr.employee` aan zonder `user_id`; daarna komt het portaalaccount,
+gekoppeld aan `employee:<nummer>`. Details en foutgevallen: `docs/accounts.md`, `docs/odoo-gateway.md`.
+
+| Eis | Hoe gecontroleerd |
+|---|---|
+| Niet ingelogd of monteur: geen aanmaak | handlers: 401 en 403, en de gateway en Odoo krijgen niets te zien (`test/admin-handlers.test.ts`, `test/employee-chain.test.ts`); in Chromium als monteur 403 op alle beheerroutes |
+| Alleen een planner | rol-controle in de service en in de handler, beide getest; wijzigingsverzoeken zonder `X-Dig-Dashboard` geven 403 |
+| `company_id` en verantwoordelijke niet uit de browser | onbekende velden geven 400 (dashboard en gateway); de aanroep naar Odoo bevat bedrijf en verantwoordelijke uit de gatewayconfig |
+| Geen `res.users`, `user_id` leeg | de client heeft geen parameter daarvoor (getest met pogingen om het te zetten); de hele keten legt elke aanroep naar de nagebootste Odoo vast: alleen `res.users` lezen, `hr.employee` aanmaken en teruglezen; de gateway meldt een medewerker met Odoo-gebruiker als fout |
+| `hr_responsible_id` verplicht, geldig, van het bedrijf | de gateway controleert bij elke aanvraag: bestaat, actief, interne gebruiker (geen portaal), bedrijf; zonder configuratie staat de actie uit |
+| Koppeling met een stabiel id | `personId` is `employee:<nummer van Odoo>`; twee monteurs met dezelfde naam geven twee medewerkers en twee accounts |
+| Fouten van Odoo: geen succes, geen lokaal account | geweigerd, buiten gebruik, onbekende uitkomst en afwijkende medewerker: telkens een foutmelding, geen wachtwoord en geen account |
+| Dubbele aanvragen | journaal op schijf (dashboard) en geheugen (gateway): herhaling geeft hetzelfde antwoord; twee klikken tegelijk één medewerker; onbekende uitkomst wordt nooit opnieuw verstuurd; ook in Chromium |
+| Lijst wordt bijgewerkt | na het toevoegen staat het account in de lijst, met "Nog niet ingepland in Odoo" |
+| Bestaande leesfunctionaliteit | dashboard, filters, paginering, vernieuwen en de lijst in delen zijn ongewijzigd getest |
+
+De logica is met opzettelijke fouten gecontroleerd: 34 in de service, handlers en gateway-koppeling (vier overlevers, waarvan
+twee gelijkwaardig; voor de andere twee zijn tests toegevoegd), 28 in de gateway-actie (vier overlevers, allemaal
+gelijkwaardig omdat de beveiliging dubbel is uitgevoerd; elk paar tegelijk uitgeschakeld is wel gevangen) en 16 in de Odoo-client (alle gevangen).
+
+**Niet bewezen:** (1) de vorm van de aanroepen tegen een echte Odoo 20: `create` met `vals_list`, de velden `date_version`,
+`hr_responsible_id`, `share` en `company_ids`, en wat Odoo verder zelf instelt; (2) of de gebruikte context-sleutels mails
+voorkomen; (3) welke Odoo-gebruiker als verantwoordelijke moet gelden: die staat bewust nergens in de repository.
 
 ## Builder en buildservice: stand van zaken
 
@@ -86,9 +114,12 @@ mapping en multi-visit, een expliciete tijdzone-helper met tests rond de klokwis
 `upcoming` rond middernacht Amsterdamse tijd, de monteursfilter op een stabiel id, de foutafhandeling
 van de vernieuwknop, paginering boven 500 records en het tonen van lange lijsten in delen.
 
-1. Voeg echte server-side app-authenticatie en rollen toe voordat het dashboard buiten de
-   DIG Builder-preview wordt gebruikt.
-2. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
+1. Maak een gepubliceerd dashboard geschikt voor eigen accounts (blijvende opslag per project, sessiegeheim als
+   omgevingsvariabele, de gedeelde proxy-login er niet vóór): `docs/accounts.md`, "Wat nog moet". Dat verandert de
+   beveiligingsgrenzen van de sandbox.
+2. Kies de Odoo-gebruiker die verantwoordelijke wordt (`responsibleUserId` in een eigen gatewayproject), controleer de
+   aanroepen eerst met `/v1/schema` op de testserver, en probeer de aanmaak voor het eerst op de testserver.
+3. Voer de Odoo-addon-installatie en `scripts/run-dig-builder-integration.sh` uit op een omgeving met
    Docker en Odoo 20, en een run met de echte Odoo 20-testserver achter de gateway. Controleer daarbij
    ook hoe `employee_ids`, `user_ids` en `technician_id` er in het echte antwoord uitzien en of de
    koppeling tussen gebruiker en medewerker op naam daar volstaat.

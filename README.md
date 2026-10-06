@@ -1,6 +1,6 @@
 # DIG Monteursdashboard
 
-Nederlandstalig, alleen-lezen dashboard voor `De Installatiegroep B.V. [TEST]`, gebouwd met TanStack Start en de verbonden Odoo 20-testomgeving.
+Nederlandstalig dashboard voor `De Installatiegroep B.V. [TEST]`, gebouwd met TanStack Start en de verbonden Odoo 20-testomgeving. Het leest de planning; monteurs loggen in met een eigen account en zien alleen hun eigen afspraken. Een planner kan een monteur als medewerker in Odoo aanmaken (zonder Odoo-account); dat staat standaard uit.
 
 Naast het dashboard staat in deze repository het **DIG Builder-platform**: een agent die een app zoals dit
 dashboard aanpast op een eigen branch, een sandbox met previews, een Odoo-gateway en een scherm om
@@ -38,11 +38,16 @@ Server-omgeving (geen geheimen in browsercode):
 | Variabele | Doel |
 |---|---|
 | `DIG_GATEWAY_URL` | adres van de Odoo-gateway, bijv. `http://odoo-gateway:8070` |
-| `DIG_GATEWAY_TOKEN` | projecttoken voor dit dashboard (alleen-lezen) |
+| `DIG_GATEWAY_TOKEN` | projecttoken voor dit dashboard |
+| `DIG_SESSION_SECRET` | minstens 32 bytes; zonder deze variabele weigert het dashboard alles |
+| `DIG_DATA_DIR` | map voor de accounts en het aanvragenjournaal (standaard `./data`) |
+| `DIG_ADMIN_USERNAME`, `DIG_ADMIN_PASSWORD_HASH` | noodaccount (hash via `bun run preview:password`) |
+| `DIG_AUTH=off` | alleen voor previews en ontwikkeling: geen login, alleen-lezen |
 | `ODOO_PUBLIC_URL` | optioneel, alleen voor links naar Odoo-formulieren |
 
 Het dashboard heeft geen Odoo-sleutel: de gateway bewaart die en geeft dit dashboard alleen
-`planning.slot` en `svs.tech.visit` voor `company_id = 2`, alleen-lezen. Zonder gateway-instelling
+`planning.slot` en `svs.tech.visit` voor `company_id = 2`, alleen-lezen (plus, als de beheerder dat in de gateway
+aanzet, de ene actie "monteur als medewerker aanmaken", zie `docs/accounts.md`). Zonder gateway-instelling
 geeft `/api/dashboard` een nette 503 en meldt `/api/health` `degraded`. De cache (5 minuten,
 `POST /api/dashboard` ververst) draait in het geheugen van het serverproces (`src/lib/ttl-cache.ts`).
 
@@ -74,7 +79,7 @@ staan in `docs/verification.md`.
 
 - `docs/architecture.md`: huidige request- en dataarchitectuur
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
-- `docs/accounts.md`: eigen accounts voor monteurs, door een admin aangemaakt (in aanbouw: kern klaar)
+- `docs/accounts.md`: accounts, inloggen en monteurs toevoegen (ook in Odoo, zonder Odoo-account)
 - `docs/proefrun-resultaten.md`: wat de agent op het dashboard deed en wat ik daarvan overnam
 - `RULES.md`: de projectregels die de agent bij elke opdracht leest
 
@@ -82,7 +87,7 @@ staan in `docs/verification.md`.
 
 - `docs/extern-platform-plan.md`: plan en fasering van het eigen builder-platform
 - `docs/odoo-gateway.md`: Odoo-gateway met allowlist per project (fase 1)
-- `docs/odoo-direct-client.md`: de alleen-lezen Odoo-client onder de gateway
+- `docs/odoo-direct-client.md`: de Odoo-client onder de gateway (lezen, plus één vaste aanmaakactie)
 - `docs/dig-builder-agent.md`: agent-loop die een app aanpast en het resultaat als branch en diff oplevert (fase 2)
 - `docs/dig-builder-sandbox.md`: sandbox-containers, previews achter login en publiceren (fase 3)
 - `docs/builder-app.md`: het scherm om opdrachten te geven en wijzigingen goed te keuren (fase 4)
