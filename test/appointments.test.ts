@@ -6,6 +6,7 @@ import {
   buildAppointments,
   filterByTechnician,
   inScope,
+  personHasId,
   technicianOptions,
 } from '../src/lib/appointments.ts'
 import type { DashboardData, DashboardSlot, DashboardVisit } from '../src/lib/dashboard-types.ts'
@@ -171,7 +172,7 @@ test('an employee and a user with the same name in one slot are one person', () 
     BASE,
   )
   assert.deepEqual(appointment.people, [
-    { id: 'employee:7', name: 'Jan' },
+    { id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] },
     { id: 'employee:8', name: 'Sanne' },
   ])
   assert.equal(appointment.assigned, true)
@@ -316,12 +317,36 @@ test('a user seen together with an employee elsewhere is the same person everywh
     BASE,
   )
   assert.deepEqual(list.map((a) => a.people), [
-    [{ id: 'employee:7', name: 'Jan' }],
-    [{ id: 'employee:7', name: 'Jan' }],
-    [{ id: 'employee:7', name: 'Jan' }],
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
   ])
   assert.deepEqual(technicianOptions(list), [{ value: 'employee:7', label: 'Jan' }])
   assert.equal(filterByTechnician(list, 'employee:7').length, 3)
+})
+
+test('a person keeps the ids they were known under, so a link made with an older id keeps working', () => {
+  // Someone who was only a user in the planning gets linked to an account as user:5. Later the planning lists
+  // them as employee too: their id becomes employee:7, but user:5 must still find them.
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [], user_ids: [[5, 'Jan']] }),
+        slot(2, { employee_ids: [[7, 'Jan']], user_ids: [[5, 'Jan']] }),
+        slot(3, { employee_ids: [[8, 'Sanne']] }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  assert.deepEqual(list[0].people, [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }])
+  assert.deepEqual(filterByTechnician(list, 'user:5').map((a) => a.id), ['slot-1', 'slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'employee:7').map((a) => a.id), ['slot-1', 'slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'employee:8').map((a) => a.id), ['slot-3'])
+  assert.equal(personHasId(list[0].people[0], 'user:5'), true)
+  assert.equal(personHasId(list[0].people[0], 'user:6'), false)
+  assert.equal(personHasId({ id: 'employee:8', name: 'Sanne' }, 'employee:8'), true)
+  assert.equal(personHasId({ id: 'employee:8', name: 'Sanne' }, 'user:8'), false)
 })
 
 test('an ambiguous name match does not link a user to an employee', () => {

@@ -74,6 +74,7 @@ staan in `docs/verification.md`.
 
 - `docs/architecture.md`: huidige request- en dataarchitectuur
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
+- `docs/accounts.md`: eigen accounts voor monteurs, door een admin aangemaakt (in aanbouw: kern klaar)
 - `docs/proefrun-resultaten.md`: wat de agent op het dashboard deed en wat ik daarvan overnam
 - `RULES.md`: de projectregels die de agent bij elke opdracht leest
 

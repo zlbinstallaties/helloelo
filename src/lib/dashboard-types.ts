@@ -61,7 +61,8 @@ export type DashboardAppointmentVisit = {
   missingRequired: number
   missingInputs: number
   photoCount: number
-  odooUrl: string
+  /** Left out (null) for people without an Odoo account. */
+  odooUrl: string | null
 }
 
 /**
@@ -71,6 +72,11 @@ export type DashboardAppointmentVisit = {
 export type DashboardPerson = {
   id: string
   name: string
+  /**
+   * Other ids this person is known under, e.g. `user:5` for `employee:7`. A link made with one of those keeps
+   * working when the planning later lists the person under another id. Left out when there are none.
+   */
+  alsoIds?: string[]
 }
 
 export type DashboardAppointment = {

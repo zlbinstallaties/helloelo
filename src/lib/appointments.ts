@@ -76,7 +76,21 @@ function userAliases(slots: DashboardData['slots']) {
   return aliases
 }
 
-function resolvePeople(raw: RawPerson[], aliases: Map<number, number | null>): DashboardPerson[] {
+/** The user ids that count as the same person as each employee id (see `userAliases`). */
+function aliasIdsByEmployee(aliases: Map<number, number | null>) {
+  const byEmployee = new Map<number, string[]>()
+  for (const [userId, employeeId] of aliases) {
+    if (employeeId === null) continue
+    byEmployee.set(employeeId, [...(byEmployee.get(employeeId) ?? []), `user:${userId}`].sort())
+  }
+  return byEmployee
+}
+
+function resolvePeople(
+  raw: RawPerson[],
+  aliases: Map<number, number | null>,
+  aliasIds: Map<number, string[]>,
+): DashboardPerson[] {
   const people = new Map<string, DashboardPerson>()
   for (const person of raw) {
     const employeeId = person.kind === 'user' && person.id !== null ? aliases.get(person.id) : undefined
@@ -85,9 +99,15 @@ function resolvePeople(raw: RawPerson[], aliases: Map<number, number | null>): D
     const key = id !== null ? `${kind}:${id}` : `name:${person.name}`
     if (people.has(key)) continue
     const fallback = kind === 'employee' ? `Medewerker ${id}` : `Gebruiker ${id}`
-    people.set(key, { id: key, name: person.name || fallback })
+    const alsoIds = kind === 'employee' && id !== null ? (aliasIds.get(id) ?? []) : []
+    people.set(key, { id: key, name: person.name || fallback, ...(alsoIds.length ? { alsoIds } : {}) })
   }
   return [...people.values()]
+}
+
+/** True when `id` is the id of this person or one of the other ids they are known under. */
+export function personHasId(person: DashboardPerson, id: string) {
+  return person.id === id || Boolean(person.alsoIds?.includes(id))
 }
 
 const KIND_LABEL: Record<string, string> = { employee: 'medewerker', user: 'gebruiker' }
@@ -174,6 +194,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
 
   const visitsBySlot = groupVisitsBySlot(data)
   const aliases = userAliases(data.slots)
+  const aliasIds = aliasIdsByEmployee(aliases)
   const toAppointmentVisit = (visit: DashboardVisit): DashboardAppointmentVisit => ({
     id: visit.id,
     // Odoo sends `false` for empty char/date fields.
@@ -198,6 +219,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
     const people = resolvePeople(
       [...relationPeople(slot.employee_ids, 'employee'), ...relationPeople(slot.user_ids, 'user')],
       aliases,
+      aliasIds,
     )
     return {
       id: `slot-${slot.id}`,
@@ -244,7 +266,7 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
       customer: tupleName(visit.partner_id) || 'Onbekende klant',
       address: 'Adres ontbreekt in het bezoekformulier',
       role: 'Niet gepland',
-      people: resolvePeople(relationPeople(visit.technician_id ? [visit.technician_id] : [], 'user'), aliases),
+      people: resolvePeople(relationPeople(visit.technician_id ? [visit.technician_id] : [], 'user'), aliases, aliasIds),
       state: visit.state,
       missingRequired: visit.missing_required_count,
       missingInputs: visit.missing_required_inputs_count,
@@ -264,5 +286,5 @@ export function buildAppointments(data: DashboardData, odooBaseUrl: string): Das
 /** `technician` is a person id as in `technicianOptions` (e.g. `employee:7`); empty keeps everything. */
 export function filterByTechnician(appointments: DashboardAppointment[], technician: string) {
   if (!technician) return appointments
-  return appointments.filter((appointment) => appointment.people.some((person) => person.id === technician))
+  return appointments.filter((appointment) => appointment.people.some((person) => personHasId(person, technician)))
 }

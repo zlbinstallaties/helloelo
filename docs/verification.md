@@ -9,7 +9,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Onderdeel | Controle | Uitkomst |
 |---|---|---|
 | Dashboard | `bun run typecheck`, `bun run lint`, `bun run build` | geslaagd, geen meldingen |
-| Dashboard | `bun run test:app` | 48 van 48 geslaagd (`test/appointments.test.ts`, `test/dashboard-client.test.ts`, `test/paging.test.ts`, `test/ttl-cache.test.ts`) |
+| Dashboard | `bun run test:app` | 119 van 119 geslaagd (`appointments`, `dashboard-client`, `paging`, `ttl-cache`, en voor accounts: `password`, `sessions`, `accounts`, `auth`, `authorization`) |
 | Odoo-client | `bun run test:odoo` | 11 van 11 geslaagd |
 | Gateway | `bun run test:gateway`, `bun run typecheck:gateway` | 23 van 23 geslaagd, typecheck zonder fouten |
 | Sandbox | `bun run test:sandbox`, `bun run typecheck:sandbox` | 39 geslaagd, 3 overgeslagen: de Docker-integratietests slaan zichzelf over zonder daemon |
@@ -40,7 +40,7 @@ expliciet als "niet uitgevoerd" of als historisch.
 | Alleen-lezen Odoo-methoden | Geslaagd | Het dashboard roept alleen `search_read` aan via `src/lib/gateway.server.ts`. De gateway staat alleen `search_read` en `search_count` toe en weigert andere methoden al bij het laden van de projectconfig. |
 | Geen berichten, geen configuratiewijzigingen | Geslaagd voor huidige code | Geen mail-, chatter- of notificatiecall en geen schrijfactie in dashboardcode. |
 | Bedrijfsafscherming | Geslaagd, bij de gateway | `company_id = 2` komt uit de projectconfig van de gateway en wordt aan domain en context toegevoegd; de browser kan dat niet meesturen. `TEST_COMPANY_ID` in `src/lib/cache.ts` is alleen voor weergave. Dit vervangt geen gebruikersauthenticatie. |
-| Authenticatie van het dashboard zelf | Open | De app heeft geen login. Toegang loopt via de preview-proxy van `sandbox/` met één gedeeld wachtwoord. Zie ook "Aanbevolen vervolgreparaties". |
+| Authenticatie van het dashboard zelf | Kern gebouwd, **nog niet aangesloten** | Het dashboard vraagt nog steeds niet om een login. Etappe 1 van `docs/accounts.md` is klaar: accounts die een admin aanmaakt, wachtwoorden (scrypt), getekende sessies, inlogbeperking, noodaccount en bevoegdheden (een monteur ziet alleen zijn eigen afspraken, zonder links naar Odoo). Gedekt door 71 nieuwe tests; de logica is met 34 opzettelijke fouten gecontroleerd en elke fout werd door een test gevonden (twee gelijkwaardige varianten daargelaten). Nog niet: routes, schermen en opslag op schijf (etappe 2), en een gepubliceerd dashboard dat eigen accounts kan bewaren (etappe 3). |
 | Geheimen in browsercode | Geslaagd op code-inspectie | `DIG_GATEWAY_TOKEN` staat alleen in `src/lib/gateway.server.ts`, dat een server-only import heeft. Alleen `.env.example` staat in git; `.env` en `.env.*` zijn uitgesloten. |
 | Meerdere bezoeken per afspraak | Geslaagd | Opgelost via proefrun 1 en 2 (`docs/proefrun-resultaten.md`). Een afspraak toont alle bezoeken; de status is die van het eerste bezoek dat nog niet is afgerond. Een test op 3000 willekeurige datasets bewaakt dat elk bezoek precies één keer op het scherm staat. |
 | Bezoek met niet-geladen planning | Geslaagd | Zo'n bezoek valt terug op een geladen planning die het bezoek opsomt, en blijft anders als "Niet gepland" zichtbaar. |
