@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { Sys } from './sys.ts'
 import {
@@ -200,6 +201,19 @@ async function writeConfig({ sys, state }: Ctx) {
   return 'instellingen weggeschreven in /etc/dig-builder'
 }
 
+/** The builder app loads the agent library, which has two packages of its own (the Claude SDK and zod). */
+async function installAgent({ sys }: Ctx) {
+  const dir = app('agent')
+  const lock = await sys.read(`${dir}/bun.lock`)
+  if (lock === null) throw new InstallError('agent/bun.lock ontbreekt in de code')
+  const stampFile = `${dir}/node_modules/.dig-installed`
+  const stamp = createHash('sha256').update(lock).digest('hex')
+  if ((await sys.read(stampFile)) === stamp) return 'dependencies van de agent staan er al'
+  must(await sys.run('node', ['--experimental-strip-types', '--no-warnings', app('sandbox/src/cli.ts'), 'install', dir], { ...asUser, timeoutMs: 900_000 }), 'dependencies van de agent installeren')
+  await sys.write(stampFile, stamp, { mode: 0o644, owner: `${USER}:${USER}` })
+  return 'dependencies van de agent geïnstalleerd'
+}
+
 async function installProjects({ sys, state }: Ctx) {
   const notes: string[] = []
   for (const project of state.projects) {
@@ -341,6 +355,7 @@ export const APPLY_STEPS: Array<{ title: string; run: (ctx: Ctx) => Promise<stri
   { title: 'Mappen', run: ensureDirs },
   { title: 'Code ophalen', run: ensureCode },
   { title: `Sandbox-afbeelding (${SANDBOX_IMAGE})`, run: ensureImage },
+  { title: 'Dependencies van de bouwagent', run: installAgent },
   { title: `Docker-netwerk ${NETWORK}`, run: ensureNetwork },
   { title: 'Instellingen en geheimen', run: writeConfig },
   { title: 'Dependencies van de projecten', run: installProjects },

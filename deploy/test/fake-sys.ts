@@ -113,6 +113,7 @@ export function fakeServer(options: FakeOptions = {}) {
       const target = args.at(-1)!
       dirs.add(target)
       files.set(`${target}/.git/HEAD`, { content: 'ref: refs/heads/master\n' })
+      if (target === '/srv/dig-builder/app') files.set(`${target}/agent/bun.lock`, { content: '{"lockfileVersion": 1}\n' })
       for (const [file, content] of Object.entries(options.repoFiles ?? {})) files.set(`${target}/${file}`, { content })
       return result()
     }

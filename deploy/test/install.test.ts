@@ -85,6 +85,7 @@ test('a first installation does every step, writes the right files with the righ
   assert.deepEqual([...s.enabled].sort(), ['dig-builder-app', 'dig-preview'])
   assert.deepEqual([...s.active].sort(), ['dig-builder-app', 'dig-preview'])
   assert.ok(s.dirs.has(`${PATHS.apps}/dashboard/node_modules`), 'dependencies are installed so the preview can start')
+  assert.ok(s.calls.some((c) => c.cmd === 'node' && c.args.includes('install') && c.args.at(-1) === `${PATHS.app}/agent` && c.user === 'dig-builder'), 'the agent library gets its packages, in the sandbox, as the service user')
 
   // Secrets: root only; files a service reads itself: group readable, not world readable.
   const mode = (file: string) => s.writes.filter((w) => w.file === file).at(-1)?.mode
@@ -148,6 +149,11 @@ test('running it again changes nothing that is already right and keeps the secre
   assert.ok(!again.some((c) => c.cmd === 'git' && c.args[0] === 'clone'), 'nothing is cloned twice')
   assert.ok(!again.some((c) => c.cmd === 'docker' && (c.args[0] === 'build' || (c.args[0] === 'network' && c.args[1] === 'create'))))
   assert.ok(!again.some((c) => c.cmd === 'node' && c.args.includes('install')), 'dependencies are not reinstalled')
+  // ...until the lock file of the agent changes
+  await s.sys.write(`${PATHS.app}/agent/bun.lock`, '{"lockfileVersion": 1, "changed": true}\n')
+  const third = await install(s, [])
+  assert.equal(third.code, 0)
+  assert.equal(s.calls.filter((c) => c.cmd === 'node' && c.args.includes('install') && c.args.at(-1) === `${PATHS.app}/agent`).length, 2, 'the agent packages are installed again after the lock file changed')
   assert.ok(again.some((c) => c.cmd === 'git' && c.args.includes('merge')), 'the code is brought up to date')
   assert.equal(s.reloads, 1, 'Caddy is not reloaded when its configuration is already right')
   assert.equal([...s.text('/etc/caddy/Caddyfile')!.matchAll(/^import /gm)].length, 1)
