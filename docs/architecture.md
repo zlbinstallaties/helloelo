@@ -3,7 +3,7 @@
 ## Request- en datastroom
 
 1. **Gebruikersactie**: een gebruiker opent het dashboard, kiest een datum/periode/monteur, opent details of drukt op `Ververs Odoo-data`.
-2. **Browser**: `src/routes/index.tsx` rendert de filters en roept met React Query `GET /api/dashboard` aan. De refreshknop roept dezelfde route met `POST` aan.
+2. **Browser**: `src/routes/index.tsx` rendert de filters en roept met React Query `GET /api/dashboard` aan. De refreshknop roept dezelfde route met `POST` aan en gebruikt het antwoord direct; mislukt dat, dan blijven de getoonde gegevens staan en verschijnt een melding met de reden.
 3. **Serverroute**: `src/routes/api/dashboard.ts` leest alleen vaste queryparameters, haalt de gecachte Odoo-data op en laat `src/lib/appointments.ts` (zonder I/O) de afspraken bouwen en filteren op periode en monteur.
 4. **Cache**: `src/lib/cache.ts` gebruikt `withCache('odoo:dig-dashboard', 300, ...)` uit `src/lib/ttl-cache.ts` (in het geheugen van het serverproces). De eerste lezing of een verlopen cache voert de Odoo-leesacties uit; `POST` gebruikt `.refresh()`.
 5. **Odoo-gateway**: `src/lib/gateway.server.ts` roept server-side `POST /v1/models/<model>/search_read` aan met het projecttoken (`DIG_GATEWAY_URL`, `DIG_GATEWAY_TOKEN`). De browser ziet geen token, en alleen de gateway kent de Odoo-sleutel.
@@ -15,7 +15,8 @@
 
 | Stap | Bestand(en) | Verantwoordelijkheid |
 |---|---|---|
-| UI en browserfetch | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link |
+| UI | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link, vernieuwknop met foutmelding (toast) |
+| Browserfetch | `src/lib/dashboard-client.ts` | queryparameters en `requestDashboard` voor `GET` (laden) en `POST` (vernieuwen): één manier om antwoord en fouten te lezen (getest) |
 | HTTP API | `src/routes/api/dashboard.ts` | vaste route en queryparameters, foutvertaling (502/503), antwoord samenstellen |
 | Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur, personen en keuzelijst van de monteursfilter (puur, getest) |
 | Cache | `src/lib/ttl-cache.ts` | `withCache`: TTL, `refresh()`, gedeelde lopende lezing, mislukte lezing wordt niet bewaard |

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   AlertTriangle,
@@ -18,7 +18,9 @@ import {
   X,
 } from 'lucide-react'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import type { ReactNode } from 'react'
+import { dashboardParams, requestDashboard } from '#/lib/dashboard-client'
 import type { DashboardAppointment, DashboardAppointmentVisit, DashboardResponse } from '#/lib/dashboard-types'
 
 export const Route = createFileRoute('/')({ component: Dashboard })
@@ -43,6 +45,10 @@ function formatTime(value: string | null) {
   }).format(new Date(`${value.replace(' ', 'T')}Z`))
 }
 
+function formatLoadedAt(iso: string) {
+  return new Intl.DateTimeFormat('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
+}
+
 function formatDate(value: string) {
   return formatter.format(new Date(`${value}T12:00:00Z`))
 }
@@ -56,23 +62,25 @@ function Dashboard() {
   const queryKey = ['dig-dashboard', date, scope, technician]
   const query = useQuery({
     queryKey,
-    queryFn: async () => {
-      const params = new URLSearchParams({ date, scope })
-      if (technician) params.set('technician', technician)
-      const response = await fetch(`/api/dashboard?${params}`)
-      const payload = (await response.json()) as DashboardResponse & { error?: string }
-      if (!response.ok) throw new Error(payload.error ?? 'De afspraken konden niet worden geladen.')
-      return payload as DashboardResponse
-    },
+    queryFn: () => requestDashboard(dashboardParams(date, scope, technician), 'GET', 'De afspraken konden niet worden geladen.'),
     staleTime: 60_000,
   })
 
-  async function refresh() {
-    const params = new URLSearchParams({ date, scope })
-    if (technician) params.set('technician', technician)
-    await fetch(`/api/dashboard?${params}`, { method: 'POST' })
-    await queryClient.invalidateQueries({ queryKey })
-  }
+  // The POST answers with the fresh data for this view, so it is used as is: no second read of Odoo behind it.
+  // When Odoo cannot be read the old data stays on screen and the failure is shown, with how old that data is.
+  const refresh = useMutation({
+    mutationFn: () => requestDashboard(dashboardParams(date, scope, technician), 'POST', 'De gegevens konden niet worden vernieuwd.'),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKey, data)
+      void queryClient.invalidateQueries({ queryKey: ['dig-dashboard'], refetchType: 'none' })
+    },
+    onError: (error) => {
+      const loadedAt = query.data?.loadedAt
+      toast.error(`Vernieuwen mislukt: ${error.message}`, {
+        description: loadedAt ? `Je ziet nog de gegevens van ${formatLoadedAt(loadedAt)}.` : undefined,
+      })
+    },
+  })
 
   const appointments = query.data?.appointments ?? []
   const scheduledCount = appointments.filter((item) => item.scheduled).length
@@ -104,8 +112,8 @@ function Dashboard() {
             <h2 className="max-w-2xl text-3xl font-semibold leading-tight sm:text-4xl">De werkdag van je monteurs, helder in beeld.</h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">Planning komt uit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">planning.slot</code>. DIG-bezoeken worden aangevuld vanuit <code className="rounded bg-muted px-1.5 py-0.5 text-xs">svs.tech.visit</code>.</p>
           </div>
-          <button type="button" onClick={refresh} disabled={query.isFetching} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold shadow-sm transition hover:bg-muted disabled:cursor-wait disabled:opacity-60">
-            <RefreshCw className={`size-4 ${query.isFetching ? 'animate-spin' : ''}`} /> Ververs Odoo-data
+          <button type="button" onClick={() => refresh.mutate()} disabled={query.isFetching || refresh.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold shadow-sm transition hover:bg-muted disabled:cursor-wait disabled:opacity-60">
+            <RefreshCw className={`size-4 ${query.isFetching || refresh.isPending ? 'animate-spin' : ''}`} /> Ververs Odoo-data
           </button>
         </section>
 
