@@ -141,7 +141,7 @@ bezoek zonder planning is alleen voor planners zichtbaar.
 
 ## Niet bewezen
 
-- **Niets is tegen een echte Odoo geprobeerd.** De aanroepen en antwoorden zijn vergeleken met de Odoo 20.0-broncode
+- **Niets is tegen een echte Odoo geprobeerd.** Hoe je dat lokaal doet staat in `docs/lokaal-testen.md`. De aanroepen en antwoorden zijn vergeleken met de Odoo 20.0-broncode
   (zie "Wat Odoo 20 er zelf bij doet"): `POST /json/2/<model>/<methode>` met `vals_list` bij `create`, een lijst met
   nummers als antwoord, `[id, naam]` voor een many2one en een lijst nummers voor een many2many (`company_ids`). Met
   een draaiende Odoo is het niet gecontroleerd; de gateway leest daarom antwoorden streng (een onbekende vorm van

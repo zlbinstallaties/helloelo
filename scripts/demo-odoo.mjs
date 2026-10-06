@@ -1,29 +1,124 @@
 // Demo Odoo for trial runs: a tiny stand-in for the Odoo JSON-2 API with sample
-// data for planning.slot and svs.tech.visit. NOT a real Odoo; no auth beyond a
-// non-empty bearer token. Usage: node scripts/demo-odoo.mjs   (port 18069)
+// data for planning.slot and svs.tech.visit, and just enough of res.users and
+// hr.employee to rehearse "add a technician" (see docs/lokaal-testen.md).
+// NOT a real Odoo; no auth beyond a non-empty bearer token.
+// Usage: node scripts/demo-odoo.mjs   (port 18069, DEMO_ODOO_PORT to change)
+//
+// The employee part follows what the Odoo 20.0 source says: `create` takes `vals_list` and answers with the
+// new ids, a many2one comes back as [id, name] or false, a many2many as a list of ids, and an unknown field
+// is an error. It does not do what Odoo does around a create (work contact, resource, chatter note); it only
+// logs that, so a rehearsal shows what a real Odoo would add.
 import { createServer } from 'node:http'
+import { pathToFileURL } from 'node:url'
 import { demoData, demoFields } from './demo-data.mjs'
 
-const data = demoData()
-const fields = demoFields
+const EMPLOYEE_FIELDS = ['name', 'company_id', 'hr_responsible_id', 'user_id', 'date_version']
+const COMPANY_NAME = 'Demo bedrijf'
+// res.users the rehearsal can use as responsible: 2 is a valid choice, the others are not.
+const USERS = [
+  { id: 2, active: true, share: false, company_ids: [1, 2] },
+  { id: 3, active: true, share: true, company_ids: [1, 2] },
+  { id: 4, active: false, share: false, company_ids: [1, 2] },
+  { id: 5, active: true, share: false, company_ids: [2] },
+  { id: 6, active: true, share: false, company_ids: [2] },
+]
 
-createServer(async (req, res) => {
-  let raw = ''
-  for await (const chunk of req) raw += chunk
-  const [, , , model, method] = new URL(req.url, 'http://x').pathname.split('/')
-  const send = (status, body) => {
-    res.writeHead(status, { 'content-type': 'application/json' })
-    res.end(JSON.stringify(body))
+const odooError = (name, message) => ({ name, message, arguments: [message], context: {}, debug: '' })
+const idFilter = (domain) => (Array.isArray(domain) && domain.length >= 1 && Array.isArray(domain[0]) && domain[0][0] === 'id' && domain[0][1] === '=' ? domain[0][2] : null)
+const pick = (row, wanted) => Object.fromEntries(wanted.filter((field) => field in row).map((field) => [field, row[field]]))
+
+/** `log` gets one line per write. `employees` is the in-memory hr.employee table, for tests. */
+export function createDemoOdoo({ log = () => {} } = {}) {
+  const data = demoData()
+  const employees = []
+  let nextEmployeeId = 900
+
+  function employeeRow(employee) {
+    return {
+      id: employee.id,
+      name: employee.name,
+      company_id: [employee.companyId, COMPANY_NAME],
+      user_id: employee.userId ? [employee.userId, 'Gebruiker'] : false,
+      active: true,
+      hr_responsible_id: [employee.responsibleId, 'Verantwoordelijke'],
+      date_version: employee.dateVersion,
+    }
   }
-  if (!/^bearer .+/i.test(req.headers.authorization ?? '')) return send(401, { name: 'odoo.exceptions.AccessDenied', message: 'no key' })
-  if (!data[model]) return send(404, { name: 'odoo.exceptions.MissingError', message: 'unknown model' })
-  const body = raw ? JSON.parse(raw) : {}
-  if (method === 'fields_get') return send(200, fields[model])
-  if (method === 'search_count') return send(200, data[model].length)
-  if (method === 'search_read') {
-    const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : Object.keys(fields[model])
-    const rows = data[model].slice(body.offset ?? 0, (body.offset ?? 0) + (body.limit ?? 80))
-    return send(200, rows.map((row) => Object.fromEntries(wanted.filter((f) => f in row).map((f) => [f, row[f]]))))
+
+  function handle(model, method, body) {
+    if (model === 'res.users' && method === 'search_read') {
+      const id = idFilter(body.domain)
+      const activeTest = body.context?.active_test !== false
+      const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'active', 'share', 'company_ids']
+      return [200, USERS.filter((user) => user.id === id && (user.active || !activeTest)).map((user) => pick(user, wanted))]
+    }
+    if (model === 'hr.employee' && method === 'search_read') {
+      const id = idFilter(body.domain)
+      const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'name', 'company_id', 'user_id', 'active']
+      return [200, employees.filter((employee) => employee.id === id).map((employee) => pick(employeeRow(employee), wanted))]
+    }
+    if (model === 'hr.employee' && method === 'create') {
+      if (!Array.isArray(body.vals_list)) return [422, odooError('builtins.TypeError', "create() missing 1 required positional argument: 'vals_list'")]
+      const allowedCompanies = body.context?.allowed_company_ids
+      if (!Array.isArray(allowedCompanies) || allowedCompanies.length === 0) return [500, odooError('builtins.ValueError', 'the rehearsal needs allowed_company_ids in the context')]
+      const created = []
+      for (const vals of body.vals_list) {
+        for (const field of Object.keys(vals)) {
+          if (!EMPLOYEE_FIELDS.includes(field)) return [500, odooError('builtins.ValueError', `Invalid field '${field}' in 'hr.employee'`)]
+        }
+        if (typeof vals.name !== 'string' || !vals.name.trim()) return [500, odooError('odoo.exceptions.ValidationError', 'name is required')]
+        if (!allowedCompanies.includes(vals.company_id)) return [403, odooError('odoo.exceptions.AccessError', 'Access to unauthorized or invalid companies.')]
+        const user = USERS.find((candidate) => candidate.id === vals.hr_responsible_id)
+        if (!user) return [500, odooError('odoo.exceptions.ValidationError', 'hr_responsible_id does not exist')]
+        const employee = {
+          id: nextEmployeeId++,
+          name: vals.name,
+          companyId: vals.company_id,
+          userId: vals.user_id || null,
+          responsibleId: vals.hr_responsible_id,
+          dateVersion: vals.date_version ?? null,
+        }
+        employees.push(employee)
+        created.push(employee.id)
+        log(`CREATE hr.employee ${JSON.stringify(vals)} -> id ${employee.id}`)
+        log('  (a real Odoo 20 also adds: a resource, a first hr.version, a work contact res.partner without login, an internal onboarding note)')
+      }
+      return [200, created]
+    }
+    if (!data[model]) return [404, odooError('odoo.exceptions.MissingError', 'unknown model')]
+    if (method === 'fields_get') return [200, demoFields[model]]
+    if (method === 'search_count') return [200, data[model].length]
+    if (method === 'search_read') {
+      const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : Object.keys(demoFields[model])
+      const rows = data[model].slice(body.offset ?? 0, (body.offset ?? 0) + (body.limit ?? 80))
+      return [200, rows.map((row) => pick(row, wanted))]
+    }
+    return [404, odooError('odoo.exceptions.MissingError', 'unknown method')]
   }
-  return send(404, { name: 'odoo.exceptions.MissingError', message: 'unknown method' })
-}).listen(Number(process.env.DEMO_ODOO_PORT ?? 18069), '127.0.0.1', () => console.error('demo odoo on', process.env.DEMO_ODOO_PORT ?? 18069))
+
+  const server = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const send = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    const [, , , model, method] = new URL(req.url, 'http://x').pathname.split('/')
+    if (!/^bearer .+/i.test(req.headers.authorization ?? '')) return send(401, odooError('odoo.exceptions.AccessDenied', 'no key'))
+    let body
+    try {
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return send(422, odooError('builtins.ValueError', 'invalid JSON'))
+    }
+    return send(...handle(model, method, body))
+  })
+
+  return { server, employees }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = Number(process.env.DEMO_ODOO_PORT ?? 18069)
+  const { server } = createDemoOdoo({ log: (line) => console.error(line) })
+  server.listen(port, '127.0.0.1', () => console.error('demo odoo on', port))
+}

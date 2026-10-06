@@ -134,6 +134,12 @@ docker compose up --build
 
 Zet eerst `BUILDER_ADMIN_TOKEN` en providercredentials in een lokale `.env`. De providerstatus meldt expliciet wanneer een provider niet is ingesteld; er is geen stille fallback of gesimuleerde AI. De runner voert in deze fase nog geen gegenereerde code uit.
 
+### Lokaal testen met Odoo 20
+
+`docs/lokaal-testen.md` beschrijft hoe je het dashboard, de gateway en een lokale Odoo 20 draait en een proefmonteur
+toevoegt, met een demo-Odoo om het eerst na te spelen (`bun run local:setup`, `local:demo-odoo`, `local:gateway`,
+`local:dashboard`).
+
 ### Geisoleerde Odoo 20-integratietest
 
 De addon-tests kunnen lokaal worden uitgevoerd in een aparte Compose-stack. Deze

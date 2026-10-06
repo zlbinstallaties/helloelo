@@ -170,3 +170,6 @@ exports/
 # package-lock.json is auto-generated and shouldn't block git operations
 package-lock.json
 data/
+
+# Local test set-up (scripts/local-setup.ts): generated secrets and data
+.local/

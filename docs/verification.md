@@ -89,6 +89,19 @@ gebruiker) en een interne notitie aanmaakt, en dat de sleutelgebruiker HR-medewe
 contextsleutels volgers en meldingen helemaal voorkomen; (2) de Enterprise-module Planning, waarvan de broncode niet is
 gelezen; (3) welke Odoo-gebruiker als verantwoordelijke moet gelden: die staat bewust nergens in de repository.
 
+## Lokaal testpakket
+
+`docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen
+doorlopen (setup, demo-Odoo, gateway, dashboard, API en Chromium), alleen tegen de demo-Odoo en niet tegen een echte Odoo:
+
+| Controle | Uitkomst |
+|---|---|
+| Setup schrijft geldige configuratie | de gateway-parser accepteert het projectbestand; de hash komt overeen met het token van het dashboard; het wachtwoord past bij de hash en staat nergens op schijf; bestanden 0600, map 0700; geen overschrijven zonder `--force` (8 tests, 12 opzettelijke fouten, allemaal gevangen) |
+| Productie geweigerd | `*.odoo.sh` en `*.odoo.com` worden door de setup en de gateway geweigerd; `http` alleen voor `localhost` en `127.0.0.1` |
+| Hele keten | admin logt in met het getoonde wachtwoord; één monteur geeft precies één `hr.employee`-create met `user_id: false`, bedrijf en verantwoordelijke uit de config; herhaling maakt niets nieuws; de monteur logt in en ziet alleen zijn eigen lijst; geen token of wachtwoord in de logs |
+| Foutgevallen | verantwoordelijke is portaal, gedeactiveerd of bestaat niet: foutmelding, niets aangemaakt, geen account; zonder verantwoordelijke: "staat niet aan" |
+| Demo-Odoo | 5 tests; volgt de Odoo 20.0-broncode voor `create` (`vals_list`, lijst met nummers), many2one en many2many, maar maakt het werkcontact en de notitie niet zelf aan (hij meldt het alleen) |
+
 ## Builder en buildservice: stand van zaken
 
 | Controle | Status | Bevinding |
