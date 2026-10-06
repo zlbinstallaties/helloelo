@@ -39,6 +39,7 @@ services:
       - "443:443"
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set}
+      BUILDER_DOMAIN: ${BUILDER_DOMAIN:-builder.localhost}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

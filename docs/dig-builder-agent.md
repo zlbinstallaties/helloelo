@@ -19,7 +19,7 @@ Opties: `--task-file`, `--run <id>`, `--out <map>` (standaard `.dig-builder-runs
 de werkmap liggen), `--model` (standaard `claude-opus-5-5`), `--effort`
 (`low|medium|high|xhigh|max`, standaard `high`), `--max-turns` (standaard 40),
 `--max-cost-usd` (standaard 5; stopt vóór het volgende verzoek als de geschatte kosten de limiet bereiken, status `budget`), `--keep-branch`, `--sandbox` (installatie en alle checks in een container, zie
-`docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks, `{"naam": ["commando", ...]}`).
+`docs/dig-builder-sandbox.md`), `--checks <json>` (eigen checks, `{"naam": ["commando", ...]}`; in `--sandbox`-modus wordt een `dig-checks.json` in het project automatisch gebruikt, zodat tests en build mee kunnen draaien; zonder sandbox alleen met een expliciete `--checks`).
 
 Uitvoer in `<out>/<run-id>/`: `changes.diff` en `run.json` (status, beurten, tokengebruik,
 branch, basis-commit, gewijzigde bestanden, samenvatting, tool-events zonder bestandsinhoud).
@@ -35,7 +35,10 @@ Exitcode 0 = klaar, 2 = gestopt zonder `done` (bijv. `max_turns`), 1 = afgebroke
 4. Commit alle wijzigingen op de run-branch en schrijft diff en runlog.
 
 Tools: `list_files`, `read_file`, `write_file`, `edit_file` (precies één vervanging),
-`run_check` (op naam) en, als de gateway is ingesteld, `odoo_schema` (alleen metadata).
+`run_check` (op naam), als de gateway is ingesteld `odoo_schema` (alleen metadata) en, als het project een `probe`
+in `dig-checks.json` heeft en code mag draaien (sandbox of opt-in), `probe_app`: bouwt de app, start hem op nagebootste
+gegevens met lastige gevallen en geeft status en body van maximaal vijf GET-paden terug. De opdracht komt uit
+`dig-checks.json`, het model kiest alleen de paden (gecontroleerd op vorm); in de sandbox zonder netwerk.
 
 Na een fallback midden in een antwoord worden `thinking`- en `tool_use`-blokken vóór de fallback niet teruggestuurd en hun tools niet uitgevoerd. `run.json` bevat `estimatedCostUsd` (schatting uit tokentellingen en lijstprijzen).
 

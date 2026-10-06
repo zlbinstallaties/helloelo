@@ -1,0 +1,20 @@
+{
+  "projects": [
+    {
+      "id": "dashboard",
+      "name": "Monteursdashboard",
+      "workdir": "/srv/dig-builder/apps/dashboard",
+      "baseBranch": "master",
+      "sandbox": true,
+      "gatewayUrl": "http://odoo-gateway:8070",
+      "gatewayTokenEnv": "DASHBOARD_GATEWAY_TOKEN",
+      "previewUrl": "https://dashboard.apps.example.nl",
+      "publish": {
+        "healthPath": "/api/health",
+        "gatewayUrl": "http://odoo-gateway:8070",
+        "gatewayTokenEnv": "DASHBOARD_LIVE_GATEWAY_TOKEN",
+        "url": "https://dashboard-live.apps.example.nl"
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { connect } from 'node:net'
-import { docker, DockerError, type DockerCli } from './docker.ts'
+import { containerIp, docker, DockerError, type DockerCli } from './docker.ts'
+import { isProjectId } from './ids.ts'
 import { ownerOf, runArgs, type SandboxLimits } from './sandbox.ts'
 
 /*
@@ -24,7 +25,6 @@ export type PreviewState =
 
 export const DEFAULT_PREVIEW_COMMAND = ['node_modules/.bin/vite', 'dev', '--host', '0.0.0.0', '--port', '5173', '--strictPort']
 const PREVIEW_LABEL = 'dig.preview'
-const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,40}$/
 
 export interface PreviewManagerOptions {
   cli: DockerCli
@@ -80,16 +80,6 @@ export function createPreviewManager(options: PreviewManagerOptions) {
     return networkReady
   }
 
-  async function containerIp(name: string): Promise<string | null> {
-    const result = await cli.run(
-      ['inspect', '-f', `{{with index .NetworkSettings.Networks "${network}"}}{{.IPAddress}}{{end}}|{{.State.Running}}`, name],
-      { timeoutMs: 30_000 },
-    )
-    if (result.code !== 0) return null
-    const [ip, running] = result.stdout.trim().split('|')
-    return running === 'true' && ip ? ip : null
-  }
-
   async function start(project: PreviewProject) {
     await ensureNetwork()
     const owner = await ownerOf(project.workdir)
@@ -114,10 +104,10 @@ export function createPreviewManager(options: PreviewManagerOptions) {
 
   /** Returns the upstream when the dev server accepts connections; starts it if needed. */
   async function ensure(project: PreviewProject): Promise<PreviewState> {
-    if (!PROJECT_ID.test(project.id)) throw new DockerError(`invalid project id: ${project.id}`)
+    if (!isProjectId(project.id)) throw new DockerError(`invalid project id: ${project.id}`)
     lastUsed.set(project.id, now())
     const port = project.port ?? 5173
-    const ip = await containerIp(containerName(project.id))
+    const ip = await containerIp(cli, containerName(project.id), network)
     if (ip) {
       return (await probe(ip, port)) ? { state: 'ready', target: `http://${ip}:${port}` } : { state: 'starting' }
     }

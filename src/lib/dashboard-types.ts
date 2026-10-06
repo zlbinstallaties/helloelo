@@ -47,11 +47,29 @@ export type DashboardData = {
   loadedAt: string
 }
 
+export type DashboardAppointmentVisit = {
+  id: number
+  name: string
+  state: string
+  visitDate: string
+  technician: string | null
+  template: string | null
+  isComplete: boolean
+  isSent: boolean
+  missingRequired: number
+  missingInputs: number
+  photoCount: number
+  odooUrl: string
+}
+
 export type DashboardAppointment = {
   id: string
   slotId: number | null
+  /** First visit of the appointment (lowest id); see `visits` for all of them. */
   visitId: number | null
   visitName: string | null
+  /** All DIG visits of this appointment, sorted by id. Empty when there are none. */
+  visits: DashboardAppointmentVisit[]
   title: string
   start: string | null
   end: string | null
@@ -61,6 +79,7 @@ export type DashboardAppointment = {
   role: string
   people: string[]
   state: string
+  /** Totals over all visits of the appointment; null when it has no visits. */
   missingRequired: number | null
   missingInputs: number | null
   photoCount: number | null

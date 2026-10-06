@@ -15,3 +15,10 @@ https:// {
 	encode zstd gzip
 	reverse_proxy host.docker.internal:8090
 }
+
+# The builder app (chat + review screen). A named site wins over the catch-all above.
+# Without BUILDER_DOMAIN this is a harmless local-only placeholder.
+{$BUILDER_DOMAIN:builder.localhost} {
+	encode zstd gzip
+	reverse_proxy host.docker.internal:8100
+}

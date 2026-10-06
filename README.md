@@ -45,6 +45,7 @@ in de DIG Builder-sandbox als preview (`docs/dig-builder-sandbox.md`).
 - `docs/dig-builder-agent.md`: agent-loop die een app aanpast en het resultaat als branch en diff oplevert (fase 2)
 - `docs/dig-builder-sandbox.md`: sandbox-containers en previews achter login (fase 3)
 - `docs/dig-builder-deploy.md`: installatie op de Hostinger-VPS (gateway, previews, TLS)
+- `docs/builder-app.md`: het scherm om opdrachten te geven en wijzigingen goed te keuren (fase 4)
 - `docs/proefrun.md`: eerste echte run van de agent op het dashboard (`scripts/proefrun.sh`)
 
 ## Export en veiligheid

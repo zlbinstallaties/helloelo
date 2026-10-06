@@ -9,12 +9,15 @@ import {
   verifyPassword,
   type Sessions,
 } from './auth.ts'
-import type { PreviewManager, PreviewProject } from './preview.ts'
+import { isProjectId, LIVE_SUFFIX } from './ids.ts'
+import type { PreviewManager, PreviewProject, PreviewState } from './preview.ts'
+import type { LiveResolver } from './release.ts'
 
 /*
  * Login-protected reverse proxy for previews.
  *
- *   https://<project>.<PREVIEW_DOMAIN>/...   -> preview container of <project>
+ *   https://<project>.<PREVIEW_DOMAIN>/...        -> preview container of <project>
+ *   https://<project>-live.<PREVIEW_DOMAIN>/...   -> the published version of <project>
  *   /_dig/login, /_dig/logout                -> on every host
  *
  * The session cookie is scoped to the preview domain and stripped before a
@@ -29,6 +32,8 @@ export interface ProxyOptions {
   sessions: Sessions
   previews: Pick<PreviewManager, 'ensure'>
   projects: ReadonlyMap<string, PreviewProject>
+  /** Published versions; without it the -live hostnames do not exist. */
+  live?: Pick<LiveResolver, 'exists' | 'resolve'>
   secureCookies: boolean
   log?: (entry: Record<string, unknown>) => void
 }
@@ -123,11 +128,27 @@ export function createPreviewProxy(options: ProxyOptions) {
   // Browsers do not share cookies set for "localhost" across subdomains; use host-only there.
   const cookieDomain = domain === 'localhost' ? '' : `; Domain=${domain}`
 
-  function projectFor(req: IncomingMessage): PreviewProject | null | undefined {
-    const host = hostname(req)
+  type Target = { kind: 'preview'; project: PreviewProject } | { kind: 'live'; id: string }
+
+  function targetFor(req: IncomingMessage): Target | null {
+    return targetForHost(hostname(req))
+  }
+
+  function targetForHost(host: string): Target | null {
     if (!host.endsWith(`.${domain}`)) return null
-    const id = host.slice(0, -(domain.length + 1))
-    return projects.get(id)
+    const label = host.slice(0, -(domain.length + 1))
+    if (label.endsWith(LIVE_SUFFIX)) {
+      const id = label.slice(0, -LIVE_SUFFIX.length)
+      return options.live && isProjectId(id) ? { kind: 'live', id } : null
+    }
+    const project = projects.get(label)
+    return project ? { kind: 'preview', project } : null
+  }
+
+  /** The upstream of a target, or why there is none. */
+  async function upstreamOf(target: Target): Promise<PreviewState | { state: 'none' } | { state: 'down' }> {
+    if (target.kind === 'preview') return options.previews.ensure(target.project)
+    return options.live!.resolve(target.id)
   }
 
   function authenticated(req: IncomingMessage) {
@@ -140,8 +161,8 @@ export function createPreviewProxy(options: ProxyOptions) {
 
   /** Caddy on-demand TLS "ask": only hostnames of configured projects get a certificate. */
   function allowedHostname(res: ServerResponse, url: URL) {
-    const host = (url.searchParams.get('domain') ?? '').toLowerCase()
-    const known = host.endsWith(`.${domain}`) && projects.has(host.slice(0, -(domain.length + 1)))
+    const target = targetForHost((url.searchParams.get('domain') ?? '').toLowerCase())
+    const known = target?.kind === 'preview' || (target?.kind === 'live' && options.live!.exists(target.id))
     res.writeHead(known ? 200 : 404, { 'content-type': 'text/plain', 'cache-control': 'no-store' })
     res.end(known ? 'ok' : 'unknown')
   }
@@ -184,10 +205,15 @@ export function createPreviewProxy(options: ProxyOptions) {
         }
         return page(res, 401, 'Niet ingelogd', '<p>Log eerst in.</p>')
       }
-      const project = projectFor(req)
-      if (!project) return page(res, 404, 'Onbekende preview', '<p>Deze preview bestaat niet.</p>')
+      const route = targetFor(req)
+      if (!route) return page(res, 404, 'Onbekende preview', '<p>Deze preview bestaat niet.</p>')
 
-      const state = await options.previews.ensure(project)
+      const state = await upstreamOf(route)
+      if (state.state === 'none') return page(res, 404, 'Nog niet gepubliceerd', '<h1>Nog niet gepubliceerd</h1><p>Van deze app is nog geen versie gepubliceerd.</p>')
+      if (state.state === 'down') {
+        res.setHeader('retry-after', '10')
+        return page(res, 503, 'Niet beschikbaar', '<h1>Tijdelijk niet beschikbaar</h1><p>De gepubliceerde versie draait op dit moment niet. Probeer het zo opnieuw.</p>', '<meta http-equiv="refresh" content="10">')
+      }
       if (state.state !== 'ready') {
         res.setHeader('retry-after', '2')
         return page(
@@ -231,9 +257,9 @@ export function createPreviewProxy(options: ProxyOptions) {
       if (!authenticated(req)) return reject('401 Unauthorized')
       // Cross-site WebSocket hijacking: the cookie is sent from any site, so check Origin.
       if (!sameOrigin(req)) return reject('403 Forbidden')
-      const project = projectFor(req)
-      if (!project) return reject('404 Not Found')
-      const state = await options.previews.ensure(project)
+      const route = targetFor(req)
+      if (!route) return reject('404 Not Found')
+      const state = await upstreamOf(route)
       if (state.state !== 'ready') return reject('503 Service Unavailable')
       const target = new URL(state.target)
       const headers = upstreamHeaders(req, target)

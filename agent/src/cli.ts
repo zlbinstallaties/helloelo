@@ -1,16 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { createDockerCli } from '../../sandbox/src/docker.ts'
-import { createSandbox } from '../../sandbox/src/sandbox.ts'
-import { createCheckRunner, createSandboxCheckRunner, DEFAULT_CHECKS, parseChecks, SANDBOX_CHECKS } from './checks.ts'
-import { createSchemaReader } from './gateway.ts'
-import { branchName, finishBranch, git, startBranch } from './git.ts'
-import { DEFAULT_MODEL, runAgent } from './loop.ts'
-import { buildSystemPrompt } from './prompt.ts'
-import { Workspace } from './workspace.ts'
+import { DEFAULT_MODEL } from './loop.ts'
+import { EFFORTS, executeRun, type Effort } from './run.ts'
 
 /*
  * One builder run on a local app checkout:
@@ -21,7 +13,8 @@ import { Workspace } from './workspace.ts'
  * that branch and writes the diff plus a run log to --out. Never pushes.
  *
  * --sandbox: install dependencies and run every check (including the build)
- * in a throwaway container without network or secrets. Needs Docker and the
+ * in a throwaway container without network or secrets. A dig-checks.json in
+ * the project (named checks such as test and build) is used in this mode. Needs Docker and the
  * dig-sandbox image (see sandbox/Dockerfile).
  *
  * Env: ANTHROPIC_API_KEY (or another SDK credential source),
@@ -52,115 +45,52 @@ function fail(message: string): never {
 }
 
 const workdir = values.workdir ?? fail('--workdir is required')
-let task = values.task
-if (values['task-file']) {
-  task = await readFile(values['task-file'], 'utf8')
-}
+const task = values['task-file'] ? await readFile(values['task-file'], 'utf8') : values.task
 if (!task?.trim()) fail('--task or --task-file is required')
-const effort = values.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) fail('--effort must be low|medium|high|xhigh|max')
-const maxTurns = Number(values['max-turns'])
-if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 200) fail('--max-turns must be 1..200')
-const maxCostUsd = Number(values['max-cost-usd'])
-if (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0) fail('--max-cost-usd must be a positive number')
+if (!EFFORTS.includes(values.effort as Effort)) fail('--effort must be low|medium|high|xhigh|max')
 
-const runId = values.run ?? `${new Date().toISOString().slice(0, 10)}-${randomBytes(3).toString('hex')}`
-const outDir = path.resolve(values.out, runId)
-const workspace = await Workspace.open(workdir)
-if (outDir === workspace.root || outDir.startsWith(workspace.root + path.sep)) {
-  fail('--out must be outside the working directory')
-}
-
-const customChecks = values.checks ? parseChecks(JSON.parse(await readFile(values.checks, 'utf8'))) : undefined
-const sandbox = values.sandbox
-  ? createSandbox({ cli: createDockerCli(), caBundle: process.env.DIG_SANDBOX_CA_BUNDLE || undefined })
-  : null
 const gatewayUrl = process.env.DIG_GATEWAY_URL
 const gatewayToken = process.env.DIG_GATEWAY_TOKEN
-const tools = {
-  workspace,
-  checks: sandbox
-    ? createSandboxCheckRunner(workspace.root, sandbox, customChecks ?? SANDBOX_CHECKS)
-    : createCheckRunner(workspace.root, customChecks ?? DEFAULT_CHECKS),
-  odooSchema: gatewayUrl && gatewayToken ? createSchemaReader(gatewayUrl, gatewayToken) : undefined,
-}
-
-const started = await startBranch(workspace.root, branchName(runId))
-console.error(`run ${runId}: branch ${started.branch} from ${started.base.slice(0, 7)}`)
 
 let exitCode = 0
-const log: unknown[] = []
 try {
-  if (sandbox) {
-    console.error('  dependencies installeren in de sandbox...')
-    const installed = await sandbox.install(workspace.root)
-    if (!installed.ok) throw new Error(`installatie in de sandbox mislukt:\n${installed.output}`)
-  }
-  const result = await runAgent({
-    client: new Anthropic(),
-    tools,
-    system: await buildSystemPrompt(workspace),
-    task: task!,
+  const result = await executeRun({
+    workdir,
+    task,
+    outDir: values.out!,
+    runId: values.run,
     model: values.model,
-    effort,
-    maxTurns,
-    maxCostUsd,
+    effort: values.effort as Effort,
+    maxTurns: Number(values['max-turns']),
+    maxCostUsd: Number(values['max-cost-usd']),
+    sandbox: values.sandbox,
+    checksFile: values.checks,
+    gateway: gatewayUrl && gatewayToken ? { url: gatewayUrl, token: gatewayToken } : undefined,
+    caBundle: process.env.DIG_SANDBOX_CA_BUNDLE || undefined,
+    keepBranch: values['keep-branch'],
     onEvent(event) {
-      log.push(event)
-      if (event.type === 'tool') console.error(`  [${event.turn}] ${event.detail.name} ${event.detail.path ?? event.detail.check ?? ''} ${event.detail.ok ? 'ok' : 'FOUT'}`)
+      if (event.type === 'phase' && event.detail.phase === 'branch') console.error(`run: branch ${event.detail.branch} from ${String(event.detail.base).slice(0, 7)}`)
+      else if (event.type === 'phase' && event.detail.phase === 'install') console.error('  dependencies installeren in de sandbox...')
+      else if (event.type === 'tool') console.error(`  [${event.turn}] ${event.detail.name} ${event.detail.path ?? event.detail.check ?? (Array.isArray(event.detail.paths) ? event.detail.paths.join(' ') : '')} ${event.detail.ok ? 'ok' : 'FOUT'}`)
       else if (event.type === 'turn' && event.detail.stop !== 'tool_use') console.error(`  [${event.turn}] stop: ${event.detail.stop}`)
     },
   })
-  const firstLine = task!.trim().split('\n')[0].slice(0, 60)
-  const finished = await finishBranch(
-    workspace.root,
-    started,
-    `DIG Builder: ${firstLine}\n\nRun ${runId}, status ${result.status}, ${result.turns} turns.`,
-  )
 
-  await mkdir(outDir, { recursive: true })
-  await writeFile(path.join(outDir, 'changes.diff'), finished.diff)
-  await writeFile(
-    path.join(outDir, 'run.json'),
-    JSON.stringify(
-      {
-        runId,
-        model: values.model,
-        effort,
-        status: result.status,
-        turns: result.turns,
-        usage: result.usage,
-        estimatedCostUsd: Number(result.estimatedCostUsd.toFixed(4)),
-        maxCostUsd,
-        sandbox: Boolean(sandbox),
-        branch: started.branch,
-        base: started.base,
-        commit: finished.commit,
-        excluded: finished.excluded,
-        changedFiles: [...workspace.changed].sort(),
-        summary: result.summary,
-        events: log,
-      },
-      null,
-      2,
-    ),
-  )
-
-  console.log(`status:  ${result.status}`)
-  console.log(`branch:  ${started.branch}${finished.commit ? ` @ ${finished.commit.slice(0, 7)}` : ' (geen wijzigingen)'}`)
-  console.log(`kosten:  ca. $${result.estimatedCostUsd.toFixed(2)} (schatting, limiet $${maxCostUsd})`)
-  console.log(`output:  ${outDir}`)
-  if (finished.stat) console.log(`\n${finished.stat.trimEnd()}`)
-  console.log(`\n${result.summary}`)
-  if (result.status !== 'done') exitCode = 2
-  if (!finished.commit && !values['keep-branch']) {
-    await git(workspace.root, ['switch', '-q', started.previous])
-    await git(workspace.root, ['branch', '-q', '-D', started.branch])
+  if (result.status === 'error') {
+    exitCode = 1
+    console.error(`run ${result.runId} afgebroken: ${result.error}`)
+    console.error(`de branch ${result.branch} blijft staan met eventuele niet-gecommitte wijzigingen`)
+  } else {
+    console.log(`status:  ${result.status}`)
+    console.log(`branch:  ${result.branch}${result.commit ? ` @ ${result.commit.slice(0, 7)}` : ' (geen wijzigingen)'}`)
+    console.log(`kosten:  ca. $${result.estimatedCostUsd.toFixed(2)} (schatting, limiet $${values['max-cost-usd']})`)
+    console.log(`output:  ${result.runDir}`)
+    if (result.stat) console.log(`\n${result.stat.trimEnd()}`)
+    console.log(`\n${result.summary}`)
+    if (result.status !== 'done') exitCode = 2
   }
 } catch (error) {
   exitCode = 1
-  const reason = error instanceof Anthropic.APIError ? `Claude API ${error.status}: ${error.message}` : String(error)
-  console.error(`run ${runId} afgebroken: ${reason}`)
-  console.error(`de branch ${started.branch} blijft staan met eventuele niet-gecommitte wijzigingen`)
+  console.error(error instanceof Anthropic.APIError ? `Claude API ${error.status}: ${error.message}` : error instanceof Error ? error.message : String(error))
 }
 process.exit(exitCode)

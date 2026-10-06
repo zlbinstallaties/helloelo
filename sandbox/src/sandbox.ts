@@ -39,6 +39,13 @@ export interface ContainerSpec {
   limits?: SandboxLimits
   image?: string
   detach?: boolean
+  /**
+   * A container that is meant to keep running (a published app): restarted by Docker after a
+   * crash or reboot, not removed on exit, and not matched by the sandbox cleanup label.
+   */
+  persistent?: boolean
+  /** Mount the project directory read-only (published apps never write to their own files). */
+  readOnlyWorkdir?: boolean
   /** Extra read-only file mounts (e.g. a proxy CA bundle). */
   readOnlyFiles?: Record<string, string>
   command: readonly string[]
@@ -58,7 +65,7 @@ export function runArgs(spec: ContainerSpec): string[] {
   const args = [
     'run',
     ...(spec.detach ? ['-d'] : []),
-    '--rm',
+    ...(spec.persistent ? ['--restart', 'unless-stopped'] : ['--rm']),
     '--init',
     '--name', spec.name,
     '--network', network,
@@ -71,9 +78,9 @@ export function runArgs(spec: ContainerSpec): string[] {
     '--memory', limits.memory,
     '--memory-swap', limits.memory,
     '--cpus', limits.cpus,
-    '--volume', `${spec.workdir}:/work:rw`,
+    '--volume', `${spec.workdir}:/work:${spec.readOnlyWorkdir ? 'ro' : 'rw'}`,
     '--workdir', '/work',
-    '--label', `${SANDBOX_LABEL}=1`,
+    '--label', `${SANDBOX_LABEL}=${spec.persistent ? 'persistent' : '1'}`,
     '--env', 'HOME=/tmp',
     '--env', 'CI=1',
     '--env', 'NO_COLOR=1',

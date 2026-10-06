@@ -16,7 +16,7 @@ type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export interface MessagesClient {
   beta: {
     messages: {
-      stream(params: Anthropic.Beta.MessageCreateParams): {
+      stream(params: Anthropic.Beta.MessageCreateParams, options?: { signal?: AbortSignal }): {
         finalMessage(): Promise<Anthropic.Beta.BetaMessage>
       }
     }
@@ -24,7 +24,7 @@ export interface MessagesClient {
 }
 
 export interface AgentEvent {
-  type: 'turn' | 'tool' | 'retry' | 'stop'
+  type: 'phase' | 'turn' | 'tool' | 'retry' | 'stop'
   turn: number
   detail: Record<string, unknown>
 }
@@ -40,10 +40,12 @@ export interface RunOptions {
   maxTokens?: number
   /** Stop before the next request once the estimated cost reaches this amount. */
   maxCostUsd?: number
+  /** Aborting stops the run at the next safe point (status `stopped`); work done so far is kept. */
+  signal?: AbortSignal
   onEvent?: (event: AgentEvent) => void
 }
 
-export type RunStatus = 'done' | 'max_turns' | 'refusal' | 'max_tokens' | 'no_tool_progress' | 'budget'
+export type RunStatus = 'done' | 'max_turns' | 'refusal' | 'max_tokens' | 'no_tool_progress' | 'budget' | 'stopped'
 
 export interface Usage {
   input: number
@@ -117,6 +119,7 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
   }
 
   for (let turn = 1; turn <= maxTurns; turn++) {
+    if (options.signal?.aborted) return finish('stopped', turn - 1)
     if (estimateCostUsd(model, usage) >= maxCostUsd) return finish('budget', turn - 1)
     const stream = client.beta.messages.stream({
       model,
@@ -130,13 +133,15 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
       system: options.system,
       tools,
       messages,
-    })
+    }, { signal: options.signal })
 
     let message: Anthropic.Beta.BetaMessage
     try {
       message = await stream.finalMessage()
       jsonRetries = 0
     } catch (error) {
+      // A stop request surfaces as an abort error; that is a clean stop, not a failure.
+      if (options.signal?.aborted) return finish('stopped', turn - 1)
       // Only an unparseable streamed tool input is retried; API errors propagate.
       if (error instanceof Anthropic.APIError || jsonRetries++ >= MAX_JSON_RETRIES) throw error
       onEvent({ type: 'retry', turn, detail: { reason: 'tool input was not valid JSON' } })
@@ -170,6 +175,10 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
     messages.push({ role: 'assistant', content: echoed })
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = []
     for (const use of toolUses) {
+      if (options.signal?.aborted) {
+        results.push({ type: 'tool_result', tool_use_id: use.id, content: 'stopped by the user', is_error: true })
+        continue
+      }
       const outcome = await executeTool(ctx, use.name, use.input)
       const input = use.input as Record<string, unknown> | null
       onEvent({
@@ -179,6 +188,7 @@ export async function runAgent(options: RunOptions): Promise<RunResult> {
           name: use.name,
           path: typeof input?.path === 'string' ? input.path : undefined,
           check: use.name === 'run_check' && typeof input?.name === 'string' ? input.name : undefined,
+          paths: use.name === 'probe_app' && Array.isArray(input?.paths) ? input.paths : undefined,
           ok: !outcome.isError,
         },
       })

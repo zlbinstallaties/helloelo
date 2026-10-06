@@ -83,6 +83,38 @@ docker compose -f deploy/docker-compose.yml --env-file /etc/dig-builder/stack.en
 Controle: `https://dashboard.apps.<jouw-domein>` toont de inlogpagina. Het eerste bezoek duurt een
 paar seconden: Caddy vraagt dan het certificaat aan, en de preview-container start.
 
+### De builder-app (opdrachten geven en beoordelen)
+
+De builder-app is het scherm waar je een opdracht typt, de voortgang ziet, de wijzigingen leest en
+goedkeurt of afwijst (`docs/builder-app.md`). Ze draait net als de preview-proxy als systemd-service.
+
+```bash
+cp builder-app/projects.example.json /etc/dig-builder/builder-projects.json   # pas aan
+bun run preview:password '<ander wachtwoord van minstens 12 tekens>'          # hash + sessiegeheim
+# vul /etc/dig-builder/builder-app.env (zie deploy/env.example), chmod 600
+cp deploy/dig-builder-app.service /etc/systemd/system/ && systemctl daemon-reload
+systemctl enable --now dig-builder-app
+# BUILDER_DOMAIN in stack.env zetten en Caddy opnieuw laden:
+docker compose -f deploy/docker-compose.yml --env-file /etc/dig-builder/stack.env up -d
+```
+
+Controle: `https://<BUILDER_DOMAIN>` toont de inlogpagina; `curl http://<publiek-ip>:8100` werkt niet.
+
+**Publiceren** (vaste versie van een app voor de gebruikers): zet in `builder-projects.json` een
+`publish`-blok per project (zie `docs/builder-app.md`), en gebruik voor beide diensten dezelfde
+releasemap:
+
+```bash
+mkdir -p /srv/dig-builder/releases && chown dig-builder: /srv/dig-builder/releases
+# builder-app.env:  BUILDER_APP_RELEASES_DIR=/srv/dig-builder/releases  en het token van de live app
+# preview.env:      PREVIEW_RELEASES_DIR=/srv/dig-builder/releases
+systemctl restart dig-preview dig-builder-app
+```
+
+De live app staat dan op `https://<project>-live.apps.<jouw-domein>` (zelfde wildcard-DNS, zelfde
+inlog als de preview; Caddy vraagt het certificaat aan zodra er iets gepubliceerd is). Maak voor
+de live app een apart gateway-token met alleen de rechten die hij nodig heeft.
+
 ## De agent op de server
 
 ```bash
@@ -108,7 +140,6 @@ beoordeelt de diff en merget zelf.
 
 ## Wat nog niet is gebouwd
 
-- Een **gepubliceerde** (vaste) versie van een app naast de preview, met een knop "publiceren"
-  en terugdraaien. Nu draait alleen de preview (`vite dev`).
 - Login via Odoo-gebruikers in plaats van één gedeeld wachtwoord.
-- De chat-app om runs te starten en diffs te beoordelen; nu gaat dat via de CLI.
+- De builder-app kent opdrachten, vervolgopdrachten, voortgang, diff, goedkeuren/afwijzen en publiceren.
+  Een vrij gesprek met de agent (vragen stellen over de code zonder iets te wijzigen) volgt later.

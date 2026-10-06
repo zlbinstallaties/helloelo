@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <title>DIG Builder</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <noscript><p class="notice">Deze pagina heeft JavaScript nodig.</p></noscript>
+
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="card">
+      <h1>DIG Builder</h1>
+      <p class="muted">Log in om opdrachten te geven aan de bouwagent.</p>
+      <label for="password">Wachtwoord</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Inloggen</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <strong class="brand">DIG Builder</strong>
+      <label class="picker">Project
+        <select id="project"></select>
+      </label>
+      <a id="preview-link" class="link" href="#" target="_blank" rel="noreferrer" hidden>Open preview ↗</a>
+      <span class="spacer"></span>
+      <button id="logout" class="ghost" type="button">Uitloggen</button>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <form id="new-run" class="card">
+          <h2>Nieuwe opdracht</h2>
+          <label for="task">Wat moet er gebeuren?</label>
+          <textarea id="task" rows="6" maxlength="4000" required placeholder="Bijvoorbeeld: voeg boven de lijst een zoekveld toe om afspraken op klantnaam te filteren."></textarea>
+          <div class="row">
+            <div>
+              <label for="effort">Hoe grondig?</label>
+              <select id="effort">
+                <option value="low">Snel</option>
+                <option value="medium">Normaal</option>
+                <option value="high" selected>Grondig (aanbevolen)</option>
+                <option value="xhigh">Zeer grondig</option>
+                <option value="max">Maximaal</option>
+              </select>
+            </div>
+            <div>
+              <label for="cost">Kostenlimiet ($)</label>
+              <input id="cost" type="number" min="0.1" max="50" step="any" value="5">
+            </div>
+          </div>
+          <button id="start" class="primary" type="submit">Start opdracht</button>
+          <p class="hint">De agent werkt op een eigen branch. Er verandert pas iets in <span id="base-branch">de hoofdversie</span> als jij goedkeurt.</p>
+        </form>
+
+        <section id="publication" class="card" hidden></section>
+
+        <section>
+          <h2>Eerdere opdrachten</h2>
+          <ul id="run-list" class="run-list"></ul>
+          <p id="run-list-empty" class="muted" hidden>Nog geen opdrachten voor dit project.</p>
+        </section>
+      </aside>
+
+      <section id="detail" class="detail" aria-live="polite">
+        <p id="detail-empty" class="muted">Kies links een opdracht, of geef een nieuwe.</p>
+      </section>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
