@@ -32,7 +32,8 @@
     "local:setup": "node --experimental-strip-types --no-warnings scripts/local-setup.ts",
     "local:gateway": "node --env-file=.local/gateway.env --experimental-strip-types --no-warnings gateway/src/main.ts",
     "local:dashboard": "node --env-file=.local/dashboard.env scripts/serve.mjs",
-    "local:demo-odoo": "node scripts/demo-odoo.mjs"
+    "local:demo-odoo": "node scripts/demo-odoo.mjs",
+    "local:rehearsal": "node scripts/local-rehearsal.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

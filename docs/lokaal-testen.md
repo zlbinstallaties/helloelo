@@ -14,18 +14,23 @@ schrijft staan in `.local/` en komen niet in git.
 
 De demo-Odoo is een stuk gereedschap in `scripts/demo-odoo.mjs`: geen echte Odoo, maar met voorbeeldplanning en
 net genoeg `res.users` en `hr.employee` om "Monteur toevoegen" na te spelen. Verantwoordelijke 2 is geldig; 3 is een
-portaalgebruiker, 4 is gedeactiveerd en 99 bestaat niet.
+portaalgebruiker, 4 is gedeactiveerd en 99 bestaat niet. Eén terminal is genoeg:
 
 ```bash
-bun run local:demo-odoo                      # terminal 1, poort 18069; elke aanmaak staat in het scherm
-bun run local:setup --odoo-url http://127.0.0.1:18069 --company-id 2 --responsible-id 2
-# zet in .local/gateway.env:  ODOO_API_KEY=demo
-bun run local:gateway                        # terminal 2
-bun run build && bun run local:dashboard     # terminal 3
+bun run local:rehearsal start     # maakt .local (eerste keer), start demo-Odoo, gateway en dashboard, toont het wachtwoord
+bun run local:rehearsal logs      # de demo-Odoo: elke aanmaak staat als regel "CREATE hr.employee ..."
+bun run local:rehearsal stop      # stopt alles
+bun run local:rehearsal reset     # stopt en verwijdert .local (alleen als het bij de demo hoort)
 ```
 
-Open `http://127.0.0.1:3000`, log in met `admin` en het wachtwoord dat `local:setup` toonde, kies **Beheer** en voeg
-een monteur toe. In terminal 1 staat dan precies één `CREATE hr.employee` met `user_id: false`.
+Open `http://127.0.0.1:3000`, log in met `admin` en het getoonde wachtwoord, kies **Beheer** en voeg een monteur toe.
+Dan staat er in `logs` precies één `CREATE hr.employee` met `user_id: false`. Is een poort bezet (18069, 8070 of
+3000), dan zegt het commando welke en wat je kunt doen. `.local` is voor één Odoo tegelijk: doe `reset` voordat je
+`local:setup` voor de echte proef draait. `start` en `reset` raken een `.local` die niet bij de demo hoort nooit aan.
+
+Wat dit commando doet, als je het met de hand wilt: `bun run local:setup --odoo-url http://127.0.0.1:18069
+--company-id 2 --responsible-id 2`, in `.local/gateway.env` `ODOO_API_KEY=demo` invullen, en dan in drie terminals
+`bun run local:demo-odoo`, `bun run local:gateway` en `bun run build && bun run local:dashboard`.
 
 ## 1. Odoo 20 lokaal starten
 
