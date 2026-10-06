@@ -1,5 +1,8 @@
-// One-terminal rehearsal of docs/lokaal-testen.md, step 0: demo Odoo + gateway + dashboard, started in the
-// background from ONE terminal. NOT a real Odoo.
+// One-terminal runner for docs/lokaal-testen.md: demo Odoo + gateway + dashboard, started in the background
+// from ONE terminal. NOT a real Odoo.
+//
+// With a `.local` that was made for another Odoo (bun run local:setup --odoo-url <your Odoo> ...), `start` runs
+// only the gateway and the dashboard, on that `.local`, and changes nothing in it.
 //
 //   bun run local:rehearsal start    set up (first time), start the three, print the login
 //   bun run local:rehearsal status   what runs
@@ -88,23 +91,42 @@ function stop() {
   return stopped
 }
 
+function envValue(file, name) {
+  try {
+    const line = readFileSync(path.join(LOCAL, file), 'utf8').split('\n').find((item) => item.startsWith(`${name}=`))
+    return line ? line.slice(name.length + 1) : ''
+  } catch {
+    return ''
+  }
+}
+
 async function start() {
-  const running = SERVICES.filter((service) => runningPid(service.name) !== null)
-  if (running.length === SERVICES.length) {
+  // A `.local` for another Odoo is used as it is: no demo Odoo, no setup, nothing written in it.
+  const foreign = existsSync(LOCAL) && !belongsToDemo()
+  const services = foreign ? SERVICES.filter((service) => service.name !== 'demo') : SERVICES
+  if (foreign) {
+    for (const file of ['gateway.env', 'dashboard.env', 'gateway-projects.json']) {
+      if (!existsSync(path.join(LOCAL, file))) {
+        out(`.local/${file} ontbreekt. Draai eerst:  bun run local:setup --odoo-url <adres van je Odoo> ...`)
+        process.exit(1)
+      }
+    }
+    if (!envValue('gateway.env', 'ODOO_API_KEY')) {
+      out('ODOO_API_KEY= is leeg in .local/gateway.env. Vul de API-sleutel van je Odoo daar in en start opnieuw.')
+      process.exit(1)
+    }
+  }
+  const running = services.filter((service) => runningPid(service.name) !== null)
+  if (running.length === services.length) {
     out('Alles draait al.')
     return status()
-  }
-  if (existsSync(LOCAL) && !belongsToDemo()) {
-    out('.local hoort niet bij de demo-Odoo (ODOO_BASE_URL is een andere). Ik raak het niet aan.')
-    out('Wil je de oefening doen? Verplaats of verwijder .local zelf en start opnieuw.')
-    process.exit(1)
   }
   if (running.length > 0) {
     out(`Een deel draait al (${running.map((service) => service.label).join(', ')}); ik stop dat eerst.`)
     stop()
     await sleep(500)
   }
-  for (const service of SERVICES) {
+  for (const service of services) {
     if (!(await portFree(service.port))) {
       out(`Poort ${service.port} (${service.label}) is al bezet door iets anders.`)
       out(`Kijk wat het is:  lsof -nP -iTCP:${service.port} -sTCP:LISTEN`)
@@ -114,7 +136,7 @@ async function start() {
   }
 
   let password = null
-  if (!existsSync(path.join(LOCAL, 'dashboard.env'))) {
+  if (!foreign && !existsSync(path.join(LOCAL, 'dashboard.env'))) {
     const setup = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', 'scripts/local-setup.ts',
       '--odoo-url', DEMO_URL, '--company-id', '2', '--responsible-id', '2'], { cwd: ROOT, encoding: 'utf8' })
     if (setup.status !== 0) {
@@ -123,9 +145,11 @@ async function start() {
     }
     password = /Dashboard-login: {2}\S+ {2}\/ {2}(\S+)/.exec(setup.stdout)?.[1] ?? null
   }
-  // The demo accepts any key.
-  const gatewayEnv = readFileSync(path.join(LOCAL, 'gateway.env'), 'utf8')
-  writeFileSync(path.join(LOCAL, 'gateway.env'), gatewayEnv.replace(/^ODOO_API_KEY=$/m, 'ODOO_API_KEY=demo'))
+  if (!foreign) {
+    // The demo accepts any key.
+    const gatewayEnv = readFileSync(path.join(LOCAL, 'gateway.env'), 'utf8')
+    writeFileSync(path.join(LOCAL, 'gateway.env'), gatewayEnv.replace(/^ODOO_API_KEY=$/m, 'ODOO_API_KEY=demo'))
+  }
 
   if (!existsSync(path.join(ROOT, 'dist', 'server', 'server.js'))) {
     out('Eerst het dashboard bouwen (eenmalig, even geduld)...')
@@ -138,7 +162,7 @@ async function start() {
 
   mkdirSync(RUN, { recursive: true })
   mkdirSync(LOGS, { recursive: true })
-  for (const service of SERVICES) {
+  for (const service of services) {
     const log = openSync(logFile(service.name), 'w')
     const child = spawn('bun', ['run', service.script], {
       cwd: ROOT,
@@ -169,14 +193,17 @@ async function start() {
 
   out()
   out(`Klaar. Open ${DASHBOARD_URL} in je browser.`)
-  if (password) {
+  if (foreign) {
+    out(`Odoo: ${envValue('gateway.env', 'ODOO_BASE_URL')}  (de gateway praat daarmee, zie ook: bun run local:rehearsal logs gateway)`)
+    out('Inloggen:  admin  met het wachtwoord dat local:setup toonde.')
+  } else if (password) {
     out(`Inloggen:  admin  /  ${password}`)
     out('Bewaar dit wachtwoord nu: het staat nergens leesbaar op schijf. Vergeten? Dan: reset en start opnieuw.')
   } else {
     out('Inloggen:  admin  met het wachtwoord van de eerste start (vergeten? dan reset en start opnieuw).')
   }
   out()
-  out('Elke aangemaakte monteur zie je met:  bun run local:rehearsal logs')
+  out(foreign ? 'De gatewaylog (elke aanroep naar Odoo):  bun run local:rehearsal logs gateway' : 'Elke aangemaakte monteur zie je met:  bun run local:rehearsal logs')
   out('Stoppen:                                bun run local:rehearsal stop')
 }
 

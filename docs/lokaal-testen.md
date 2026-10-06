@@ -48,39 +48,56 @@ Je hebt een lokale Postgres nodig. Daarna, in de map met de Odoo 20-broncode:
 Zet de map met jullie eigen modules (waar `svs` in zit) in het `--addons-path`, anders kan het dashboard de bezoeken
 niet lezen. Gebruik nooit de productiedatabase of productiegegevens. Open `http://localhost:8069`.
 
-## 2. In Odoo: een gebruiker voor de gateway
+## 2. In Odoo: de gebruiker en de API-sleutel voor de gateway
 
-1. Maak een Odoo-gebruiker voor de gateway, met het toegangsrecht **Medewerkers: Officer** (`hr.group_hr_user`) en
-   leesrechten op Planning en de DIG-bezoekformulieren. Daarmee mag hij ook een medewerker aanmaken.
-2. Maak voor die gebruiker een API-sleutel (voorkeuren, tabblad Accountbeveiliging; de naam van het scherm kan in Odoo 20
-   anders zijn). De sleutel zie je één keer.
-3. Kies de **verantwoordelijke** voor nieuwe medewerkers: een actieve, interne gebruiker van het bedrijf, bij voorkeur ook
-   Medewerkers: Officer. Dat mag dezelfde gebruiker zijn. Het nummer staat in de adresbalk als je de gebruiker opent.
-4. Zoek het nummer van het bedrijf op dezelfde manier (de lokale database heeft meestal `1`).
+Voor de eerste proef op een weggooi-database is de gebruiker `admin` genoeg: in Odoo 20 zit hij in
+**Medewerkers: Beheerder** (`hr.group_hr_manager`, dat `hr.group_hr_user` omvat) en is hij actief, intern en van
+het bedrijf. Voor de echte omgeving maak je een eigen gebruiker aan met **Medewerkers: Officer** (`hr.group_hr_user`) en
+leesrechten op Planning en de DIG-bezoekformulieren, en zet je die ook niet op `admin`.
+
+1. **API-sleutel:** klik rechtsboven op je avatar, kies je voorkeuren, tabblad Beveiliging, en maak een nieuwe API-sleutel.
+   Kies bereik **RPC** (de JSON-2-API van Odoo 20 vraagt dat bereik) en een verlooptijd, bijvoorbeeld 1 maand.
+   De sleutel zie je één keer. Kopieer hem en plak hem **niet** in een gesprek of document.
+2. **Verantwoordelijke:** een actieve, interne gebruiker van het bedrijf, bij voorkeur Medewerkers: Officer. Voor de
+   proef is dat `admin` (nummer `2`). Voor een andere gebruiker staat het nummer in de adresbalk als je hem opent.
+3. **Bedrijf:** de lokale database heeft het bedrijf met nummer `1`.
+4. Odoo 20 toont bovenaan "Deze database vervalt in 1 maand": dat is de melding van de Enterprise-proefperiode van een
+   nieuwe database en geen fout.
 
 ## 3. Het dashboard en de gateway instellen
 
+Doe dit **voordat** je de API-sleutel in Odoo aanmaakt, want het script schrijft het bestand waar de sleutel in moet:
+
 ```bash
-bun run local:setup --odoo-url http://localhost:8069 --database dig-test --company-id <bedrijfsnummer> --responsible-id <gebruikersnummer>
+bun run local:setup --odoo-url http://127.0.0.1:8071 --database dig20-test --company-id 1 --responsible-id 2
 ```
 
 Het script toont één keer het adminwachtwoord (het staat daarna alleen als hash op schijf) en schrijft `.local/`.
-Zet vervolgens zelf de API-sleutel achter `ODOO_API_KEY=` in `.local/gateway.env`; het script vraagt er niet om en
-schrijft hem nergens. Draai het script opnieuw met `--force` voor een nieuw token en wachtwoord. Het script weigert
-`*.odoo.sh` en `*.odoo.com`, net als de gateway. Zonder `--responsible-id` staat "Monteur toevoegen" uit.
+Het script vraagt niet om de API-sleutel en schrijft hem nergens. Zet hem er zelf in, zonder hem te typen of te
+plakken in een gesprek: kopieer de sleutel in Odoo (hij staat dan op het klembord van je Mac) en voer direct uit:
+
+```bash
+sed -i '' "s|^ODOO_API_KEY=.*|ODOO_API_KEY=$(pbpaste)|" .local/gateway.env
+```
+
+Kopieer niets anders voordat je dit doet. Draai `local:setup` opnieuw met `--force` voor een nieuw token en
+wachtwoord. Het script weigert `*.odoo.sh` en `*.odoo.com`, net als de gateway. Zonder `--responsible-id` staat
+"Monteur toevoegen" uit.
 
 ## 4. Starten en controleren
 
 ```bash
-bun run local:gateway                        # terminal 1
+bun run local:rehearsal start       # gateway en dashboard, op .local; start geen demo-Odoo en wijzigt .local niet
+bun run local:rehearsal logs gateway
 curl -s http://127.0.0.1:8070/healthz
 TOKEN=$(grep '^DIG_GATEWAY_TOKEN=' .local/dashboard.env | cut -d= -f2-)
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8070/v1/schema     # let op "missing"
-bun run build && bun run local:dashboard     # terminal 2
 ```
 
-`missing` in het schema noemt velden die wel in de allowlist staan maar niet in jouw database bestaan: die zijn te
-herstellen voordat je verder gaat. Open `http://127.0.0.1:3000` en log in als `admin`.
+`missing` in het schema noemt velden die wel in de allowlist staan maar niet in jouw database bestaan, en een model dat
+er niet is (bijvoorbeeld `svs.tech.visit` zonder jullie eigen modules): zonder dat model kan het dashboard de
+afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1:3000` en log in als `admin`.
+`bun run local:rehearsal stop` stopt gateway en dashboard.
 
 ## 5. De proef
 
