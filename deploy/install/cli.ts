@@ -167,7 +167,7 @@ export async function check(deps: Deps): Promise<number> {
   return 0
 }
 
-export async function apply(deps: Deps, options: { yes?: boolean; source?: Source } = {}): Promise<number> {
+export async function apply(deps: Deps, options: { yes?: boolean; source?: Source; waitSeconds?: number } = {}): Promise<number> {
   const { sys, prompts } = deps
   const facts = await inspect(sys)
   if (facts.problems.length) {
@@ -197,7 +197,7 @@ export async function apply(deps: Deps, options: { yes?: boolean; source?: Sourc
     }
   }
   prompts.say('\nControle van de adressen (een nieuw adres kan tot een minuut nodig hebben voor het certificaat) ...')
-  const checks = await verify(sys, state, facts)
+  const checks = await verify(sys, state, facts, (options.waitSeconds ?? 120) * 1000)
   for (const c of checks) prompts.say(`  ${c.ok ? 'ok     ' : 'FOUT   '} ${c.name}: ${c.status ?? 'geen antwoord'}  ${c.url}`)
   const a = addresses(state)
   prompts.say(`\nKlaar. Open ${a.builder} en log in met het wachtwoord dat je net koos.`)
@@ -251,7 +251,7 @@ export async function main(argv: string[], deps: Deps): Promise<number> {
       // --repo and --branch are for trying a change before it is on the main branch.
       const value = (flag: string) => rest[rest.indexOf(flag) + 1]
       const source = { repoUrl: rest.includes('--repo') ? value('--repo') : DEFAULTS.repoUrl, branch: rest.includes('--branch') ? value('--branch') : DEFAULTS.branch }
-      return apply(deps, { yes: rest.includes('--yes'), source })
+      return apply(deps, { yes: rest.includes('--yes'), source, waitSeconds: rest.includes('--wait') ? Number(value('--wait')) : undefined })
     }
     case 'status':
       return status(deps)

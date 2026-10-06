@@ -212,7 +212,7 @@ export function fakeServer(options: FakeOptions = {}) {
     },
     async remove(file) {
       removed.push(file)
-      for (const key of [...files.keys()]) if (key === file || key.startsWith(`${file}/`)) files.delete(key)
+      for (const key of files.keys()) if (key === file || key.startsWith(`${file}/`)) files.delete(key)
       dirs.delete(file)
     },
     async http(url) {
