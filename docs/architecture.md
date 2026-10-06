@@ -21,7 +21,8 @@
 | Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur, personen en keuzelijst van de monteursfilter (puur, getest) |
 | Cache | `src/lib/ttl-cache.ts` | `withCache`: TTL, `refresh()`, gedeelde lopende lezing, mislukte lezing wordt niet bewaard |
 | Odoo-leeslaag | `src/lib/cache.ts` | vaste Odoo-modellen en veldenlijst, weergavenaam van het bedrijf, TTL van 300 s |
-| Gateway-client en serversecret | `src/lib/gateway.server.ts` | gateway-URL en projecttoken uitsluitend server-side |
+| Gateway-client en serversecret | `src/lib/gateway.server.ts` | gateway-URL en projecttoken uitsluitend server-side; `searchRead` (één pagina) en `searchReadAll` (alle pagina's) |
+| Paginering | `src/lib/paging.ts` | `readAllPages`: pagina's lezen, ontdubbelen, plafond en `truncated` (puur, getest) |
 | Datatypen | `src/lib/dashboard-types.ts` | interne TypeScript-vormen |
 | Gezondheid | `src/routes/api/health.ts` | `GET /api/health`: `ok` of `degraded` (503) als de gateway niet is ingesteld; roept Odoo niet aan |
 | Tests | `test/appointments.test.ts`, `test/ttl-cache.test.ts` | `bun run test:app`; de testgegevens voor `probe_app` staan in `scripts/demo-data.mjs` |
@@ -47,7 +48,7 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 - Odoo-toegang: Odoo-gateway, `POST /v1/models/<model>/search_read` (Odoo JSON-2 API achter de gateway).
 - Methode: uitsluitend `search_read`; de gateway staat geen schrijfmethoden toe.
 - Vast bedrijfsfilter: `company_id = 2`, afgedwongen door de gateway-projectconfig (de naam `De Installatiegroep B.V. [TEST]` staat alleen in de weergave).
-- Readlimiet: `500` per model (de gateway begrenst met `maxLimit`).
+- Readlimiet: pagina's van `500` (de `maxLimit` van het gatewayproject; een hogere `limit` weigert de gateway) tot een pagina niet vol is, met een plafond van `5000` records per model. Wordt dat bereikt, dan meldt het antwoord `truncated: true` en toont het scherm een waarschuwing. Sortering: nieuwste eerst (`start_datetime desc, id desc` en `visit_date desc, id desc`), zodat de oudste records vallen.
 - Dashboardfilters (datum, periode, monteur) worden na de gecachte leesactie in de serverroute toegepast.
 - Monteur: het filter (`?technician=`) en de keuzelijst gebruiken een persoon-id (`employee:7`, `user:5`), niet de naam;
   de naam is alleen label. Een gebruiker en een medewerker met dezelfde naam in één afspraak gelden als één persoon.

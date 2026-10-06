@@ -59,7 +59,7 @@ function visit(id: number, overrides: Partial<DashboardVisit> = {}): DashboardVi
 }
 
 function data(slots: DashboardSlot[], visits: DashboardVisit[]): DashboardData {
-  return { company: { id: 2, name: 'Test' }, slots, visits, loadedAt: '2026-10-05T00:00:00Z' }
+  return { company: { id: 2, name: 'Test' }, slots, visits, truncated: false, loadedAt: '2026-10-05T00:00:00Z' }
 }
 
 test('a visit linked through slot_id fills the summary fields of its appointment', () => {

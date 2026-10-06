@@ -39,5 +39,5 @@ De gateway leest de configuratie uit zijn eigen omgeving (`gateway/src/main.ts`)
 
 - De Odoo-API is alleen beschikbaar op Odoo-abonnementen met externe API-toegang; controleer dat voor
   jullie omgeving.
-- Paginering boven 500 records ontbreekt in het dashboard; zie `docs/verification.md`.
+- Het dashboard pagineert zelf (`src/lib/paging.ts`, plafond 5000 records per model); zie `docs/verification.md`.
 - De client is alleen met nagebootste antwoorden getest, nog niet tegen de echte Odoo 20-testserver.

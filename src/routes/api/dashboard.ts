@@ -29,6 +29,7 @@ async function responseFor(request: Request, refresh = false) {
     technicians,
     scope,
     date,
+    truncated: data.truncated,
     loadedAt: data.loadedAt,
   } satisfies DashboardResponse)
 }

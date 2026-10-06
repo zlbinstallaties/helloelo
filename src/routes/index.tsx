@@ -20,8 +20,10 @@ import {
 import { useState } from 'react'
 import { toast } from 'sonner'
 import type { ReactNode } from 'react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { dashboardParams, requestDashboard } from '#/lib/dashboard-client'
 import type { DashboardAppointment, DashboardAppointmentVisit, DashboardResponse } from '#/lib/dashboard-types'
+import { MAX_RECORDS } from '#/lib/paging'
 
 export const Route = createFileRoute('/')({ component: Dashboard })
 
@@ -133,6 +135,13 @@ function Dashboard() {
           </div>
         </section>
 
+        {query.data?.truncated && (
+          <Alert className="mb-6 border-chart-4/60 bg-chart-4/10">
+            <AlertTriangle className="size-4" />
+            <AlertTitle>Niet alle gegevens uit Odoo zijn geladen</AlertTitle>
+            <AlertDescription>Het dashboard leest maximaal {MAX_RECORDS.toLocaleString('nl-NL')} planningen en {MAX_RECORDS.toLocaleString('nl-NL')} bezoeken, de nieuwste eerst. De oudste ontbreken, en een bezoek kan daardoor als "Niet gepland" verschijnen.</AlertDescription>
+          </Alert>
+        )}
         {query.isLoading && <LoadingState />}
         {query.isError && <ErrorState message={query.error.message} onRetry={() => query.refetch()} />}
         {!query.isLoading && !query.isError && appointments.length === 0 && <EmptyState date={date} scope={scope} onUpcoming={() => setScope('upcoming')} onAll={() => setScope('all')} />}

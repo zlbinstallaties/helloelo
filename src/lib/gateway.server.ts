@@ -1,4 +1,5 @@
 import '@tanstack/react-start/server-only'
+import { PAGE_SIZE, readAllPages } from '#/lib/paging'
 
 /*
  * Odoo reads through the DIG Odoo gateway. SERVER-ONLY.
@@ -35,14 +36,18 @@ export function gatewayConfigured() {
   return Boolean(process.env.DIG_GATEWAY_URL && process.env.DIG_GATEWAY_TOKEN)
 }
 
-export async function searchRead<T>(model: string, fields: string[], options: { limit?: number } = {}): Promise<T[]> {
+export async function searchRead<T>(
+  model: string,
+  fields: string[],
+  options: { limit?: number; offset?: number; order?: string } = {},
+): Promise<T[]> {
   const { url, token } = config()
   let response: Response
   try {
     response = await fetch(new URL(`/v1/models/${model}/search_read`, url), {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ fields, limit: options.limit ?? 500 }),
+      body: JSON.stringify({ fields, limit: options.limit ?? PAGE_SIZE, offset: options.offset ?? 0, order: options.order }),
       signal: AbortSignal.timeout(20_000),
     })
   } catch {
@@ -54,4 +59,12 @@ export async function searchRead<T>(model: string, fields: string[], options: { 
     throw new GatewayError(`Odoo ${model} kon niet worden gelezen (${response.status}${code ? `: ${code}` : ''}).`, response.status, code)
   }
   return body.records
+}
+
+/**
+ * Every record of a model, in pages (see `src/lib/paging.ts`). `order` must give every record a fixed place,
+ * so end it with `id`; `truncated` is true when the maximum was reached and records were left behind.
+ */
+export async function searchReadAll<T extends { id: number }>(model: string, fields: string[], order: string) {
+  return readAllPages<T>((offset, limit) => searchRead<T>(model, fields, { limit, offset, order }))
 }

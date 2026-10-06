@@ -44,6 +44,8 @@ export type DashboardData = {
   company: { id: number; name: string }
   slots: DashboardSlot[]
   visits: DashboardVisit[]
+  /** True when the maximum number of records was read and Odoo has more (see src/lib/paging.ts). */
+  truncated: boolean
   loadedAt: string
 }
 
@@ -106,5 +108,7 @@ export type DashboardResponse = {
   technicians: Array<{ value: string; label: string }>
   scope: 'day' | 'upcoming' | 'all'
   date: string
+  /** The data is incomplete: the maximum number of records was read and Odoo has more. */
+  truncated: boolean
   loadedAt: string
 }
