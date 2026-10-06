@@ -1,4 +1,5 @@
 import type { Prompts } from './prompts.ts'
+import { describe as describeCaddy } from './caddy.ts'
 import {
   addresses, APPLY_STEPS, gatewayRunning, inspect, InstallError, loadState, uninstall, verify, type Ctx, type Facts,
 } from './steps.ts'
@@ -137,8 +138,8 @@ function describePlan(state: InstallState, facts: Facts) {
     `  - systeemgebruiker dig-builder, mappen ${PATHS.root} en ${PATHS.etc}`,
     `  - code van ${state.repoUrl} (${state.branch}) naar ${PATHS.app}, en project ${state.projects.map((p) => p.id).join(', ')} naar ${PATHS.apps}`,
     '  - Docker: sandbox-afbeelding bouwen, intern netwerk dig-preview, Odoo-gateway (alleen-lezen, geen poort naar buiten)',
-    `  - twee diensten: dig-preview (poort 8090) en dig-builder-app (poort 8100). Ze luisteren alleen op ${facts.bridgeIp} (het Docker-netwerk van deze server), dus niet vanaf internet`,
-    `  - de bestaande Caddy (${facts.caddy?.config}) krijgt één regel "import" die naar een eigen bestand wijst; eerst een reservekopie, dan controle, dan herladen`,
+    '  - twee diensten: dig-preview (poort 8090) en dig-builder-app (poort 8100). Ze luisteren alleen op localhost van de server, dus niet vanaf internet',
+    `  - de bestaande Caddy (${facts.caddy ? describeCaddy(facts.caddy) : 'onbekend'}) krijgt één blok met onze adressen onderaan het Caddyfile, tussen de regels BEGIN en END DIG Builder. Eerst een reservekopie, dan controle door Caddy zelf, dan laden zonder onderbreking; de Odoo-testserver wordt voor en na gecontroleerd`,
     '',
     'Daarna bereikbaar op:',
     `  - builder:   ${a.builder}`,
@@ -150,8 +151,8 @@ export async function check(deps: Deps): Promise<number> {
   const { sys, prompts } = deps
   const facts = await inspect(sys)
   prompts.say(`Systeem:        ${facts.os}, Node ${process.version}`)
-  prompts.say(`Docker:         ${facts.docker ? 'ja' : 'nee'}, compose: ${facts.compose ? 'ja' : 'nee'}, docker-bridge: ${facts.bridgeIp ?? 'onbekend'}`)
-  prompts.say(`Caddy:          ${facts.caddy ? `${facts.caddy.binary}, configuratie ${facts.caddy.config}` : 'niet gevonden'}`)
+  prompts.say(`Docker:         ${facts.docker ? 'ja' : 'nee'}, compose: ${facts.compose ? 'ja' : 'nee'}`)
+  prompts.say(`Caddy:          ${facts.caddy ? describeCaddy(facts.caddy) : 'niet gevonden'}`)
   prompts.say(`Publiek IP:     ${facts.publicIp ?? 'onbekend'}`)
   const state = await loadState(sys)
   prompts.say(`Eerder geïnstalleerd: ${state ? 'ja' : 'nee'}`)
@@ -197,7 +198,7 @@ export async function apply(deps: Deps, options: { yes?: boolean; source?: Sourc
     }
   }
   prompts.say('\nControle van de adressen (een nieuw adres kan tot een minuut nodig hebben voor het certificaat) ...')
-  const checks = await verify(sys, state, facts, (options.waitSeconds ?? 120) * 1000)
+  const checks = await verify(sys, state, (options.waitSeconds ?? 120) * 1000)
   for (const c of checks) prompts.say(`  ${c.ok ? 'ok     ' : 'FOUT   '} ${c.name}: ${c.status ?? 'geen antwoord'}  ${c.url}`)
   const a = addresses(state)
   const failed = checks.filter((c) => !c.ok)
@@ -214,7 +215,6 @@ export async function apply(deps: Deps, options: { yes?: boolean; source?: Sourc
 
 export async function status(deps: Deps): Promise<number> {
   const { sys, prompts } = deps
-  const facts = await inspect(sys)
   const state = await loadState(sys)
   if (!state) {
     prompts.say('Er is hier nog niets geïnstalleerd.')
@@ -226,7 +226,7 @@ export async function status(deps: Deps): Promise<number> {
   prompts.say(`gepubliceerde apps: ${live.stdout.trim().replace(/\n/g, ', ') || 'geen'}`)
   const a = addresses(state)
   prompts.say(`\nbuilder: ${a.builder}\nOdoo:    ${odooHost(state)}  |  apps-domein: ${appsDomain(state)}`)
-  const checks = await verify(sys, state, facts, 0)
+  const checks = await verify(sys, state, 0)
   for (const c of checks) prompts.say(`  ${c.ok ? 'ok   ' : 'FOUT '} ${c.name}: ${c.status ?? 'geen antwoord'}`)
   return checks.every((c) => c.ok) ? 0 : 2
 }

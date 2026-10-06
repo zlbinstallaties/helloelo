@@ -1,8 +1,10 @@
 # DIG Builder op de Hostinger-VPS zetten
 
 Een installatiescript (`deploy/install/`) zet het hele systeem op een server die al een Odoo-testserver
-met Caddy draait. Het is gemaakt voor de VPS `srv1938209.hstgr.cloud` en geoefend op een nagebootste server met echte
-Docker en een echte Caddy-controle. Op de echte VPS is het nog niet uitgevoerd.
+met Caddy draait. Het is gemaakt voor de VPS `srv1938209.hstgr.cloud`, waar Caddy **in een Docker-container** draait
+(`odoo20-test-proxy-1`, hostnetwerk, `admin off`, het Caddyfile staat in `/opt/odoo20-test/Caddyfile`). Het script
+herkent dat zelf, en ook een Caddy die als systeemdienst draait. Het is geoefend op een nagebouwde kopie van die situatie
+met echte Docker en dezelfde Caddy-versie (v2.11.6). Op de echte VPS is het nog niet uitgevoerd.
 
 ## Wat het wel en niet doet
 
@@ -11,14 +13,22 @@ Het doet:
 - de code ophalen en de sandbox-afbeelding bouwen (`dig-sandbox:1`)
 - een intern Docker-netwerk `dig-preview` maken waar de apps in draaien zonder internet
 - de Odoo-gateway starten (alleen-lezen, zonder poort naar buiten) en twee diensten: `dig-preview` en `dig-builder-app`
-- de bestaande Caddy aanvullen met **één regel** (`import /etc/caddy/dig-builder.caddy`) en een eigen bestand met de
-  adressen. Eerst een reservekopie, dan controleren, dan herladen (nooit herstarten). Als Caddy de configuratie afkeurt, het
-  herladen mislukt, of de Odoo-testserver daarna anders antwoordt dan ervoor, wordt alles teruggezet.
+- de bestaande Caddy aanvullen met **één blok** onderaan het Caddyfile, tussen de regels `# BEGIN DIG Builder` en
+  `# END DIG Builder`, met de adressen van de builder en de apps. De werkwijze:
+  1. een reservekopie naast het bestand (`Caddyfile.dig-backup-<datum>`)
+  2. het bestand **op zijn plaats** aanpassen (een enkel bestand dat in een container is gemonteerd moet zo, anders ziet de
+     container de wijziging niet)
+  3. Caddy zelf laten controleren (`caddy validate`, in de container, met precies die Caddy-versie)
+  4. laden met een signaal (`USR1`), **zonder Caddy te herstarten**: Caddy blijft doorlopen en bevestigt in zijn log
+     dat de nieuwe configuratie is geladen. Een gewone `caddy reload` kan niet, omdat `admin off` staat.
+  5. controleren dat de Odoo-testserver nog hetzelfde antwoordt als ervoor.
+  Wordt de configuratie afgekeurd, weigert Caddy hem te laden, of antwoordt de Odoo-testserver daarna anders, dan wordt
+  het bestand teruggezet (en zo nodig opnieuw geladen).
 
 Het doet niet:
 - niets aan de containers `odoo20-test-*` of `dig-builder-test-*`, hun netwerken of hun gegevens
-- geen tweede webserver op poort 80/443, geen firewallwijzigingen (de diensten luisteren alleen op het Docker-adres
-  van de server, niet op internet)
+- geen tweede webserver op poort 80/443, geen firewallwijzigingen (de diensten luisteren alleen op `127.0.0.1`, dus niet
+  op internet; Caddy draait op het hostnetwerk en bereikt ze daar)
 - geen platte wachtwoorden of sleutels opslaan: het wachtwoord wordt een hash; sleutels staan alleen in
   bestanden die alleen root kan lezen
 
@@ -73,9 +83,12 @@ node --experimental-strip-types --no-warnings deploy/install/main.ts uninstall p
 Opnieuw uitvoeren van `apply` is veilig: bestaande tokens en het wachtwoord blijven gelijk, wat al klopt wordt overgeslagen,
 en ontbrekende sleutels worden alsnog gevraagd. Een gepubliceerde app blijft draaien terwijl je bijwerkt.
 
-Als er iets misgaat: `journalctl -u dig-builder-app -n 50 --no-pager`, `journalctl -u dig-preview -n 50 --no-pager` en
-`journalctl -u caddy -n 50 --no-pager`. De reservekopieën van het Caddyfile staan naast het bestand
-(`Caddyfile.dig-backup-<datum>`).
+Als er iets misgaat: `journalctl -u dig-builder-app -n 50 --no-pager`, `journalctl -u dig-preview -n 50 --no-pager` en,
+voor Caddy in een container, `docker logs odoo20-test-proxy-1 --tail 50`. De reservekopieën van het Caddyfile staan naast het
+bestand (`Caddyfile.dig-backup-<datum>`).
+
+**Let op:** het Caddyfile hoort bij de Odoo-installatie (`/opt/odoo20-test`). Als dat project opnieuw wordt uitgerold of het
+bestand wordt vervangen, verdwijnt ons blok. Draai dan `apply` opnieuw; het voegt het blok weer toe.
 
 ## Wat er op de server komt te staan
 
@@ -85,7 +98,7 @@ Als er iets misgaat: `journalctl -u dig-builder-app -n 50 --no-pager`, `journalc
 | `/srv/dig-builder/apps/dashboard` | het project dat de agent aanpast (de builder beheert deze map) |
 | `/srv/dig-builder/builder-data`, `/srv/dig-builder/releases` | opdrachten en geschiedenis, gepubliceerde versies |
 | `/etc/dig-builder` | instellingen en geheimen; alleen root leest de geheimen |
-| `/etc/caddy/dig-builder.caddy` | de adressen voor Caddy |
+| `/opt/odoo20-test/Caddyfile` (of waar Caddy zijn bestand heeft) | ons blok met de adressen, plus een reservekopie ernaast |
 | `/etc/systemd/system/dig-preview.service`, `dig-builder-app.service` | de twee diensten |
 
 ## Let op
@@ -101,12 +114,14 @@ Als er iets misgaat: `journalctl -u dig-builder-app -n 50 --no-pager`, `journalc
 
 ## Getest
 
-- 19 tests tegen een nagebootste server: elke stap, opnieuw uitvoeren, ontbrekende sleutels, een door Caddy afgekeurde
+- 29 tests tegen een nagebootste server (voor Caddy in een container én als dienst): elke stap, opnieuw uitvoeren, ontbrekende sleutels, een door Caddy afgekeurde
   configuratie, een mislukte herlaad, een Odoo-site die anders gaat antwoorden, een dienst die niet start, verwijderen
   (het Caddyfile komt terug zoals het was), en dat geen geheim in een bestand of op het scherm terechtkomt waar het
-  niet hoort. De veiligheidsregels zijn met 14 opzettelijke fouten gecontroleerd; elke werd door een test gevonden.
-- Een echte oefening in een omgeving die lijkt op de VPS (Ubuntu 24.04, echte Docker, een echte Caddy-controle van
-  onze configuratie, de diensten echt gestart): installeren vanaf niets, de gateway gezond, inloggen, een app
-  publiceren en openen via de proxy, opnieuw uitvoeren, verwijderen met en zonder `purge`. Dat vond een echte fout
-  (de agent-bibliotheek miste zijn pakketten), die is opgelost en bewaakt door een test.
+  niet hoort. De veiligheidsregels zijn met 25 opzettelijke fouten gecontroleerd; elke werd door een test gevonden (een paar pas nadat ik er een test voor had toegevoegd).
+- Een echte oefening in een omgeving die lijkt op de VPS (Ubuntu 24.04, echte Docker, een Caddy v2.11.6 in een container
+  op het hostnetwerk met `admin off` en een enkel gemonteerd Caddyfile, de diensten echt gestart): installeren vanaf niets,
+  gateway gezond, inloggen via Caddy, een app publiceren en openen, opnieuw uitvoeren, verwijderen met en zonder `purge`.
+  Caddy is niet herstart (zelfde starttijd en proces) en het Caddyfile kwam na het verwijderen byte voor byte terug.
+  De oefeningen vonden twee echte fouten (de agent-bibliotheek miste zijn pakketten; het script nam een Caddy als dienst aan
+  terwijl die in een container draait, wat de controle op de echte VPS liet zien); beide zijn opgelost en bewaakt.
 - Niet getest: op de echte VPS, met het echte certificaat van Let's Encrypt, en met de echte Odoo-testserver.
