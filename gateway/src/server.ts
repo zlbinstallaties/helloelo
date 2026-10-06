@@ -151,7 +151,18 @@ export function createGateway(options: GatewayOptions) {
   async function schema(project: Project) {
     const models = []
     for (const [name, policy] of Object.entries(project.models)) {
-      const odooFields = await modelFields(name)
+      let odooFields: Record<string, OdooFieldInfo>
+      try {
+        odooFields = await modelFields(name)
+      } catch (error) {
+        // A model this database does not have (a custom module that is not installed): say so, so that one
+        // unknown model does not hide the answer for the others. Any other error is still an error.
+        if (error instanceof OdooError && error.answered && error.status === 404 && error.message.includes('does not exist')) {
+          models.push({ name, methods: policy.methods, fields: [], missing: [...policy.fields], unknownModel: true })
+          continue
+        }
+        throw error
+      }
       models.push({
         name,
         methods: policy.methods,

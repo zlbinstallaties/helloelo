@@ -206,6 +206,47 @@ test('schema only lists allowlisted fields and reports missing ones', async () =
   }
 })
 
+test('schema: a model this Odoo does not have is reported, and the other models are still answered', async () => {
+  const gw = await start(
+    fakeOdoo([], {
+      async fieldsGet(model) {
+        if (model === 'svs.tech.visit') throw new OdooError("Odoo svs.tech.visit read failed (404): the model 'svs.tech.visit' does not exist", 404, 'werkzeug.exceptions.NotFound', true)
+        return { id: { type: 'integer', string: 'ID' }, name: { type: 'char', string: 'Naam' }, state: { type: 'char', string: 'Status' } }
+      },
+    }),
+  )
+  try {
+    const r = await gw.request('/v1/schema')
+    assert.equal(r.status, 200)
+    const byName = Object.fromEntries(r.json.models.map((m: { name: string }) => [m.name, m]))
+    assert.deepEqual(byName['planning.slot'].fields.map((f: { name: string }) => f.name), ['id', 'name', 'state'])
+    assert.equal(byName['planning.slot'].unknownModel, undefined)
+    assert.equal(byName['svs.tech.visit'].unknownModel, true)
+    assert.deepEqual(byName['svs.tech.visit'].fields, [])
+    assert.deepEqual(byName['svs.tech.visit'].missing, ['id', 'name'])
+  } finally {
+    await gw.close()
+  }
+})
+
+test('schema: other errors are not hidden as an unknown model', async () => {
+  for (const [error, status] of [
+    [new OdooError('Odoo svs.tech.visit read failed (404): the model needs another route', 404, 'werkzeug.exceptions.NotFound', true), 502],
+    [new OdooError('Odoo svs.tech.visit read failed (404)', 404), 502],
+    [new OdooError("Odoo svs.tech.visit read failed (404): the model 'svs.tech.visit' does not exist", 404), 502], // no Odoo error body: not proof
+    [new OdooError('Odoo svs.tech.visit read failed (403): the model does not exist for you', 403, 'odoo.exceptions.AccessError', true), 502],
+    [new OdooError('Odoo svs.tech.visit read timed out', 0), 504],
+  ] as const) {
+    const gw = await start(fakeOdoo([], { async fieldsGet() { throw error } }))
+    try {
+      const r = await gw.request('/v1/schema')
+      assert.equal(r.status, status, error.message)
+    } finally {
+      await gw.close()
+    }
+  }
+})
+
 test('Odoo errors are mapped without leaking the upstream message', async () => {
   const gw = await start(
     fakeOdoo([], {
