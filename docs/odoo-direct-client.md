@@ -1,8 +1,8 @@
 # Odoo-client (alleen voor de gateway)
 
-`src/lib/odoo-client.ts` is een alleen-lezen client voor de Odoo External JSON-2 API
-(`POST /json/2/<model>/search_read`, `Authorization: bearer <API-key>`). Hij heeft geen
-platformafhankelijkheden en krijgt zijn configuratie van de aanroeper.
+`src/lib/odoo-client.ts` is een client voor de Odoo External JSON-2 API
+(`POST /json/2/<model>/search_read`, `Authorization: bearer <API-key>`). Hij leest, met één vaste uitzondering (zie
+hieronder). Hij heeft geen platformafhankelijkheden en krijgt zijn configuratie van de aanroeper.
 
 **Het dashboard gebruikt deze client niet.** Alleen de gateway (`gateway/src/main.ts` en
 `gateway/src/server.ts`) importeert hem; het dashboard leest via de gateway
@@ -22,8 +22,13 @@ De gateway leest de configuratie uit zijn eigen omgeving (`gateway/src/main.ts`)
 
 ## Veiligheid
 
-- Alleen `search_read`, `search_count` en `fields_get`; geen create/write/unlink en geen generieke
-  aanroep.
+- De algemene methoden zijn alleen `search_read`, `search_count` en `fields_get`; geen create/write/unlink en geen
+  generieke aanroep. `hr.employee` en `res.users` staan niet op de modelallowlist en zijn dus niet leesbaar.
+- Eén vaste schrijfmethode, `createEmployee`: een `hr.employee` met alleen `name`, `company_id`, `hr_responsible_id`,
+  `user_id: false` en `date_version`. Er is geen parameter voor een ander veld, een ander model of een Odoo-gebruiker.
+  Een fout met een antwoord van Odoo is `rejected` (er is niets aangemaakt); alles waarbij een bruikbaar antwoord
+  ontbreekt is `unknown` (de medewerker kan bestaan). Daarnaast twee vaste leesacties: `checkResponsible` (één
+  `res.users`-record, vier velden) en `readEmployee` (één `hr.employee`-record, vijf velden).
 - Modelallowlist en verplicht company-filter (domain + context), vastgelegd bij het aanmaken van de
   client.
 - De API-key staat alleen in de Authorization-header en komt niet in foutmeldingen.
@@ -32,7 +37,7 @@ De gateway leest de configuratie uit zijn eigen omgeving (`gateway/src/main.ts`)
 
 ## Tests
 
-`bun run test:odoo` draait de clienttests (11) met een nep-fetch; er is geen Odoo nodig. De gateway-tests
+`bun run test:odoo` draait de clienttests (21, waarvan 10 voor de aanmaakactie) met een nep-fetch; er is geen Odoo nodig. De gateway-tests
 (`bun run test:gateway`) gebruiken een nagebootste client.
 
 ## Beperkingen

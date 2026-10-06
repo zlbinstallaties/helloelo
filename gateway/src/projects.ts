@@ -5,8 +5,14 @@ import { GatewayError } from './errors.ts'
  * Per-project allowlist. A project is one generated app; it gets its own
  * gateway token and never sees the Odoo API key.
  *
- * Phase 1 is read-only: only the methods in READ_METHODS can be configured.
+ * Models are read-only: only the methods in READ_METHODS can be configured.
  * Write methods are refused when the config is loaded, not at request time.
+ *
+ * The only thing a project can do besides reading is a named, fixed action from
+ * ACTIONS (see `actions` below). There is no generic create / write / unlink.
+ * A project has no actions unless its config lists them, so every action is off
+ * by default. Give actions to a dedicated project (and token) only, never to the
+ * project of a preview or an agent.
  */
 
 export const READ_METHODS = ['search_read', 'search_count'] as const
@@ -17,13 +23,32 @@ export interface ModelPolicy {
   methods: readonly ReadMethod[]
 }
 
+/**
+ * Creating a technician as an Odoo employee without an Odoo user. The Odoo user who is responsible for the
+ * employee is fixed here; a request can never choose it.
+ */
+export interface CreateEmployeePolicy {
+  responsibleUserId: number
+  /** At most this many creations per hour for the project, as a brake on a runaway client. */
+  maxPerHour: number
+}
+
+export interface ProjectActions {
+  createEmployee?: CreateEmployeePolicy
+}
+
 export interface Project {
   id: string
   companyId: number
   maxLimit: number
   models: Readonly<Record<string, ModelPolicy>>
+  actions: Readonly<ProjectActions>
   tokenSha256: Buffer
 }
+
+export const ACTIONS = ['createEmployee'] as const
+const DEFAULT_MAX_PER_HOUR = 20
+const HARD_MAX_PER_HOUR = 200
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
 const MODEL_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/
@@ -58,6 +83,31 @@ function parseModel(projectId: string, model: string, raw: unknown): ModelPolicy
   }
   const fields = [...new Set(['id', ...(policy.fields as string[])])]
   return { fields, methods: [...new Set(policy.methods as ReadMethod[])] }
+}
+
+function parseActions(projectId: string, raw: unknown): ProjectActions {
+  if (raw === undefined) return {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail(`${projectId}: actions must be an object`)
+  const actions = raw as Record<string, unknown>
+  for (const name of Object.keys(actions)) {
+    if (!(ACTIONS as readonly string[]).includes(name)) fail(`${projectId}: action ${name} is not allowed`)
+  }
+  if (actions.createEmployee === undefined) return {}
+  const entry = actions.createEmployee as Record<string, unknown> | null
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    fail(`${projectId}: createEmployee must be an object with responsibleUserId`)
+  }
+  for (const key of Object.keys(entry)) {
+    if (key !== 'responsibleUserId' && key !== 'maxPerHour') fail(`${projectId}: createEmployee has an unknown setting ${key}`)
+  }
+  if (!Number.isInteger(entry.responsibleUserId) || (entry.responsibleUserId as number) <= 0) {
+    fail(`${projectId}: createEmployee.responsibleUserId must be a positive integer`)
+  }
+  const maxPerHour = entry.maxPerHour ?? DEFAULT_MAX_PER_HOUR
+  if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
+    fail(`${projectId}: createEmployee.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
+  }
+  return { createEmployee: { responsibleUserId: entry.responsibleUserId as number, maxPerHour: maxPerHour as number } }
 }
 
 export function parseProjects(raw: unknown): Project[] {
@@ -98,6 +148,7 @@ export function parseProjects(raw: unknown): Project[] {
       companyId: p.companyId as number,
       maxLimit: maxLimit as number,
       models,
+      actions: parseActions(id, p.actions),
       tokenSha256: Buffer.from(p.tokenSha256, 'hex'),
     })
   }

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { OdooError, type OdooClient, type OdooFieldInfo } from '../../src/lib/odoo-client.ts'
+import { createActions } from './actions.ts'
 import { validateDomain, validateFields, validateOrder } from './domain.ts'
 import { GatewayError } from './errors.ts'
 import { findProject, type Project, type ReadMethod } from './projects.ts'
@@ -11,6 +12,8 @@ import { findProject, type Project, type ReadMethod } from './projects.ts'
  *   GET  /v1/schema                          allowlisted models and fields
  *   POST /v1/models/<model>/search_read      {fields?, domain?, limit?, offset?, order?}
  *   POST /v1/models/<model>/search_count     {domain?}
+ *   POST /v1/actions/create_employee         {requestId, name}: an hr.employee without an Odoo user,
+ *                                            only for projects whose config has the action (off by default)
  *
  * Every /v1 call needs `Authorization: Bearer <project token>`. The project
  * decides company, models, fields and methods; the request cannot widen them.
@@ -27,6 +30,8 @@ export interface AccessLogEntry {
   rows?: number
   fields?: number
   domainFields?: string[]
+  requestId?: string
+  employeeId?: number
 }
 
 export interface GatewayOptions {
@@ -39,6 +44,7 @@ export interface GatewayOptions {
 
 const MAX_BODY_BYTES = 64 * 1024
 const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
+const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
 const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 
 interface Context {
@@ -47,6 +53,8 @@ interface Context {
   rows?: number
   fields?: number
   domainFields?: string[]
+  requestId?: string
+  employeeId?: number
 }
 
 function send(res: ServerResponse, status: number, payload: unknown) {
@@ -130,6 +138,7 @@ export function createGateway(options: GatewayOptions) {
   const now = options.now ?? Date.now
   const schemaTtlMs = options.schemaTtlMs ?? 5 * 60_000
   const fieldCache = new Map<string, { at: number; fields: Record<string, OdooFieldInfo> }>()
+  const actions = createActions({ odoo, now })
 
   async function modelFields(model: string) {
     const hit = fieldCache.get(model)
@@ -176,6 +185,15 @@ export function createGateway(options: GatewayOptions) {
       if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
       ctx.project = authenticate(req, projects)
       return schema(ctx.project)
+    }
+
+    if (url.pathname === CREATE_EMPLOYEE_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.createEmployee) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: createEmployee')
+      return actions.createEmployee(ctx.project, await readJson(req), ctx)
     }
 
     const match = MODEL_ROUTE.exec(url.pathname)
@@ -232,7 +250,7 @@ export function createGateway(options: GatewayOptions) {
       const failure = toGatewayError(error)
       status = failure.status
       code = failure.code
-      send(res, status, { error: failure.code, message: failure.message })
+      send(res, status, { error: failure.code, message: failure.message, ...(failure.details && { details: failure.details }) })
     } finally {
       if (url.pathname !== '/healthz') {
         log({
@@ -246,6 +264,8 @@ export function createGateway(options: GatewayOptions) {
           ...(ctx.rows !== undefined && { rows: ctx.rows }),
           ...(ctx.fields !== undefined && { fields: ctx.fields }),
           ...(ctx.domainFields && { domainFields: ctx.domainFields }),
+          ...(ctx.requestId !== undefined && { requestId: ctx.requestId }),
+          ...(ctx.employeeId !== undefined && { employeeId: ctx.employeeId }),
         })
       }
     }

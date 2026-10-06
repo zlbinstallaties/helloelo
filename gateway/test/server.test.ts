@@ -53,6 +53,15 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
         password_hash: { type: 'char' },
       }
     },
+    async createEmployee() {
+      throw new Error('createEmployee is not used in these tests')
+    },
+    async checkResponsible() {
+      throw new Error('checkResponsible is not used in these tests')
+    },
+    async readEmployee() {
+      throw new Error('readEmployee is not used in these tests')
+    },
     ...overrides,
   }
 }

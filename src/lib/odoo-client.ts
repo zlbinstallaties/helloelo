@@ -1,16 +1,23 @@
 /*
- * Standalone, read-only Odoo client (External JSON-2 API, Odoo 19+).
+ * Standalone Odoo client (External JSON-2 API, Odoo 19+).
  *
  * No platform imports on purpose: this file can run in Node or a test.
  * Config and secrets are injected by the caller (`gateway/src/main.ts`).
  *
  * Safety properties:
- *  - Only read methods are exposed (`search_read`, `search_count`,
- *    `fields_get`). No create / write / unlink / generic call.
- *  - Models are checked against an allowlist given at construction time.
+ *  - The generic methods are read-only (`search_read`, `search_count`,
+ *    `fields_get`). There is no generic create / write / unlink / call.
+ *  - Models of the generic methods are checked against an allowlist given at
+ *    construction time. `hr.employee` and `res.users` are not on it.
  *  - A company filter is always added to the domain and to the context.
  *  - The API key is sent only in the Authorization header and never ends up
  *    in error messages.
+ *
+ * The one write is `createEmployee`: it creates a technician as an `hr.employee`
+ * WITHOUT an Odoo user (`user_id` is always false) from a fixed set of values.
+ * It cannot take another model, another field or another value for `user_id`.
+ * Next to it two fixed reads: `checkResponsible` (is this Odoo user a valid
+ * responsible for the company) and `readEmployee` (read back what was created).
  */
 
 export interface OdooClientConfig {
@@ -54,22 +61,72 @@ export interface OdooFieldInfo {
   [key: string]: unknown
 }
 
+export interface CreateEmployeeParams {
+  /** Display name of the technician. */
+  name: string
+  companyId: number
+  /** The Odoo user who is responsible for the employee (`hr_responsible_id`). Never the technician. */
+  responsibleUserId: number
+  /** Start date of the first version of the employee, `YYYY-MM-DD`. */
+  dateVersion: string
+}
+
+/** Whether an Odoo user may be the responsible of an employee of a company. */
+export interface ResponsibleCheck {
+  exists: boolean
+  active: boolean
+  /** An internal user, not a portal or public one. */
+  internal: boolean
+  inCompany: boolean
+}
+
+export interface EmployeeRecord {
+  id: number
+  name: string
+  companyId: number | null
+  /** The Odoo user linked to the employee; null means the employee has no Odoo login. */
+  userId: number | null
+  active: boolean
+}
+
 export interface OdooClient {
   searchRead<T = Record<string, unknown>>(params: SearchReadParams): Promise<T[]>
   searchCount(params: SearchCountParams): Promise<number>
   /** Field definitions of an allowed model; contains no records. */
   fieldsGet(model: string, attributes?: string[]): Promise<Record<string, OdooFieldInfo>>
+  /** Creates one `hr.employee` without an Odoo user and returns the id Odoo confirms. Throws `OdooWriteError`. */
+  createEmployee(params: CreateEmployeeParams): Promise<number>
+  checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck>
+  readEmployee(params: { id: number; companyId: number }): Promise<EmployeeRecord | null>
 }
 
 export class OdooError extends Error {
   status: number
   odooName: string | null
+  /** Odoo itself answered with an error (as opposed to no or an unusable answer). */
+  answered: boolean
 
-  constructor(message: string, status: number, odooName: string | null = null) {
+  constructor(message: string, status: number, odooName: string | null = null, answered = false) {
     super(message)
     this.name = 'OdooError'
     this.status = status
     this.odooName = odooName
+    this.answered = answered
+  }
+}
+
+/**
+ * A failed write. `rejected`: Odoo answered with an error, so nothing was created and trying again is safe.
+ * `unknown`: no usable answer (network, time-out, a proxy error, an odd reply): the record may exist, so
+ * trying again could create a second one.
+ */
+export class OdooWriteError extends OdooError {
+  outcome: 'rejected' | 'unknown'
+
+  constructor(message: string, status: number, outcome: 'rejected' | 'unknown', odooName: string | null = null) {
+    super(message, status, odooName, outcome === 'rejected')
+    this.name = 'OdooWriteError'
+    this.outcome = outcome
   }
 }
 
@@ -113,7 +170,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  async function call(model: string, method: string, body: Record<string, unknown>): Promise<unknown> {
+  async function call(model: string, method: string, body: Record<string, unknown>, verb = 'read'): Promise<unknown> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json; charset=utf-8',
       Authorization: `bearer ${config.apiKey}`,
@@ -133,7 +190,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     } catch (error) {
       const timedOut = error instanceof Error && error.name === 'AbortError'
       throw new OdooError(
-        timedOut ? `Odoo ${model} read timed out` : `Odoo ${model} read failed (network)`,
+        timedOut ? `Odoo ${model} ${verb} timed out` : `Odoo ${model} ${verb} failed (network)`,
         0,
       )
     } finally {
@@ -155,9 +212,10 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       const odooName = typeof info.name === 'string' ? info.name : null
       const message = typeof info.message === 'string' ? info.message.slice(0, 200) : ''
       throw new OdooError(
-        `Odoo ${model} read failed (${response.status})${message ? `: ${message}` : ''}`,
+        `Odoo ${model} ${verb} failed (${response.status})${message ? `: ${message}` : ''}`,
         response.status,
         odooName,
+        odooName !== null,
       )
     }
     return payload
@@ -215,5 +273,104 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     return payload as Record<string, OdooFieldInfo>
   }
 
-  return { searchRead, searchCount, fieldsGet }
+  const isId = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0
+  const hasControlCharacter = (value: string) => [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+
+  function validDate(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+    const date = new Date(`${value}T00:00:00Z`)
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  }
+
+  /** `rejected` only when Odoo itself answered with an error; every other failure leaves the outcome open. */
+  function toWriteError(error: unknown): OdooWriteError {
+    if (error instanceof OdooWriteError) return error
+    if (error instanceof OdooError) {
+      const definite = error.answered && ((error.status >= 400 && error.status < 500) || error.status === 500)
+      return new OdooWriteError(error.message, error.status, definite ? 'rejected' : 'unknown', error.odooName)
+    }
+    return new OdooWriteError('Odoo hr.employee write failed', 0, 'unknown')
+  }
+
+  async function createEmployee(params: CreateEmployeeParams): Promise<number> {
+    // Only these four values are read; anything else in `params` is ignored, `user_id` is never taken from it.
+    const name = typeof params?.name === 'string' ? params.name.trim() : ''
+    if (name.length < 1 || name.length > 80 || hasControlCharacter(name)) {
+      throw new OdooWriteError('Invalid employee name', 0, 'rejected')
+    }
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (!isId(params.responsibleUserId)) throw new OdooWriteError('responsibleUserId is required', 0, 'rejected')
+    if (!validDate(params.dateVersion)) throw new OdooWriteError('Invalid dateVersion', 0, 'rejected')
+
+    const vals = {
+      name,
+      company_id: params.companyId,
+      hr_responsible_id: params.responsibleUserId,
+      user_id: false,
+      date_version: params.dateVersion,
+    }
+    let payload: unknown
+    try {
+      payload = await call(
+        'hr.employee',
+        'create',
+        {
+          vals_list: [vals],
+          // No chatter followers or mails because of this create.
+          context: { allowed_company_ids: [params.companyId], mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true },
+        },
+        'write',
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const id = Array.isArray(payload) && payload.length === 1 ? payload[0] : payload
+    if (!isId(id)) throw new OdooWriteError('Odoo hr.employee returned an unexpected response', 200, 'unknown')
+    return id
+  }
+
+  async function checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck> {
+    if (!isId(params?.userId)) throw new OdooError('userId is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('res.users', 'search_read', {
+      domain: [['id', '=', params.userId]],
+      fields: ['id', 'active', 'share', 'company_ids'],
+      limit: 1,
+      // Inactive users are found too, so that they can be reported as inactive.
+      context: { allowed_company_ids: [params.companyId], active_test: false },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo res.users returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.userId)
+    if (!row) return { exists: false, active: false, internal: false, inCompany: false }
+    return {
+      exists: true,
+      active: row.active === true,
+      internal: row.share === false,
+      inCompany: Array.isArray(row.company_ids) && row.company_ids.includes(params.companyId),
+    }
+  }
+
+  async function readEmployee(params: { id: number; companyId: number }): Promise<EmployeeRecord | null> {
+    if (!isId(params?.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('hr.employee', 'search_read', {
+      domain: [['id', '=', params.id], ['company_id', '=', params.companyId]],
+      fields: ['id', 'name', 'company_id', 'user_id', 'active'],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId], active_test: false },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo hr.employee returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    const idOf = (value: unknown) => (Array.isArray(value) && isId(value[0]) ? value[0] : isId(value) ? value : null)
+    return {
+      id: params.id,
+      name: typeof row.name === 'string' ? row.name : '',
+      companyId: idOf(row.company_id),
+      userId: idOf(row.user_id),
+      active: row.active === true,
+    }
+  }
+
+  return { searchRead, searchCount, fieldsGet, createEmployee, checkResponsible, readEmployee }
 }
