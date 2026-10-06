@@ -166,26 +166,26 @@ export function unit(template: string, node: string, bridgeIp: string) {
   return template.replaceAll('/usr/bin/node', node).replaceAll('172.17.0.1', bridgeIp)
 }
 
-export const CADDY_FILE = '/etc/caddy/dig-builder.caddy'
-export const CADDY_MARK = '# DIG Builder (managed by deploy/install)'
+/** The services only listen on this address: Caddy runs on the host network (or as a host service), so loopback is enough. */
+export const LISTEN_IP = '127.0.0.1'
+
+export const CADDY_BEGIN = '# BEGIN DIG Builder (managed by deploy/install; changes between BEGIN and END are overwritten)'
+export const CADDY_END = '# END DIG Builder'
 
 /** Explicit hostnames (no wildcard, no on-demand TLS), so the existing Caddy setup is left alone. */
-export function caddySnippet(state: InstallState, bridgeIp: string) {
+export function caddyBlock(state: InstallState, listenIp = LISTEN_IP) {
   const apps = state.projects.flatMap((p) => [previewHost(state, p.id), liveHost(state, p.id)])
-  return `${CADDY_MARK}. Re-run the installer to change it.
+  return `${CADDY_BEGIN}
 ${builderHost(state)} {
 	encode zstd gzip
-	reverse_proxy ${bridgeIp}:${BUILDER_PORT}
+	reverse_proxy ${listenIp}:${BUILDER_PORT}
 }
 
 ${apps.join(', ')} {
-	reverse_proxy ${bridgeIp}:${PREVIEW_PORT}
+	reverse_proxy ${listenIp}:${PREVIEW_PORT}
 }
+${CADDY_END}
 `
-}
-
-export function importLine(file = CADDY_FILE) {
-  return `${CADDY_MARK}\nimport ${file}\n`
 }
 
 export function sha256(value: string) {

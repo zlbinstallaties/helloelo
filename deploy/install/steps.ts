@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { discover, reload, validate, withBlock, withoutBlock, type CaddyTarget } from './caddy.ts'
 import type { Sys } from './sys.ts'
 import {
-  appsDomain, builderEnv, builderHost, builderProjects, BUILDER_PORT, CADDY_FILE, CADDY_MARK, caddySnippet, COMPOSE_PROJECT,
-  gatewayProjects, importLine, liveHost, NETWORK, PATHS, previewEnv, previewHost, previewProjects, PREVIEW_PORT, SANDBOX_IMAGE,
+  appsDomain, builderEnv, builderHost, builderProjects, BUILDER_PORT, CADDY_BEGIN, caddyBlock, COMPOSE_PROJECT,
+  gatewayProjects, liveHost, LISTEN_IP, NETWORK, PATHS, previewEnv, previewHost, previewProjects, PREVIEW_PORT, SANDBOX_IMAGE,
   SERVICES, stackEnv, unit, USER, type InstallState,
 } from './templates.ts'
 
@@ -23,11 +24,6 @@ export class InstallError extends Error {
   }
 }
 
-export interface CaddyFacts {
-  binary: string
-  config: string
-}
-
 export interface Facts {
   os: string
   isRoot: boolean
@@ -36,8 +32,7 @@ export interface Facts {
   docker: boolean
   compose: boolean
   git: boolean
-  bridgeIp: string | null
-  caddy: CaddyFacts | null
+  caddy: CaddyTarget | null
   publicIp: string | null
   /** A CA bundle for installs behind a TLS-intercepting proxy (DIG_SANDBOX_CA_BUNDLE); normally none. */
   caBundle: string | null
@@ -50,18 +45,6 @@ const ok = (result: { code: number }) => result.code === 0
 async function out(sys: Sys, cmd: string, args: string[]) {
   const result = await sys.run(cmd, args)
   return ok(result) ? result.stdout.trim() : null
-}
-
-/** The Caddy that is already serving this machine: its binary and the Caddyfile it was started with. */
-export function parseCaddyUnit(unitText: string): CaddyFacts | null {
-  const line = unitText.split('\n').map((l) => l.trim()).find((l) => l.startsWith('ExecStart=') && /caddy/.test(l) && /\brun\b/.test(l))
-  if (!line) return null
-  const parts = line.slice('ExecStart='.length).trim().split(/\s+/)
-  const binary = parts[0].replace(/^[-@:+!]+/, '')
-  const flag = parts.findIndex((p) => p === '--config')
-  const joined = parts.find((p) => p.startsWith('--config='))
-  const config = joined ? joined.slice('--config='.length) : flag >= 0 ? parts[flag + 1] : '/etc/caddy/Caddyfile'
-  return { binary, config }
 }
 
 export async function inspect(sys: Sys, env: Record<string, string | undefined> = process.env): Promise<Facts> {
@@ -83,21 +66,12 @@ export async function inspect(sys: Sys, env: Record<string, string | undefined> 
   const git = ok(await sys.run('git', ['--version']))
   if (!git) problems.push('Git is niet geïnstalleerd.')
 
-  const bridgeIp = docker ? await out(sys, 'docker', ['network', 'inspect', 'bridge', '--format', '{{(index .IPAM.Config 0).Gateway}}']) : null
-  if (docker && !bridgeIp) problems.push('Het adres van het Docker-netwerk "bridge" is niet te vinden.')
-
-  const unitText = await out(sys, 'systemctl', ['cat', 'caddy'])
-  const caddy = unitText ? parseCaddyUnit(unitText) : null
-  if (!caddy) {
-    problems.push('Er draait geen Caddy als systeemdienst. Dit script haakt aan op een bestaande Caddy en start zelf geen webserver op poort 80/443.')
-  } else if (!(await sys.exists(caddy.config)) || /\.json$/i.test(caddy.config)) {
-    problems.push(`Caddy gebruikt ${caddy.config}; alleen een gewoon Caddyfile wordt ondersteund.`)
-  }
+  const caddy = await discover(sys, problems)
 
   const publicIp = await out(sys, 'curl', ['-s', '-m', '5', 'https://api.ipify.org'])
   const caBundle = env.DIG_SANDBOX_CA_BUNDLE || null
   if (caBundle && !(await sys.exists(caBundle))) problems.push(`DIG_SANDBOX_CA_BUNDLE wijst naar ${caBundle}, maar dat bestand bestaat niet.`)
-  return { os, isRoot, nodeBinary, nodeMajor, docker, compose, git, bridgeIp, caddy, publicIp, caBundle, problems }
+  return { os, isRoot, nodeBinary, nodeMajor, docker, compose, git, caddy, publicIp, caBundle, problems }
 }
 
 export const STATE_FILE = `${PATHS.etc}/install.json`
@@ -252,11 +226,10 @@ async function startGateway({ sys, state }: Ctx) {
 }
 
 async function startServices({ sys, facts }: Ctx) {
-  const bridgeIp = facts.bridgeIp!
   for (const name of SERVICES) {
     const template = await sys.read(app(`deploy/${name}.service`))
     if (!template) throw new InstallError(`deploy/${name}.service ontbreekt in de code`)
-    await sys.write(`${PATHS.units}/${name}.service`, unit(template, facts.nodeBinary, bridgeIp), { mode: 0o644, owner: 'root:root' })
+    await sys.write(`${PATHS.units}/${name}.service`, unit(template, facts.nodeBinary, LISTEN_IP), { mode: 0o644, owner: 'root:root' })
   }
   must(await sys.run('systemctl', ['daemon-reload']), 'systemd opnieuw laden')
   for (const name of SERVICES) {
@@ -281,44 +254,40 @@ async function odooStatus(sys: Sys, state: InstallState) {
 
 async function configureCaddy({ sys, state, facts }: Ctx) {
   const caddy = facts.caddy!
-  const snippet = caddySnippet(state, facts.bridgeIp!)
   const main = (await sys.read(caddy.config)) ?? ''
-  const previous = await sys.read(CADDY_FILE)
-  const hasImport = main.includes(`import ${CADDY_FILE}`)
-  if (previous === snippet && hasImport) return 'Caddy was al ingesteld'
+  const wanted = withBlock(main, caddyBlock(state))
+  if (wanted === main) return 'Caddy was al ingesteld'
 
   const before = await odooStatus(sys, state)
   const stamp = sys.now().toISOString().replace(/[-:T]/g, '').slice(0, 14)
   const backup = `${caddy.config}.dig-backup-${stamp}`
   await sys.write(backup, main, { mode: 0o600, owner: 'root:root' })
 
-  const restore = async () => {
-    await sys.write(caddy.config, main, { mode: 0o644, owner: 'root:root' })
-    if (previous === null) await sys.remove(CADDY_FILE)
-    else await sys.write(CADDY_FILE, previous, { mode: 0o644, owner: 'root:root' })
-    await sys.run('systemctl', ['reload', 'caddy'])
+  // The Caddyfile may be a single file mounted into a container: it has to be changed in place, a replaced
+  // file would stay invisible to the container.
+  const putBack = async (andReload: boolean) => {
+    await sys.write(caddy.config, main, { inPlace: true })
+    if (andReload) await reload(sys, caddy)
   }
 
-  await sys.write(CADDY_FILE, snippet, { mode: 0o644, owner: 'root:root' })
-  if (!hasImport) await sys.write(caddy.config, `${main.replace(/\s*$/, '')}\n\n${importLine()}`, { mode: 0o644, owner: 'root:root' })
-
-  const valid = await sys.run(caddy.binary, ['validate', '--config', caddy.config, '--adapter', 'caddyfile'])
+  await sys.write(caddy.config, wanted, { inPlace: true })
+  const valid = await validate(sys, caddy)
   if (valid.code !== 0) {
-    await restore()
+    await putBack(false) // Caddy never saw the new file
     throw new InstallError(`Caddy keurt de nieuwe configuratie af; alles is teruggezet.\n${(valid.stderr || valid.stdout).trim().slice(0, 800)}`)
   }
-  const reload = await sys.run('systemctl', ['reload', 'caddy'])
-  if (reload.code !== 0) {
-    await restore()
-    throw new InstallError(`Caddy kon niet herladen; alles is teruggezet.\n${reload.stderr.trim().slice(0, 800)}`)
+  const loaded = await reload(sys, caddy)
+  if (!loaded.ok) {
+    await putBack(false) // a refused reload leaves Caddy on its old configuration
+    throw new InstallError(`Caddy kon de nieuwe configuratie niet laden; alles is teruggezet.\n${loaded.detail}`)
   }
   await sys.sleep(1500)
   const after = await odooStatus(sys, state)
   if (before !== after) {
-    await restore()
+    await putBack(true)
     throw new InstallError(`De Odoo-testserver antwoordde vóór de wijziging met ${before ?? 'niets'} en erna met ${after ?? 'niets'}; alles is teruggezet.`)
   }
-  return `Caddy herladen (Odoo-testserver antwoordt nog hetzelfde: ${before ?? 'geen antwoord'}); reservekopie ${backup}`
+  return `Caddy heeft de nieuwe adressen geladen zonder onderbreking (Odoo-testserver antwoordt nog hetzelfde: ${before ?? 'geen antwoord'}); reservekopie ${backup}`
 }
 
 export interface Check {
@@ -331,10 +300,10 @@ export interface Check {
 /** The addresses we check answer with a page or a redirect; any error status means something is wrong. */
 const healthy = (status: number | null) => status !== null && status >= 200 && status < 400
 
-export async function verify(sys: Sys, state: InstallState, facts: Facts, waitForCertificateMs = 120_000): Promise<Check[]> {
+export async function verify(sys: Sys, state: InstallState, waitForCertificateMs = 120_000): Promise<Check[]> {
   const local = [
-    { name: 'preview-proxy (lokaal)', url: `http://${facts.bridgeIp}:${PREVIEW_PORT}/_dig/login` },
-    { name: 'builder-app (lokaal)', url: `http://${facts.bridgeIp}:${BUILDER_PORT}/` },
+    { name: 'preview-proxy (lokaal)', url: `http://${LISTEN_IP}:${PREVIEW_PORT}/_dig/login` },
+    { name: 'builder-app (lokaal)', url: `http://${LISTEN_IP}:${BUILDER_PORT}/` },
   ]
   const publicUrls = [
     { name: 'builder-app (publiek)', url: `https://${builderHost(state)}/` },
@@ -381,7 +350,6 @@ export function addresses(state: InstallState) {
   }
 }
 
-export { CADDY_MARK }
 
 const LABELS = ['dig.live', 'dig.preview', 'dig.sandbox', `com.docker.compose.project=${COMPOSE_PROJECT}`]
 
@@ -412,15 +380,17 @@ export async function uninstall(sys: Sys, facts: Facts, options: UninstallOption
 
   if (facts.caddy) {
     const main = await sys.read(facts.caddy.config)
-    if (main !== null && (main.includes(CADDY_MARK) || main.includes(CADDY_FILE))) {
-      const lines = main.split('\n').filter((line) => !line.includes(CADDY_MARK) && !line.includes(`import ${CADDY_FILE}`))
+    if (main !== null && main.includes(CADDY_BEGIN)) {
       const stamp = sys.now().toISOString().replace(/[-:T]/g, '').slice(0, 14)
       await sys.write(`${facts.caddy.config}.dig-backup-${stamp}`, main, { mode: 0o600, owner: 'root:root' })
-      await sys.write(facts.caddy.config, `${lines.join('\n').replace(/\s*$/, '')}\n`, { mode: 0o644, owner: 'root:root' })
-      await sys.remove(CADDY_FILE)
-      const valid = await sys.run(facts.caddy.binary, ['validate', '--config', facts.caddy.config, '--adapter', 'caddyfile'])
-      if (valid.code !== 0) throw new InstallError(`Caddy keurt de configuratie na het verwijderen af: ${valid.stderr.trim().slice(0, 500)}`, `Een reservekopie staat naast ${facts.caddy.config}.`)
-      must(await sys.run('systemctl', ['reload', 'caddy']), 'Caddy herladen')
+      await sys.write(facts.caddy.config, withoutBlock(main), { inPlace: true })
+      const valid = await validate(sys, facts.caddy)
+      if (valid.code !== 0) {
+        await sys.write(facts.caddy.config, main, { inPlace: true })
+        throw new InstallError(`Caddy keurt de configuratie na het verwijderen af: ${valid.stderr.trim().slice(0, 500)}`, `Het bestand is teruggezet; een reservekopie staat naast ${facts.caddy.config}.`)
+      }
+      const loaded = await reload(sys, facts.caddy)
+      if (!loaded.ok) throw new InstallError(`Caddy kon de configuratie niet laden: ${loaded.detail}`, `Een reservekopie met onze aanvulling staat naast ${facts.caddy.config}.`)
       done.push('Caddy-aanvulling verwijderd en Caddy herladen')
     }
   }

@@ -9,27 +9,33 @@ export interface Call {
   user?: string
 }
 
+/** What the Hostinger Odoo template puts in the Caddyfile: the admin API is switched off. */
 export const ORIGINAL_CADDYFILE = `{
-	email beheer@example.nl
+    admin off
 }
-
 odoo20.srv1938209.hstgr.cloud {
-	reverse_proxy 127.0.0.1:18069
+    header X-Robots-Tag "noindex, nofollow, noarchive"
+    reverse_proxy 127.0.0.1:18069
 }
 `
 
-export const CADDY_UNIT = `[Service]
-ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile
-ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile --force
-`
+export const CONTAINER_ID = 'cddde94abb21ec1faa4f852f5bf647896d53ce6ec33d02eff71054261c75ccba'
+export const DOCKER_CADDYFILE = '/opt/odoo20-test/Caddyfile'
+export const SYSTEMD_CADDYFILE = '/etc/caddy/Caddyfile'
 
 export interface FakeOptions {
+  /** How Caddy runs on the server. Default: in a container, like on the Hostinger VPS. */
+  caddy?: 'docker' | 'systemd' | 'none'
+  /** For a container: its network mode, and whether the Caddyfile is mounted from the host. */
+  caddyNetwork?: string
+  caddyMounted?: boolean
   caddyValidates?: () => boolean
   caddyReloads?: () => boolean
+  /** The container never says whether it reloaded (nothing in its log). */
+  caddySilent?: boolean
   /** HTTP status the Odoo site answers with, per call (before and after the change). */
   odooStatus?: () => number | null
   isRoot?: boolean
-  noCaddy?: boolean
   noDocker?: boolean
   otherContainers?: string[]
   files?: Record<string, string>
@@ -41,7 +47,7 @@ export function fakeServer(options: FakeOptions = {}) {
   const files = new Map<string, { content: string; mode?: number; owner?: string }>()
   const dirs = new Set<string>()
   const calls: Call[] = []
-  const writes: Array<{ file: string; mode?: number; owner?: string }> = []
+  const writes: Array<{ file: string; mode?: number; owner?: string; inPlace?: boolean }> = []
   const removed: string[] = []
   const active = new Set<string>()
   const enabled = new Set<string>()
@@ -57,9 +63,12 @@ export function fakeServer(options: FakeOptions = {}) {
   const clock = { ms: Date.parse('2026-10-06T10:00:00Z') }
 
   files.set('/etc/os-release', { content: 'PRETTY_NAME="Ubuntu 24.04.4 LTS"\n' })
-  if (!options.noCaddy) {
-    files.set('/etc/caddy/Caddyfile', { content: ORIGINAL_CADDYFILE })
-  }
+  const caddyKind = options.caddy ?? 'docker'
+  const caddyFile = caddyKind === 'docker' ? DOCKER_CADDYFILE : SYSTEMD_CADDYFILE
+  if (caddyKind !== 'none') files.set(caddyFile, { content: ORIGINAL_CADDYFILE })
+  if (caddyKind === 'docker') files.set('/proc/1499/cgroup', { content: `0::/system.slice/docker-${CONTAINER_ID}.scope\n` })
+  let lastReload: 'ok' | 'failed' | null = null
+  let signals = 0
   for (const [file, content] of Object.entries(options.files ?? {})) files.set(file, { content })
 
   const result = (stdout = '', code = 0, stderr = ''): RunResult => ({ code, stdout, stderr })
@@ -71,7 +80,14 @@ export function fakeServer(options: FakeOptions = {}) {
         if (args[0] === '-u' && args.length === 1) return result(options.isRoot === false ? '1000\n' : '0\n')
         return users.has(args[1]) ? result('999\n') : result('', 1, 'no such user')
       case 'sh':
-        return args[1] === 'command -v node' ? result('/usr/bin/node\n') : result('', 1)
+        if (args[1] === 'command -v node') return result('/usr/bin/node\n')
+        return args[1] === 'command -v caddy' ? result('/usr/bin/caddy\n') : result('', 1)
+      case 'pgrep':
+        return caddyKind === 'none' ? result('', 1) : result('1499\n')
+      case 'ps':
+        return caddyKind === 'docker'
+          ? result('caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\n')
+          : result('/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile\n')
       case 'git':
         return git(args)
       case 'curl':
@@ -124,6 +140,30 @@ export function fakeServer(options: FakeOptions = {}) {
     if (options.noDocker) return result('', 127, 'docker: not found')
     const [verb, ...rest] = args
     if (verb === 'info') return result('ok')
+    if (verb === 'inspect') {
+      if (!rest[0]?.startsWith(CONTAINER_ID.slice(0, 12))) return result('', 1, 'No such object')
+      return result(JSON.stringify([{
+        Name: '/odoo20-test-proxy-1',
+        HostConfig: { NetworkMode: options.caddyNetwork ?? 'host' },
+        Config: { Env: ['SECRET_FROM_ENV=must-never-be-printed'] },
+        Mounts: options.caddyMounted === false ? [] : [{ Type: 'bind', Source: DOCKER_CADDYFILE, Destination: '/etc/caddy/Caddyfile', RW: false }],
+      }]))
+    }
+    if (verb === 'exec') {
+      validations += 1
+      return (options.caddyValidates?.() ?? true) ? result('Valid configuration') : result('', 1, 'Error: adapting config: unrecognized directive')
+    }
+    if (verb === 'kill') {
+      reloads += 1
+      signals += 1
+      lastReload = options.caddySilent ? null : (options.caddyReloads?.() ?? true) ? 'ok' : 'failed'
+      return result(rest.at(-1)!)
+    }
+    if (verb === 'logs') {
+      if (lastReload === 'ok') return result('', 0, '{"level":"info","msg":"successfully reloaded config from file","signal":"SIGUSR1"}\n')
+      if (lastReload === 'failed') return result('', 0, '{"level":"error","msg":"failed to reload config from file","signal":"SIGUSR1","error":"adapting config using caddyfile: unrecognized directive"}\n')
+      return result()
+    }
     if (verb === 'compose') {
       if (rest[0] === 'version') return result('Docker Compose version v5.3.1')
       if (rest.includes('up')) {
@@ -176,7 +216,7 @@ export function fakeServer(options: FakeOptions = {}) {
   function systemctl(args: string[]): RunResult {
     const verb = args[0]
     const name = args.slice(1).find((a) => !a.startsWith('-')) ?? ''
-    if (verb === 'cat') return name === 'caddy' && !options.noCaddy ? result(CADDY_UNIT) : result('', 1, 'No files found')
+    if (verb === 'cat') return result('', 1, 'No files found')
     if (verb === 'daemon-reload') return result()
     if (verb === 'enable') {
       enabled.add(name)
@@ -236,6 +276,8 @@ export function fakeServer(options: FakeOptions = {}) {
 
   return {
     sys, files, dirs, calls, writes, removed, active, enabled, containers, networks, images, users, log,
+    caddyFile,
+    get signals() { return signals },
     get validations() { return validations },
     get reloads() { return reloads },
     get odooCalls() { return odooCalls },

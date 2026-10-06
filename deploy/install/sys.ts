@@ -25,6 +25,8 @@ export interface WriteOptions {
   mode?: number
   /** "user:group", applied with chown. */
   owner?: string
+  /** Overwrite the existing file itself (same inode): needed for a file that is bind-mounted into a container. */
+  inPlace?: boolean
 }
 
 export interface Sys {
@@ -75,6 +77,11 @@ export function realSys(log: (message: string) => void = (message) => console.lo
       }
     },
     async write(file, content, options = {}) {
+      if (options.inPlace) {
+        // Same file, same permissions and owner; replacing it would break a single-file bind mount.
+        await writeFile(file, content)
+        return
+      }
       await mkdir(path.dirname(file), { recursive: true })
       const temp = `${file}.dig-tmp`
       // Secrets must never be readable, not even for a moment: create with the final mode.
