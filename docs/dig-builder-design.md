@@ -67,4 +67,8 @@ De builder schrijft eerst naar een geïsoleerde werkruimte of branch, nooit dire
 
 Een toekomstige module kan eigen proposal-, run- en approval-modellen bevatten, maar moet Planning, Verkoop, CRM, Buitendienst en Commissies via standaard Odoo-interfaces gebruiken. De builder mag geen eigen kopieën van `planning.slot` of commissieprestaties introduceren.
 
-Dit is een ontwerpvoorstel. Er is in dit project geen Odoo-module, chat-agent, admin group of installatiepipeline gebouwd.
+Dit is een ontwerpvoorstel voor de Odoo-module-variant. Gebouwd is daarvan alleen een skelet: de addon
+`builder/odoo_addon/dig_builder` met een beheerdersgroep en een projectmodel (`docs/dig-builder-phase2.md`),
+dat nog niet in een echte Odoo 20 is geïnstalleerd (`docs/verification.md`). Chat-agent en
+installatiepipeline in Odoo zijn niet gebouwd. Het platform dat wel werkt, is de externe aanpak uit
+`docs/extern-platform-plan.md`.

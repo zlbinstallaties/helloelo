@@ -4,7 +4,7 @@
 
 1. **Gebruikersactie**: een gebruiker opent het dashboard, kiest een datum/periode/monteur, opent details of drukt op `Ververs Odoo-data`.
 2. **Browser**: `src/routes/index.tsx` rendert de filters en roept met React Query `GET /api/dashboard` aan. De refreshknop roept dezelfde route met `POST` aan.
-3. **Serverroute**: `src/routes/api/dashboard.ts` leest alleen vaste queryparameters, haalt de gecachte Odoo-data op, filtert server-side op periode en monteur en bouwt het dashboardantwoord.
+3. **Serverroute**: `src/routes/api/dashboard.ts` leest alleen vaste queryparameters, haalt de gecachte Odoo-data op en laat `src/lib/appointments.ts` (zonder I/O) de afspraken bouwen en filteren op periode en monteur.
 4. **Cache**: `src/lib/cache.ts` gebruikt `withCache('odoo:dig-dashboard', 300, ...)` uit `src/lib/ttl-cache.ts` (in het geheugen van het serverproces). De eerste lezing of een verlopen cache voert de Odoo-leesacties uit; `POST` gebruikt `.refresh()`.
 5. **Odoo-gateway**: `src/lib/gateway.server.ts` roept server-side `POST /v1/models/<model>/search_read` aan met het projecttoken (`DIG_GATEWAY_URL`, `DIG_GATEWAY_TOKEN`). De browser ziet geen token, en alleen de gateway kent de Odoo-sleutel.
 6. **Odoo**: de gateway voert `search_read` uit op `planning.slot` en `svs.tech.visit`, beperkt tot `company_id = 2` en de toegestane velden van dit project.
@@ -16,10 +16,14 @@
 | Stap | Bestand(en) | Verantwoordelijkheid |
 |---|---|---|
 | UI en browserfetch | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link |
-| HTTP API | `src/routes/api/dashboard.ts` | vaste route, server-side filtering, samenvoegen van records |
-| Odoo-leeslaag/cache | `src/lib/cache.ts` | vaste Odoo-modellen, velden, company-domain, TTL |
+| HTTP API | `src/routes/api/dashboard.ts` | vaste route en queryparameters, foutvertaling (502/503), antwoord samenstellen |
+| Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur (puur, getest) |
+| Cache | `src/lib/ttl-cache.ts` | `withCache`: TTL, `refresh()`, gedeelde lopende lezing, mislukte lezing wordt niet bewaard |
+| Odoo-leeslaag | `src/lib/cache.ts` | vaste Odoo-modellen en veldenlijst, weergavenaam van het bedrijf, TTL van 300 s |
 | Gateway-client en serversecret | `src/lib/gateway.server.ts` | gateway-URL en projecttoken uitsluitend server-side |
 | Datatypen | `src/lib/dashboard-types.ts` | interne TypeScript-vormen |
+| Gezondheid | `src/routes/api/health.ts` | `GET /api/health`: `ok` of `degraded` (503) als de gateway niet is ingesteld; roept Odoo niet aan |
+| Tests | `test/appointments.test.ts`, `test/ttl-cache.test.ts` | `bun run test:app`; de testgegevens voor `probe_app` staan in `scripts/demo-data.mjs` |
 | Productieserver | `scripts/serve.mjs` | serveert `dist/client` en de TanStack Start server-entry op Node |
 | Build | `vite.config.ts`, `package.json` | Vite 8, TanStack Start, Tailwind; geen platformplugins |
 
@@ -46,6 +50,9 @@ In de eerdere Odoo-modelinspectie zijn daarnaast de relaties geverifieerd:
 - Dashboardfilters (datum, periode, monteur) worden na de gecachte leesactie in de serverroute toegepast.
 - Periode: `day`, `upcoming` of `all`.
 - Tijden worden voor weergave naar `Europe/Amsterdam` geïnterpreteerd.
+- Bekend probleem: `upcoming` vergelijkt de UTC-starttijd met de Amsterdamse datum, waardoor een afspraak
+  vlak na middernacht Amsterdamse tijd op de dag zelf wel onder `day` valt maar niet onder `upcoming`
+  (`docs/verification.md`).
 
 ## Authenticatie, autorisatie en geheimen
 

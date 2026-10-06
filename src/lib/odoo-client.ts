@@ -1,8 +1,8 @@
 /*
  * Standalone, read-only Odoo client (External JSON-2 API, Odoo 19+).
  *
- * No platform imports on purpose: this file can run in a Worker, Node or a
- * test. Config and secrets are injected by `odoo.server.ts`.
+ * No platform imports on purpose: this file can run in Node or a test.
+ * Config and secrets are injected by the caller (`gateway/src/main.ts`).
  *
  * Safety properties:
  *  - Only read methods are exposed (`search_read`, `search_count`,

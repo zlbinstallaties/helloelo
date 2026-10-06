@@ -83,12 +83,13 @@ In Compose heeft de gateway geen gepubliceerde host-poort; apps bereiken hem int
 
 ## Verificatie
 
-- 19 gateway-tests en 11 clienttests geslaagd; `tsc -p gateway` en oxlint zonder meldingen.
-- End-to-end rooktest van `main.ts` tegen een lokale nep-Odoo (JSON-2) geslaagd.
+- 23 gateway-tests en 11 clienttests geslaagd (2026-10-06); `tsc -p gateway` zonder fouten.
+- End-to-end rooktest van `main.ts` tegen een lokale nep-Odoo (JSON-2) geslaagd (eerdere sessie).
 - Niet uitgevoerd: Docker-image bouwen (geen Docker-daemon in de ontwikkelomgeving) en een
   aanroep tegen de echte Odoo 20-testserver.
 
-## Volgende stappen
+## Gebruikt door
 
-- Dashboard (`src/lib/cache.ts`) via de gateway laten lezen in plaats van direct of via HelloLeo.
-- Fase 2: de agent-service gebruikt `/v1/schema` als `odoo_schema`-tool.
+- Het dashboard (`src/lib/gateway.server.ts`) leest hier `planning.slot` en `svs.tech.visit`.
+  De projectconfiguratie ervoor staat in `gateway/projects.example.json`.
+- De agent gebruikt `/v1/schema` als `odoo_schema`-tool (`docs/dig-builder-agent.md`).
