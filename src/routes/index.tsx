@@ -145,7 +145,7 @@ function Dashboard() {
         {query.isLoading && <LoadingState />}
         {query.isError && <ErrorState message={query.error.message} onRetry={() => query.refetch()} />}
         {!query.isLoading && !query.isError && appointments.length === 0 && <EmptyState date={date} scope={scope} onUpcoming={() => setScope('upcoming')} onAll={() => setScope('all')} />}
-        {!query.isLoading && !query.isError && appointments.length > 0 && <Appointments appointments={appointments} onSelect={setSelected} />}
+        {!query.isLoading && !query.isError && appointments.length > 0 && <Appointments key={`${date}|${scope}|${technician}`} appointments={appointments} onSelect={setSelected} />}
       </div>
 
       {selected && <DetailPanel appointment={selected} onClose={() => setSelected(null)} />}
@@ -157,8 +157,25 @@ function SummaryCard({ icon, label, value, detail, tone = 'default' }: { icon: R
   return <div className="rounded-2xl border border-border bg-card p-4 shadow-sm"><div className="flex items-center justify-between"><span className="flex size-9 items-center justify-center rounded-xl bg-muted text-primary">{icon}</span><span className="text-3xl font-semibold tracking-tight">{value}</span></div><p className="mt-4 text-sm font-semibold">{label}</p><p className={`mt-1 text-xs ${tone === 'warning' ? 'text-destructive' : 'text-muted-foreground'}`}>{detail}</p></div>
 }
 
+// A long list is shown in parts: rendering thousands of cards at once takes seconds (docs/verification.md).
+const LIST_STEP = 100
+
 function Appointments({ appointments, onSelect }: { appointments: DashboardAppointment[]; onSelect: (appointment: DashboardAppointment) => void }) {
-  return <section aria-label="Afspraken" className="space-y-3">{appointments.map((appointment) => <AppointmentCard key={appointment.id} appointment={appointment} onSelect={() => onSelect(appointment)} />)}</section>
+  const [visible, setVisible] = useState(LIST_STEP)
+  const shown = appointments.slice(0, visible)
+  const remaining = appointments.length - shown.length
+  const count = (value: number) => value.toLocaleString('nl-NL')
+  return (
+    <section aria-label="Afspraken" className="space-y-3">
+      {shown.map((appointment) => <AppointmentCard key={appointment.id} appointment={appointment} onSelect={() => onSelect(appointment)} />)}
+      {appointments.length > LIST_STEP && (
+        <div className="flex flex-col items-center gap-3 pt-3">
+          <p className="text-sm text-muted-foreground" aria-live="polite">{remaining > 0 ? `${count(shown.length)} van ${count(appointments.length)} afspraken getoond` : `Alle ${count(appointments.length)} afspraken getoond`}</p>
+          {remaining > 0 && <button type="button" onClick={() => setVisible((current) => current + LIST_STEP)} className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold shadow-sm transition hover:bg-muted">Toon {count(Math.min(LIST_STEP, remaining))} meer</button>}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function AppointmentCard({ appointment, onSelect }: { appointment: DashboardAppointment; onSelect: () => void }) {

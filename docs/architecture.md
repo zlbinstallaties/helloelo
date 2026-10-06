@@ -15,7 +15,7 @@
 
 | Stap | Bestand(en) | Verantwoordelijkheid |
 |---|---|---|
-| UI | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link, vernieuwknop met foutmelding (toast) |
+| UI | `src/routes/index.tsx` | React Query, filters, detailpaneel, Odoo-link, vernieuwknop met foutmelding (toast), waarschuwing bij `truncated`, lijst in delen van 100 |
 | Browserfetch | `src/lib/dashboard-client.ts` | queryparameters en `requestDashboard` voor `GET` (laden) en `POST` (vernieuwen): één manier om antwoord en fouten te lezen (getest) |
 | HTTP API | `src/routes/api/dashboard.ts` | vaste route en queryparameters, foutvertaling (502/503), antwoord samenstellen |
 | Afsprakenlogica | `src/lib/appointments.ts` | slots en bezoeken koppelen, status en totalen per afspraak, filters op periode en monteur, personen en keuzelijst van de monteursfilter (puur, getest) |
