@@ -122,3 +122,49 @@ test('planning.role: only the asked ids that exist; archived ones only with acti
     assert.deepEqual(everything.body, [{ id: 1, name: 'Monteur' }, { id: 2, name: 'Planner' }], 'the list: active roles by name, the archived one left out')
   })
 })
+
+test('hr.employee write: changes the planning roles of an existing employee, as strict as create, and nothing else', async () => {
+  await withDemo(async ({ call, demo, lines }) => {
+    await call('hr.employee', 'create', { vals_list: [vals], context })
+    const read = async () => (await call('hr.employee', 'search_read', { domain: [['id', '=', 900]], fields: ['planning_role_ids', 'default_planning_role_id'], limit: 1, context })).body[0]
+    const write = (extra, ids = [900]) => call('hr.employee', 'write', { ids, vals: extra, context })
+    assert.deepEqual(await read(), { planning_role_ids: [], default_planning_role_id: false })
+
+    const set = await write({ planning_role_ids: [[6, 0, [2, 1]]], default_planning_role_id: 2 })
+    assert.deepEqual([set.status, set.body], [200, true])
+    assert.deepEqual(await read(), { planning_role_ids: [2, 1], default_planning_role_id: [2, 'Planner'] })
+    assert.match(lines.join('\n'), /WRITE hr\.employee \[900\] .*planning_role_ids/)
+
+    assert.equal((await write({ planning_role_ids: [[6, 0, []]], default_planning_role_id: false })).status, 200)
+    assert.deepEqual(await read(), { planning_role_ids: [], default_planning_role_id: false }, 'cleared')
+
+    const before = JSON.stringify(demo.employees)
+    const fails = async (extra, status, ids = [900]) => {
+      const answer = await write(extra, ids)
+      assert.equal(answer.status, status, JSON.stringify(extra))
+      assert.equal(typeof answer.body.message, 'string')
+    }
+    await fails({ planning_role_ids: [[6, 0, [99]]] }, 500)
+    await fails({ planning_role_ids: [[6, 0, [3]]] }, 500) // archived
+    await fails({ planning_role_ids: [1, 2] }, 500) // not a command
+    await fails({ planning_role_ids: [[4, 1]] }, 500)
+    await fails({ planning_role_ids: [[6, 0, [1]]], default_planning_role_id: 2 }, 500) // default not among the roles
+    await fails({ default_planning_role_id: 1 }, 500) // default without roles
+    await fails({ name: 'Andere naam' }, 500) // not a planning role field
+    await fails({ user_id: 2 }, 500) // never a user
+    await fails({ planning_role_ids: [[6, 0, [1]]] }, 404, [999]) // unknown employee
+    assert.equal((await call('hr.employee', 'write', { ids: [900], vals: { planning_role_ids: [[6, 0, [1]]] } })).status, 500, 'no company in the context')
+    assert.equal((await call('hr.employee', 'write', { vals: {}, context })).status, 422)
+    assert.equal(JSON.stringify(demo.employees), before, 'a refused write changes nothing')
+  })
+})
+
+test('hr.employee write: the roles are replaced as a whole, and a default that is no longer among them goes away', async () => {
+  await withDemo(async ({ call }) => {
+    await call('hr.employee', 'create', { vals_list: [{ ...vals, planning_role_ids: [[6, 0, [1, 2]]], default_planning_role_id: 1 }], context })
+    const write = (extra) => call('hr.employee', 'write', { ids: [900], vals: extra, context })
+    assert.equal((await write({ planning_role_ids: [[6, 0, [2]]] })).status, 200)
+    const row = (await call('hr.employee', 'search_read', { domain: [['id', '=', 900]], fields: ['planning_role_ids', 'default_planning_role_id'], limit: 1, context })).body[0]
+    assert.deepEqual(row, { planning_role_ids: [2], default_planning_role_id: false })
+  })
+})

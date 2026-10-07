@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only'
 import { GatewayError } from '#/lib/gateway-error'
-import { createEmployeeViaGateway, listPlanningRolesViaGateway } from '#/lib/gateway-employee'
-import type { GatewayOutcome, PlanningRolesOutcome } from '#/lib/gateway-employee'
+import { createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, setEmployeeRolesViaGateway } from '#/lib/gateway-employee'
+import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from '#/lib/gateway-employee'
 import { PAGE_SIZE, readAllPages } from '#/lib/paging'
 
 /*
@@ -77,4 +77,18 @@ export async function listPlanningRoles(): Promise<PlanningRolesOutcome> {
   if (!gatewayConfigured()) return { ok: false, message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
   const { url, token } = config()
   return listPlanningRolesViaGateway({ url, token })
+}
+
+const NOT_CONFIGURED = { ok: false as const, message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+
+export async function getEmployeeRoles(employeeId: number): Promise<EmployeeRolesOutcome> {
+  if (!gatewayConfigured()) return NOT_CONFIGURED
+  const { url, token } = config()
+  return readEmployeeRolesViaGateway({ url, token, employeeId })
+}
+
+export async function setEmployeeRoles(employeeId: number, planningRoleIds: readonly number[]): Promise<SetRolesOutcome> {
+  if (!gatewayConfigured()) return NOT_CONFIGURED
+  const { url, token } = config()
+  return setEmployeeRolesViaGateway({ url, token, employeeId, planningRoleIds })
 }

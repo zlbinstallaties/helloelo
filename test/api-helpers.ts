@@ -2,7 +2,7 @@ import { createAccountStore } from '../src/lib/accounts.ts'
 import type { AccountIo } from '../src/lib/accounts.ts'
 import { createAuth } from '../src/lib/auth.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
-import type { GatewayOutcome, PlanningRolesOutcome } from '../src/lib/gateway-employee.ts'
+import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
 import { hashPassword } from '../src/lib/password.ts'
 import { createLoginLimiter, createSessions } from '../src/lib/sessions.ts'
@@ -47,7 +47,7 @@ export const DATA: DashboardData = {
 
 export const GENERATED = 'Tijd-Elijk-Pass-Word'
 
-export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secure?: boolean; createEmployee?: (input: { requestId: string; name: string; planningRoleIds?: readonly number[] }) => Promise<GatewayOutcome>; listPlanningRoles?: () => Promise<PlanningRolesOutcome> } = {}) {
+export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secure?: boolean; createEmployee?: (input: { requestId: string; name: string; planningRoleIds?: readonly number[] }) => Promise<GatewayOutcome>; listPlanningRoles?: () => Promise<PlanningRolesOutcome>; getEmployeeRoles?: (employeeId: number) => Promise<EmployeeRolesOutcome>; setEmployeeRoles?: (employeeId: number, planningRoleIds: readonly number[]) => Promise<SetRolesOutcome> } = {}) {
   const state = { text: null as string | null }
   const io: AccountIo = { read: () => state.text, write: (text) => (state.text = text) }
   const journalState = { text: null as string | null }
@@ -69,6 +69,11 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     /** What the gateway says the planning roles are. */
     roles: (): PlanningRolesOutcome | Promise<PlanningRolesOutcome> => ({ ok: true, roles: [{ id: 3, name: 'Monteur' }, { id: 4, name: 'Planner' }] }),
     roleCalls: 0,
+    /** What the gateway says one employee has now, and what it answers to a change. */
+    employeeRoles: (): EmployeeRolesOutcome | Promise<EmployeeRolesOutcome> => ({ ok: true, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 }),
+    setRolesAnswer: (): SetRolesOutcome | Promise<SetRolesOutcome> => ({ ok: true, planningRoles: 2, asked: 2 }),
+    reads: [] as number[],
+    sets: [] as Array<{ employeeId: number; planningRoleIds: readonly number[] }>,
     outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const mode = options.mode ?? 'on'
@@ -98,6 +103,18 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
       (async () => {
         odoo.roleCalls += 1
         return odoo.roles()
+      }),
+    getEmployeeRoles:
+      options.getEmployeeRoles ??
+      (async (employeeId: number) => {
+        odoo.reads.push(employeeId)
+        return odoo.employeeRoles()
+      }),
+    setEmployeeRoles:
+      options.setEmployeeRoles ??
+      (async (employeeId: number, planningRoleIds: readonly number[]) => {
+        odoo.sets.push({ employeeId, planningRoleIds })
+        return odoo.setRolesAnswer()
       }),
     generatePassword: () => GENERATED,
   })

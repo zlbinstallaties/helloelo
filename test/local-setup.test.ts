@@ -31,11 +31,13 @@ test('the project file is valid for the gateway and holds the hash of the token 
   assert.ok(!files['gateway-projects.json'].includes(secrets.gatewayToken), 'only the hash is in the project file')
 })
 
-test('adding technicians in Odoo is on only when a responsible is given, and then only that one action', () => {
-  assert.deepEqual(build().projects.projects[0].actions, { createEmployee: { responsibleUserId: 7 } })
+test('adding technicians and changing their planning roles in Odoo is on only when a responsible is given, and then only those two actions', () => {
+  assert.deepEqual(build().projects.projects[0].actions, { createEmployee: { responsibleUserId: 7 }, setEmployeePlanningRoles: {} })
+  assert.equal(parseProjects(build().projects)[0].actions.setEmployeePlanningRoles?.allowedPlanningRoleIds, null, 'no extra limit on the roles')
   const off = build({ responsibleId: null })
   assert.equal('actions' in off.projects.projects[0], false)
   assert.equal(parseProjects(off.projects)[0].actions.createEmployee, undefined)
+  assert.equal(parseProjects(off.projects)[0].actions.setEmployeePlanningRoles, undefined)
 })
 
 test('dashboard.env: login is on, the secret is long enough, the hash fits the printed password, no password on disk', () => {

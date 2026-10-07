@@ -6,7 +6,7 @@ import { canManageAccounts, canRefresh, technicianChoicesFor, visibleAppointment
 import type { User } from './authorization.ts'
 import type { DashboardData, DashboardResponse } from './dashboard-types.ts'
 import type { Journal } from './employee-journal.ts'
-import type { GatewayOutcome, PlanningRolesOutcome } from './gateway-employee.ts'
+import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from './gateway-employee.ts'
 import { GatewayError } from './gateway-error.ts'
 import { createAdminHandlers } from './admin-handlers.ts'
 import { accountFileProblem, fail, json, readJsonBody } from './http.ts'
@@ -37,6 +37,10 @@ export interface HandlerDeps {
   createEmployee: (input: { requestId: string; name: string; planningRoleIds?: readonly number[] }) => Promise<GatewayOutcome>
   /** The planning roles a planner can give a new employee (read from Odoo through the gateway). */
   listPlanningRoles: () => Promise<PlanningRolesOutcome>
+  /** The planning roles one Odoo employee has now. */
+  getEmployeeRoles: (employeeId: number) => Promise<EmployeeRolesOutcome>
+  /** Sets the planning roles of one Odoo employee (the first is the default). */
+  setEmployeeRoles: (employeeId: number, planningRoleIds: readonly number[]) => Promise<SetRolesOutcome>
   generatePassword: () => string
 }
 

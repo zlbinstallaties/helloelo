@@ -24,6 +24,7 @@ import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
 import { Route as ApiAuthPasswordRouteImport } from './routes/api/auth/password'
 import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
+import { Route as ApiAccountsIdPlanningRolesRouteImport } from './routes/api/accounts/$id.planning-roles'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -100,6 +101,12 @@ const ApiAccountsIdPasswordRoute = ApiAccountsIdPasswordRouteImport.update({
   path: '/password',
   getParentRoute: () => ApiAccountsIdRoute,
 } as any)
+const ApiAccountsIdPlanningRolesRoute =
+  ApiAccountsIdPlanningRolesRouteImport.update({
+    id: '/planning-roles',
+    path: '/planning-roles',
+    getParentRoute: () => ApiAccountsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -134,6 +142,7 @@ export interface FileRoutesByTo {
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/accounts': typeof ApiAccountsIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -152,6 +161,7 @@ export interface FileRoutesById {
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/api/auth/password'
     | '/api/accounts/'
     | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/api/auth/password'
     | '/api/accounts'
     | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
   id:
     | '__root__'
     | '/'
@@ -205,6 +217,7 @@ export interface FileRouteTypes {
     | '/api/auth/password'
     | '/api/accounts/'
     | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -331,15 +344,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAccountsIdPasswordRouteImport
       parentRoute: typeof ApiAccountsIdRoute
     }
+    '/api/accounts/$id/planning-roles': {
+      id: '/api/accounts/$id/planning-roles'
+      path: '/planning-roles'
+      fullPath: '/api/accounts/$id/planning-roles'
+      preLoaderRoute: typeof ApiAccountsIdPlanningRolesRouteImport
+      parentRoute: typeof ApiAccountsIdRoute
+    }
   }
 }
 
 interface ApiAccountsIdRouteChildren {
   ApiAccountsIdPasswordRoute: typeof ApiAccountsIdPasswordRoute
+  ApiAccountsIdPlanningRolesRoute: typeof ApiAccountsIdPlanningRolesRoute
 }
 
 const ApiAccountsIdRouteChildren: ApiAccountsIdRouteChildren = {
   ApiAccountsIdPasswordRoute: ApiAccountsIdPasswordRoute,
+  ApiAccountsIdPlanningRolesRoute: ApiAccountsIdPlanningRolesRoute,
 }
 
 const ApiAccountsIdRouteWithChildren = ApiAccountsIdRoute._addFileChildren(

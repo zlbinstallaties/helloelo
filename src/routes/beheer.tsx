@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { AlertTriangle, CheckCircle2, KeyRound, Trash2, UserPlus } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, KeyRound, Tags, Trash2, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { AppHeader } from '@/components/app-header'
@@ -21,11 +21,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ApiError, api } from '#/lib/api-client'
-import type { AccountRow, AccountsResponse, PlanningRole, TechnicianCreated } from '#/lib/admin-types'
+import type { AccountRow, AccountsResponse, PlanningRole, TechnicianCreated, TechnicianRoles, TechnicianRolesSaved } from '#/lib/admin-types'
 import { newRequestId } from '#/lib/request-id'
 import { useMe } from '#/lib/session'
 import { suggestUsername } from '#/lib/username'
@@ -46,6 +47,9 @@ function describePerson(personId: string) {
   if (kind === 'user') return `Odoo-gebruiker ${id}`
   return personId.replace(/^name:/, '')
 }
+
+/** A technician account that hangs on an employee of Odoo: only those have planning roles to change here. */
+const isOdooTechnician = (account: AccountRow) => account.role === 'monteur' && /^employee:[1-9][0-9]*$/.test(account.personId ?? '')
 
 function Beheer() {
   const me = useMe()
@@ -122,6 +126,32 @@ function Beheer() {
         )}
       </div>
     </main>
+  )
+}
+
+/* ---------------------------------------------------------------- Planningsrollen kiezen */
+
+const MAX_ROLES = 5
+
+/** The tick boxes for the planning roles of Odoo. The order of ticking is kept: the first one is the default role. */
+function RoleCheckboxes({ roles, chosen, onChange, idPrefix }: { roles: PlanningRole[]; chosen: number[]; onChange: (chosen: number[]) => void; idPrefix: string }) {
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-2">
+      {roles.map((role) => (
+        <div key={role.id} className="flex items-center gap-2">
+          <Checkbox
+            id={`${idPrefix}-${role.id}`}
+            checked={chosen.includes(role.id)}
+            disabled={!chosen.includes(role.id) && chosen.length >= MAX_ROLES}
+            onCheckedChange={(checked) => onChange(checked === true ? (chosen.includes(role.id) ? chosen : [...chosen, role.id]) : chosen.filter((id) => id !== role.id))}
+          />
+          <Label htmlFor={`${idPrefix}-${role.id}`} className="font-normal">
+            {role.name}
+            {chosen[0] === role.id && chosen.length > 1 && <span className="ml-1 text-xs text-muted-foreground">(standaard)</span>}
+          </Label>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -213,7 +243,7 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
                 <AlertTriangle className="size-4" />
                 <AlertTitle>Nog geen planningsrol</AlertTitle>
                 <AlertDescription>
-                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur de rol in Odoo (Werknemers, veld Roles).
+                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur een rol met de knop Planningsrollen bij Accounts hieronder, of in Odoo (Werknemers, veld Roles).
                 </AlertDescription>
               </Alert>
             )}
@@ -279,24 +309,7 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
               {roles.data && roles.data.roles.length === 0 && (
                 <p className="text-sm text-muted-foreground">Er zijn nog geen planningsrollen in Odoo. Maak ze aan in Odoo bij Planning, Configuratie, Rollen en vernieuw deze pagina.</p>
               )}
-              {roles.data && roles.data.roles.length > 0 && (
-                <div className="flex flex-wrap gap-x-6 gap-y-2">
-                  {roles.data.roles.map((role) => (
-                    <div key={role.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`role-${role.id}`}
-                        checked={chosen.includes(role.id)}
-                        disabled={!chosen.includes(role.id) && chosen.length >= 5}
-                        onCheckedChange={(checked) => setChosen((current) => (checked === true ? (current.includes(role.id) ? current : [...current, role.id]) : current.filter((id) => id !== role.id)))}
-                      />
-                      <Label htmlFor={`role-${role.id}`} className="font-normal">
-                        {role.name}
-                        {chosen[0] === role.id && chosen.length > 1 && <span className="ml-1 text-xs text-muted-foreground">(standaard)</span>}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {roles.data && roles.data.roles.length > 0 && <RoleCheckboxes roles={roles.data.roles} chosen={chosen} onChange={setChosen} idPrefix="role" />}
               <p className="text-xs text-muted-foreground">
                 Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. De eerste rol die je aanvinkt is de standaardrol (hoogstens 5).
                 {chosen.length === 0 && ' Zonder rol kun je de monteur nog niet aan zo\'n dienst toewijzen.'}
@@ -414,6 +427,7 @@ function AccountsTable({ data, onChanged, onSecret }: { data: AccountsResponse; 
                   <TableCell>
                     {!own && (
                       <div className="flex flex-wrap justify-end gap-2">
+                        {isOdooTechnician(account) && <PlanningRolesDialog account={account} />}
                         <Button type="button" variant="outline" size="sm" onClick={() => reset.mutate(account)} disabled={reset.isPending}>
                           <KeyRound className="size-4" /> Nieuw wachtwoord
                         </Button>
@@ -447,6 +461,143 @@ function AccountsTable({ data, onChanged, onSecret }: { data: AccountsResponse; 
         </Table>
       </CardContent>
     </Card>
+  )
+}
+
+/* ---------------------------------------------------------------- Planningsrollen van een bestaande monteur wijzigen */
+
+function PlanningRolesDialog({ account }: { account: AccountRow }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm"><Tags className="size-4" /> Planningsrollen</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Planningsrollen van {account.name}</DialogTitle>
+          <DialogDescription>
+            De rollen staan in Odoo bij de medewerker (Werknemers, veld Roles). Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft.
+          </DialogDescription>
+        </DialogHeader>
+        {/* Only mounted while open: every opening reads Odoo again, so what is shown is what Odoo has now. */}
+        {open && <PlanningRolesBody account={account} onClose={() => setOpen(false)} />}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PlanningRolesBody({ account, onClose }: { account: AccountRow; onClose: () => void }) {
+  const roles = useQuery({
+    queryKey: ROLES_KEY,
+    queryFn: () => api<{ roles: PlanningRole[] }>('/api/planning-roles', { fallback: 'De planningsrollen konden niet uit Odoo worden gelezen.' }),
+    retry: false,
+  })
+  const current = useQuery({
+    queryKey: ['account-roles', account.id],
+    queryFn: () => api<TechnicianRoles>(`/api/accounts/${account.id}/planning-roles`, { fallback: 'De rollen van deze monteur konden niet uit Odoo worden gelezen.' }),
+    retry: false,
+    gcTime: 0,
+  })
+  const problem = roles.isError ? roles.error.message : current.isError ? current.error.message : null
+  const retry = () => { void roles.refetch(); void current.refetch() }
+
+  if (problem) {
+    return (
+      <>
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>De rollen konden niet worden gelezen</AlertTitle>
+          <AlertDescription>{problem}</AlertDescription>
+        </Alert>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Sluiten</Button>
+          <Button type="button" onClick={retry}>Opnieuw proberen</Button>
+        </DialogFooter>
+      </>
+    )
+  }
+  if (!roles.data || !current.data) return <p className="text-sm text-muted-foreground">Rollen uit Odoo laden…</p>
+  return <PlanningRolesForm account={account} roles={roles.data.roles} current={current.data} onClose={onClose} />
+}
+
+function PlanningRolesForm({ account, roles, current, onClose }: { account: AccountRow; roles: PlanningRole[]; current: TechnicianRoles; onClose: () => void }) {
+  const selectable = new Set(roles.map((role) => role.id))
+  // What Odoo has now, the default role first. A role that is no longer in the list (archived in Odoo) cannot be ticked here.
+  const start = [
+    ...(current.defaultPlanningRoleId !== null && current.planningRoleIds.includes(current.defaultPlanningRoleId) ? [current.defaultPlanningRoleId] : []),
+    ...current.planningRoleIds.filter((id) => id !== current.defaultPlanningRoleId),
+  ].filter((id) => selectable.has(id))
+  const left = current.planningRoleIds.filter((id) => !selectable.has(id))
+  const [chosen, setChosen] = useState<number[]>(start)
+  const queryClient = useQueryClient()
+  const name = (id: number) => roles.find((role) => role.id === id)?.name ?? `rol ${id}`
+
+  const save = useMutation({
+    mutationFn: () =>
+      api<TechnicianRolesSaved>(`/api/accounts/${account.id}/planning-roles`, { method: 'PUT', body: { planningRoleIds: chosen }, fallback: 'Het wijzigen is niet gelukt.' }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['account-roles', account.id] }) },
+  })
+  const same = chosen.length === start.length && chosen.every((id, index) => id === start[index])
+
+  if (save.isSuccess) {
+    const confirmed = save.data.planningRoles === save.data.asked
+    return (
+      <>
+        <Alert variant={confirmed ? 'default' : 'destructive'}>
+          {confirmed ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}
+          <AlertTitle>{confirmed ? 'Planningsrollen gewijzigd' : 'Niet alle planningsrollen bevestigd'}</AlertTitle>
+          <AlertDescription>
+            {confirmed
+              ? chosen.length === 0
+                ? <>{account.name} heeft in Odoo nu geen planningsrol meer.</>
+                : <>{account.name} heeft in Odoo nu {chosen.length === 1 ? 'de planningsrol' : 'de planningsrollen'} <strong>{chosen.map(name).join(', ')}</strong>.</>
+              : <>Je koos {save.data.asked} {save.data.asked === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {save.data.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Roles) en controleer welke rollen er staan.</>}
+          </AlertDescription>
+        </Alert>
+        <DialogFooter>
+          <Button type="button" onClick={onClose}>Sluiten</Button>
+        </DialogFooter>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="space-y-3">
+        {roles.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Er zijn nog geen planningsrollen in Odoo. Maak ze aan in Odoo bij Planning, Configuratie, Rollen en open dit scherm opnieuw.</p>
+        ) : (
+          <RoleCheckboxes roles={roles} chosen={chosen} onChange={setChosen} idPrefix={`edit-role-${account.id}`} />
+        )}
+        <p className="text-xs text-muted-foreground">
+          De eerste rol die je aanvinkt is de standaardrol (hoogstens {MAX_ROLES}).
+          {chosen.length === 0 && ' Zonder rol kun je de monteur niet aan een dienst met een rol toewijzen.'}
+        </p>
+        {left.length > 0 && (
+          <Alert>
+            <AlertTriangle className="size-4" />
+            <AlertTitle>Rollen die hier niet te kiezen zijn</AlertTitle>
+            <AlertDescription>
+              In Odoo heeft hij ook {left.length === 1 ? 'rol' : 'rollen'} {left.join(', ')} (gearchiveerd of niet toegestaan). Bij opslaan {left.length === 1 ? 'verdwijnt die rol' : 'verdwijnen die rollen'} bij hem.
+            </AlertDescription>
+          </Alert>
+        )}
+        {save.isError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="size-4" />
+            <AlertTitle>Niet gewijzigd</AlertTitle>
+            <AlertDescription>{save.error.message}</AlertDescription>
+          </Alert>
+        )}
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>Annuleren</Button>
+        <Button type="button" onClick={() => save.mutate()} disabled={save.isPending || same || chosen.length > MAX_ROLES}>
+          {save.isPending ? 'Bezig met wijzigen in Odoo' : 'Opslaan in Odoo'}
+        </Button>
+      </DialogFooter>
+    </>
   )
 }
 

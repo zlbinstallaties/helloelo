@@ -20,7 +20,7 @@ export class ApiError extends Error {
 
 export async function api<T = Record<string, unknown>>(
   path: string,
-  init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; fallback?: string } = {},
+  init: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown; fallback?: string } = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<T> {
   const method = init.method ?? 'GET'

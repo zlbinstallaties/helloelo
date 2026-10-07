@@ -130,14 +130,19 @@ gatewayconfig; dat is vervangen omdat de planner de rollen zelf wil kiezen.
 | Opzettelijke fouten | 25 + 25 in gateway, client en dashboard; allemaal gevangen |
 | Niet gedaan | tegen een echte Odoo 20: of `planning_role_ids` en `default_planning_role_id` in `create` worden aangenomen, of het lezen van `planning.role` werkt, en of de rol dan in Planning werkt |
 
-### Rollen van een bestaande medewerker wijzigen (gateway; nog niet in het dashboard)
+### Rollen van een bestaande medewerker later wijzigen (knop Planningsrollen bij Accounts)
 
 De gateway kan de planningsrollen van **één bestaande** medewerker zetten (`set_employee_planning_roles`) en lezen
 (`GET /v1/employees/<id>/planning-roles`), onder een eigen instelling `setEmployeePlanningRoles` die uit staat. Het dashboard
-gebruikt dit **niet**; het staat er klaar voor het geval de planner rollen achteraf vanuit het dashboard wil wijzigen.
-Getest met nagebootste antwoorden (14 gateway-tests, 5 clienttests); 14 opzettelijke fouten, 13 gevangen, de overlevende is
-gelijkwaardig (het controleren van de instelling vóór het lezen van het verzoek staat er dubbel). Niet tegen een echte Odoo
-geprobeerd. Wil je dit niet, dan kan het zonder gevolgen voor de rest worden verwijderd.
+gebruikt dit voor de knop **Planningsrollen** bij een monteur die aan een Odoo-medewerker hangt (`docs/accounts.md`).
+
+| Laag | Wat is gecontroleerd |
+|---|---|
+| Gateway en client | zie hierboven: de gateway-tests (79 in totaal) en de clienttests (31); 14 opzettelijke fouten, 13 gevangen, de overlevende is gelijkwaardig (de instelling wordt vóór het lezen van het verzoek gecontroleerd, en ook binnenin) |
+| Dashboard | het nummer van de medewerker komt uit het account; alleen een monteur met `employee:<nummer>`; alleen de planner, met het kopje; alleen het veld `planningRoleIds` (elk ander veld `400`); 0 tot 5 verschillende positieve nummers; foutantwoorden van de gateway worden duidelijke meldingen (404, 502, "niets gewijzigd", "geen bruikbaar antwoord: herhalen mag"); het antwoord noemt het aantal dat Odoo bevestigde, niet het aantal dat gevraagd was (`test/admin-handlers.test.ts`, `test/gateway-employee.test.ts`, `test/employee-chain.test.ts`; 293 app-tests in totaal) |
+| Echte processen en Chromium (demo-Odoo) | monteur zonder rol aanmaken; venster toont de rollen uit Odoo en "Opslaan" is uit zolang er niets veranderd is; Planner en dan Monteur aanvinken geeft precies één `write` op het nummer van de monteur met `[[6,0,[2,1]]]` en standaard 2, zonder gebruiker; heropenen leest opnieuw (beide aangevinkt, Planner standaard); één rol weghalen en alle rollen weghalen geven elk één `write`; Odoo weigert: melding, de keuze blijft staan; maar deels bevestigd: rode melding met de aantallen; Odoo onleesbaar: geen opslaanknop, wel "Opnieuw proberen"; zonder kopje `403`, extra veld of dubbele rol `400`, onbekend account `404`, onbekende rol in Odoo: geweigerd en geen `write`; geen browserfouten |
+| Opzettelijke fouten | 22 in de dashboardcode (client voor de gateway, handlers): 17 direct gevangen; van de 5 overlevers zijn er 4 gevangen na extra tests (status niet gecontroleerd, rol van het account niet gecontroleerd, te lang medewerkernummer niet afgekapt, bevestigd aantal = gevraagd aantal) en 1 gelijkwaardig (de planner-controle staat er dubbel: ook de beheerders-bewaking eist al een planner) |
+| Niet gedaan | tegen een echte Odoo 20: of `write` op `hr.employee` met `planning_role_ids` en `default_planning_role_id` wordt aangenomen (de demo-Odoo is daar streng in, maar is niet Odoo), en of een gewijzigde rol meteen te kiezen is bij een dienst. Test ook met een gateway-gebruiker die alleen Werknemers: Officer en Planning-leesrechten heeft; alle lokale tests gebruikten `admin` |
 
 ## Lokaal testpakket
 

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createEmployeeViaGateway, listPlanningRolesViaGateway } from '../src/lib/gateway-employee.ts'
+import { createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, setEmployeeRolesViaGateway } from '../src/lib/gateway-employee.ts'
 import type { GatewayOutcome } from '../src/lib/gateway-employee.ts'
 
 const TOKEN = 'gateway-token-very-secret'
@@ -169,4 +169,89 @@ test('the list of planning roles: clear messages for a wrong token, an action th
   }
   assert.match(await failure(() => { throw new TypeError('connection reset') }), /planningsrollen konden niet/)
   assert.ok(!(await failure(() => answer(401, { error: 'x' }))).includes(TOKEN), 'the token is never in a message')
+})
+
+// ---- the planning roles of one existing employee ----
+
+function viaGateway<T>(call: (fetchImpl: typeof fetch) => Promise<T>, reply: () => Response | Promise<Response>) {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return reply()
+  }) as unknown as typeof fetch
+  return { calls, result: call(fetchImpl) }
+}
+const readRoles = (reply: () => Response | Promise<Response>, employeeId = 41) =>
+  viaGateway((fetchImpl) => readEmployeeRolesViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, employeeId, fetchImpl }), reply)
+const setRoles = (reply: () => Response | Promise<Response>, planningRoleIds: readonly number[] = [4, 3], employeeId = 41) =>
+  viaGateway((fetchImpl) => setEmployeeRolesViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, employeeId, planningRoleIds, fetchImpl }), reply)
+
+test('reading the roles of an employee: a plain GET with the token, the roles and the default as ids', async () => {
+  const { calls, result } = readRoles(() => answer(200, { id: 41, planningRoleIds: [4, 3], defaultPlanningRoleId: 4 }))
+  assert.deepEqual(await result, { ok: true, planningRoleIds: [4, 3], defaultPlanningRoleId: 4 })
+  assert.equal(calls[0].url, 'http://odoo-gateway:8070/v1/employees/41/planning-roles')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal((calls[0].init.headers as Record<string, string>).authorization, `Bearer ${TOKEN}`)
+  assert.deepEqual(await readRoles(() => answer(200, { id: 41, planningRoleIds: [], defaultPlanningRoleId: null })).result, { ok: true, planningRoleIds: [], defaultPlanningRoleId: null })
+  assert.deepEqual(await readRoles(() => answer(200, { id: 41, planningRoleIds: [3], defaultPlanningRoleId: 'x' })).result, { ok: true, planningRoleIds: [3], defaultPlanningRoleId: null })
+})
+
+test('reading the roles: not found, a token that is wrong, an action that is off, and anything odd are told apart and kept short', async () => {
+  const fail = async (reply: () => Response | Promise<Response>) => (await readRoles(reply).result) as { ok: false; message: string; notFound?: boolean }
+  const notFound = await fail(() => answer(404, { error: 'employee_not_found', message: 'no active employee with this id' }))
+  assert.equal(notFound.notFound, true)
+  assert.match(notFound.message, /bestaat niet/)
+  assert.match((await fail(() => answer(401, { error: 'unauthorized' }))).message, /token/)
+  assert.match((await fail(() => answer(403, { error: 'action_not_allowed' }))).message, /niet aan/)
+  for (const reply of [() => answer(502, { error: 'odoo_error' }), () => answer(500, { planningRoleIds: [3], defaultPlanningRoleId: 3 }), () => answer(200, { planningRoleIds: 'x' }), () => answer(200, { planningRoleIds: [0] }), () => answer(200, { planningRoleIds: ['3'] }), () => answer(200, 'geen json'), () => { throw new TypeError('connection reset') }]) {
+    const result = await fail(reply)
+    assert.equal(result.ok, false)
+    assert.equal(result.notFound, undefined)
+    assert.match(result.message, /konden niet/)
+  }
+})
+
+test('the roles of an employee id that is not an id are not even asked for', async () => {
+  for (const employeeId of [0, -1, 1.5, Number.NaN]) {
+    const { calls, result } = readRoles(() => answer(200, {}), employeeId)
+    assert.equal((await result).ok, false)
+    const set = setRoles(() => answer(200, {}), [3], employeeId)
+    assert.equal((await set.result).ok, false)
+    assert.equal(calls.length + set.calls.length, 0)
+  }
+})
+
+test('changing the roles: one POST with the employee and the roles, in the order chosen, and nothing else', async () => {
+  const { calls, result } = setRoles(() => answer(200, { id: 41, planningRoles: 2, asked: 2 }))
+  assert.deepEqual(await result, { ok: true, planningRoles: 2, asked: 2 })
+  assert.equal(calls[0].url, 'http://odoo-gateway:8070/v1/actions/set_employee_planning_roles')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body as string), { employeeId: 41, planningRoleIds: [4, 3] })
+  assert.deepEqual(await setRoles(() => answer(200, { id: 41, planningRoles: 0, asked: 0 }), []).result, { ok: true, planningRoles: 0, asked: 0 })
+  const odd = await setRoles(() => answer(200, { id: 41, planningRoles: '2', asked: 2 })).result
+  assert.equal(odd.ok, false, 'a 200 without a clear count is not trusted')
+})
+
+test('changing the roles: every refusal says that nothing was changed, and an unclear answer says what to do', async () => {
+  const fail = async (reply: () => Response | Promise<Response>) => (await setRoles(reply).result) as { ok: false; message: string; notFound?: boolean }
+  const gone = await fail(() => answer(404, { error: 'employee_not_found' }))
+  assert.equal(gone.notFound, true)
+  assert.match(gone.message, /niets gewijzigd/)
+  for (const [reply, pattern] of [
+    [() => answer(409, { error: 'planning_role_not_allowed', message: 'planning role 4 does not exist or is archived' }), /planningsrol bestaat niet/],
+    [() => answer(429, { error: 'rate_limited' }), /te veel wijzigingen/],
+    [() => answer(400, { error: 'invalid_planning_roles' }), /invalid_planning_roles/],
+    [() => answer(502, { error: 'odoo_rejected', message: 'Klant Jansen bestaat al' }), /geweigerd/],
+    [() => answer(401, { error: 'unauthorized' }), /token/],
+    [() => answer(403, { error: 'action_not_allowed' }), /niet aan/],
+  ] as const) {
+    const result = await fail(reply)
+    assert.match(result.message, pattern)
+    assert.ok(!result.message.includes('Jansen'), 'text of Odoo is never passed on')
+  }
+  for (const reply of [() => answer(504, { error: 'outcome_unknown' }), () => answer(500, 'kapot'), () => { throw new TypeError('connection reset') }]) {
+    const result = await fail(reply)
+    assert.match(result.message, /opnieuw/)
+    assert.match(result.message, /Open de medewerker in Odoo/)
+  }
 })

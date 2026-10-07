@@ -121,9 +121,9 @@ sed -i '' "s|^ODOO_API_KEY=.*|ODOO_API_KEY=$(pbpaste)|" .local/gateway.env
 
 Kopieer niets anders voordat je dit doet. Draai `local:setup` opnieuw met `--force` voor een nieuw token en
 wachtwoord. Het script weigert `*.odoo.sh` en `*.odoo.com`, net als de gateway. Zonder `--responsible-id` staat
-"Monteur toevoegen" uit. De planningsrollen kies je per monteur in het
-dashboard uit de rollen die in Odoo staan (Planning, Configuratie, Rollen): zonder rol kun je een monteur niet aan een
-dienst met een rol toewijzen.
+"Monteur toevoegen" uit (en ook het wijzigen van planningsrollen). De planningsrollen kies je per monteur in het
+dashboard uit de rollen die in Odoo staan (Planning, Configuratie, Rollen), bij het toevoegen en later via de knop
+*Planningsrollen* bij Accounts: zonder rol kun je een monteur niet aan een dienst met een rol toewijzen.
 
 ## 4. Starten en controleren
 
@@ -155,6 +155,9 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
    de aanmaak van het dashboard aanneemt is nog niet tegen een echte Odoo gezien: kijk bij de nieuwe medewerker in
    Werknemers of het veld *Roles* is gevuld (en *Default Role*: de eerste rol die je aanvinkte) en of hij te kiezen is
    bij de dienst. Het scherm van het dashboard zegt hoeveel rollen Odoo bevestigde.
+   **Later wijzigen:** kies bij Accounts bij de monteur **Planningsrollen**, vink andere rollen aan of uit en kies **Opslaan
+   in Odoo**. Controleer in Odoo (Werknemers, veld *Roles*) dat de rollen kloppen en dat er geen Odoo-gebruiker bij is gekomen.
+   Zie je een foutmelding, stuur me die dan: dit is het deel dat nog niet tegen een echte Odoo 20 is gezien.
 4. Klik in het scherm nog eens op toevoegen met dezelfde gegevens (herhaling): er mag geen tweede medewerker komen.
 5. Log in als de nieuwe monteur: hij ziet alleen zijn eigen afspraken en geen Beheer. Hij staat pas in de lijst van de
    planning zodra hij is ingepland.

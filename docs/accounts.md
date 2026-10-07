@@ -40,6 +40,32 @@ Een monteur zonder gekoppelde persoon, of met een persoon die nergens is ingepla
 Wat de browser meestuurt is alleen `requestId`, `name`, `username` en `planningRoleIds` (nummers van rollen uit de lijst). Bedrijf, verantwoordelijke, waarden, model en
 rol kunnen er niet in: onbekende velden worden geweigerd, ook door de gateway.
 
+## Planningsrollen later wijzigen (de planner)
+
+Bij **Beheer, Accounts** heeft elke monteur die aan een Odoo-medewerker hangt (`employee:<nummer>`) een knop
+**Planningsrollen**. Die opent een venster dat bij het openen opnieuw uit Odoo leest welke rollen de medewerker nu heeft
+(de standaardrol staat voorop), en de rollen die er in Odoo zijn. De planner vinkt aan of uit en kiest **Opslaan in Odoo**; het
+scherm zegt daarna hoeveel rollen Odoo bevestigde. Alle rollen weghalen kan ook (dan kan een dienst met een rol niet meer aan
+hem worden toegewezen).
+
+Wat daarbij vaststaat, ook als de browser iets anders probeert:
+
+- het account moet een **monteur** zijn met een Odoo-medewerker; een beheerder, of een monteur die alleen op naam of op
+  Odoo-gebruiker gekoppeld is, geeft `400`. Het nummer van de medewerker komt uit het account, nooit uit het verzoek;
+- het verzoek bevat alleen `planningRoleIds` (hoogstens 5 verschillende nummers); elk ander veld, zoals een medewerker, naam,
+  gebruiker of waarde, wordt geweigerd (`400`), en ook de gateway weigert ze;
+- alleen een ingelogde planner, met het `X-Dig-Dashboard`-kopje; een monteur krijgt `403`;
+- de gateway controleert dat de rollen bestaan en niet gearchiveerd zijn, dat de medewerker bestaat en actief is in het bedrijf
+  van het project, past een limiet per uur toe en leest terug wat Odoo nu heeft. Zet de planner dezelfde rollen nog eens, dan
+  verandert er niets: opnieuw proberen na een onduidelijk antwoord is dus veilig;
+- een rol die de medewerker in Odoo nog heeft maar die in de lijst niet te kiezen is (gearchiveerd), wordt in het venster
+  gemeld en verdwijnt bij het opslaan.
+
+De aanroepen: `hr.employee` `search_read` (één record, de rollen lezen) en `hr.employee` `write` op **één** nummer met alleen
+`planning_role_ids` (`[[6, 0, [...]]]`) en `default_planning_role_id`. Geen `res.users`, geen planning, geen ander veld.
+Dit staat in de gateway uit tenzij `setEmployeePlanningRoles` in de projectconfig staat; `local:setup --responsible-id` zet
+beide acties aan. Het account zelf (login, wachtwoord) verandert hierbij niet.
+
 ### Wat er naar Odoo gaat
 
 Per aanmaak, en niets anders (`src/lib/odoo-client.ts`, getest met een nagebootste verbinding):

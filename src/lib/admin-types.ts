@@ -31,3 +31,19 @@ export type TechnicianCreated = {
   /** Shown once; null for a repeat. */
   password: string | null
 }
+
+/** The planning roles an existing technician has in Odoo now (the default role first when it is among them). */
+export type TechnicianRoles = {
+  employeeId: number
+  planningRoleIds: number[]
+  defaultPlanningRoleId: number | null
+}
+
+/** What Odoo confirmed after the roles of a technician were changed. */
+export type TechnicianRolesSaved = {
+  employeeId: number
+  /** How many roles Odoo confirmed on the employee afterwards. */
+  planningRoles: number
+  /** How many roles were asked. */
+  asked: number
+}

@@ -16,6 +16,12 @@ import { accountFileProblem, fail, json, readJsonBody } from './http.ts'
  * the Odoo user, a model, a method or a stored hash can be sent from the browser.
  */
 
+/** The roles of a request: a short list of different positive integers (empty: none); null when it is anything else. */
+function parseRoleIds(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length > 5 || value.some((id) => !Number.isInteger(id) || id <= 0) || new Set(value).size !== value.length) return null
+  return [...value]
+}
+
 const statusOf = (error: AccountError) => (error.code === 'invalid' ? 400 : error.code === 'conflict' ? 409 : 404)
 
 function unknownField(body: Record<string, unknown>, allowed: readonly string[]): Response | null {
@@ -57,6 +63,22 @@ export function createAdminHandlers(ctx: Context) {
     return planningPeople(appointments).find((person) => personHasId(person, personId)) ?? null
   }
 
+  /**
+   * The account must be one of a technician that is linked to an Odoo employee (`employee:<id>`): only those employees can be
+   * changed from here, never another one, whatever the browser sends.
+   */
+  function technicianOf(request: Request, id: string): { ok: true; employeeId: number } | { ok: false; response: Response } {
+    const guard = adminGuard(request)
+    if (!guard.ok) return guard
+    if (!deps.accounts) return { ok: false, response: fail(503, 'Inloggen is niet ingesteld op de server.') }
+    if (!canCreateEmployees(guard.user)) return { ok: false, response: fail(403, 'Geen toegang.') }
+    const account = deps.accounts.get(id)
+    if (!account) return { ok: false, response: fail(404, 'Account niet gevonden.') }
+    const match = account.role === 'monteur' && account.personId ? /^employee:([1-9][0-9]{0,9})$/.exec(account.personId) : null
+    if (!match) return { ok: false, response: fail(400, 'Dit account hangt niet aan een medewerker in Odoo, dus er zijn geen planningsrollen om te wijzigen.') }
+    return { ok: true, employeeId: Number(match[1]) }
+  }
+
   return {
     /** POST /api/employees: a technician as an employee in Odoo, without an Odoo user, and a portal account. */
     employeesCreate(request: Request): Promise<Response> {
@@ -93,6 +115,34 @@ export function createAdminHandlers(ctx: Context) {
         const outcome = await deps.listPlanningRoles()
         if (!outcome.ok) return fail(502, outcome.message)
         return json({ roles: outcome.roles })
+      })
+    },
+
+    /** GET /api/accounts/:id/planning-roles: the planning roles the technician of this account has in Odoo now. */
+    accountRolesGet(request: Request, id: string): Promise<Response> {
+      return guarded(async () => {
+        const target = technicianOf(request, id)
+        if (!target.ok) return target.response
+        const outcome = await deps.getEmployeeRoles(target.employeeId)
+        if (!outcome.ok) return fail(outcome.notFound ? 404 : 502, outcome.message)
+        return json({ employeeId: target.employeeId, planningRoleIds: outcome.planningRoleIds, defaultPlanningRoleId: outcome.defaultPlanningRoleId })
+      })
+    },
+
+    /** PUT /api/accounts/:id/planning-roles {planningRoleIds}: sets the planning roles of the technician of this account in Odoo. */
+    accountRolesSet(request: Request, id: string): Promise<Response> {
+      return guarded(async () => {
+        const target = technicianOf(request, id)
+        if (!target.ok) return target.response
+        const body = await readJsonBody(request)
+        if (!body.ok) return body.response
+        const unknown = unknownField(body.body, ['planningRoleIds'])
+        if (unknown) return unknown
+        const roles = parseRoleIds(body.body.planningRoleIds)
+        if (roles === null) return fail(400, 'De planningsrollen zijn ongeldig: kies hoogstens 5 verschillende rollen uit de lijst (geen keuze haalt ze weg).')
+        const outcome = await deps.setEmployeeRoles(target.employeeId, roles)
+        if (!outcome.ok) return fail(outcome.notFound ? 404 : 502, outcome.message)
+        return json({ employeeId: target.employeeId, planningRoles: outcome.planningRoles, asked: outcome.asked })
       })
     },
 

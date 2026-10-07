@@ -83,7 +83,7 @@ antwoord** (time-out, netwerk), dan blijft de `requestId` geblokkeerd (`504`/`40
 kan bestaan en wordt niet nog eens aangemaakt. Dit geheugen zit in het proces (24 uur); na een herstart is het weg.
 
 **`set_employee_planning_roles`** (aparte instelling `setEmployeePlanningRoles`, **uit tenzij je haar aanzet**; het dashboard gebruikt haar
-nog niet) zet de planningsrollen van **één bestaande** medewerker: `POST /v1/actions/set_employee_planning_roles` met
+voor de knop *Planningsrollen* bij Accounts, alleen voor medewerkers waar een monteuraccount aan hangt) zet de planningsrollen van **één bestaande** medewerker: `POST /v1/actions/set_employee_planning_roles` met
 `{employeeId, planningRoleIds}` (de eerste rol wordt de standaardrol; een lege lijst haalt de rollen weg) en `GET
 /v1/employees/<id>/planning-roles` om te lezen wat hij nu heeft. Meer kan het verzoek niet sturen (andere namen: `400`), de
 rollen moeten bestaan en niet gearchiveerd zijn (en bij een beperking toegestaan), de medewerker moet bestaan en actief zijn in

@@ -408,3 +408,110 @@ test('planning roles: only a logged-in admin gets the list, with logins off ther
   assert.equal((await read(await listRoles(off, undefined))).status, 404)
   assert.equal(off.odoo.roleCalls, 0)
 })
+
+// ---------------------------------------------------------------- planning roles of an existing technician
+
+const rolesGet = (api: Api, cookie: string | undefined, id: string) => api.handlers.accountRolesGet(request(`/api/accounts/${id}/planning-roles`, { cookie }), id)
+const rolesSet = (api: Api, cookie: string | undefined, id: string, body: unknown, init: { csrf?: boolean } = {}) =>
+  api.handlers.accountRolesSet(request(`/api/accounts/${id}/planning-roles`, { method: 'PUT', cookie, body, csrf: init.csrf }), id)
+const accountId = (api: Api, username: string) => api.accounts.list().find((account) => account.username === username)?.id as string
+
+test('planning roles of a technician: an admin reads what Odoo has now, for the Odoo employee behind the account', async () => {
+  const api = setup()
+  const cookie = await plannerCookie(api)
+  const answer = await read(await rolesGet(api, cookie, accountId(api, 'jan')))
+  assert.equal(answer.status, 200)
+  assert.deepEqual(answer.json, { employeeId: 7, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 })
+  assert.deepEqual(api.odoo.reads, [7], 'the employee comes from the account, not from the browser')
+  assert.equal(answer.headers.get('cache-control'), 'no-store')
+})
+
+test('planning roles of a technician: the admin sets them, and only the roles can be sent', async () => {
+  const api = setup()
+  const cookie = await plannerCookie(api)
+  const answer = await read(await rolesSet(api, cookie, accountId(api, 'jan'), { planningRoleIds: [4, 3] }))
+  assert.equal(answer.status, 200)
+  assert.deepEqual(answer.json, { employeeId: 7, planningRoles: 2, asked: 2 })
+  assert.deepEqual(api.odoo.sets, [{ employeeId: 7, planningRoleIds: [4, 3] }])
+  assert.equal((await read(await rolesSet(api, cookie, accountId(api, 'jan'), { planningRoleIds: [] }))).status, 200, 'no roles: takes them away')
+  assert.deepEqual(api.odoo.sets.at(-1), { employeeId: 7, planningRoleIds: [] })
+  const before = api.odoo.sets.length
+  for (const extra of [{ employeeId: 99 }, { employee_id: 99 }, { name: 'Anders' }, { personId: 'employee:99' }, { user_id: 5 }, { defaultPlanningRoleId: 3 }, { vals: { active: false } }]) {
+    const refused = await read(await rolesSet(api, cookie, accountId(api, 'jan'), { planningRoleIds: [3], ...extra }))
+    assert.equal(refused.status, 400, JSON.stringify(extra))
+    assert.match(refused.json.error, /Onbekend veld/)
+  }
+  assert.equal(api.odoo.sets.length, before, 'nothing was sent to the gateway')
+})
+
+test('planning roles of a technician: the answer says how many roles Odoo confirmed, not how many were asked', async () => {
+  const api = setup()
+  api.odoo.setRolesAnswer = () => ({ ok: true, planningRoles: 1, asked: 2 })
+  const answer = await read(await rolesSet(api, await plannerCookie(api), accountId(api, 'jan'), { planningRoleIds: [3, 4] }))
+  assert.equal(answer.status, 200)
+  assert.deepEqual(answer.json, { employeeId: 7, planningRoles: 1, asked: 2 })
+})
+
+test('planning roles of a technician: odd roles are a clear error and never reach the gateway', async () => {
+  const api = setup()
+  const cookie = await plannerCookie(api)
+  for (const planningRoleIds of [undefined, '3', 3, null, {}, [0], [-1], [1.5], ['3'], [3, 3], [1, 2, 3, 4, 5, 6], [null]]) {
+    const answer = await read(await rolesSet(api, cookie, accountId(api, 'jan'), planningRoleIds === undefined ? {} : { planningRoleIds }))
+    assert.equal(answer.status, 400, JSON.stringify(planningRoleIds))
+    assert.match(answer.json.error, /planningsrollen/)
+  }
+  assert.equal(api.odoo.sets.length, 0)
+})
+
+test('planning roles of a technician: only an admin, with the header, for an account that is a technician linked to an Odoo employee', async () => {
+  const api = setup()
+  const id = accountId(api, 'jan')
+  assert.equal((await read(await rolesGet(api, undefined, id))).status, 401)
+  assert.equal((await read(await rolesSet(api, undefined, id, { planningRoleIds: [3] }))).status, 401)
+  const monteur = await monteurCookie(api)
+  assert.equal((await read(await rolesGet(api, monteur, id))).status, 403, 'a technician cannot read his own roles here')
+  assert.equal((await read(await rolesSet(api, monteur, id, { planningRoleIds: [3] }))).status, 403)
+  const planner = await plannerCookie(api)
+  assert.equal((await read(await rolesSet(api, planner, id, { planningRoleIds: [3] }, { csrf: false }))).status, 403, 'a change needs the header')
+  assert.equal((await read(await rolesGet(api, planner, 'u_bestaat_niet'))).status, 404)
+  assert.equal((await read(await rolesSet(api, planner, 'u_bestaat_niet', { planningRoleIds: [3] }))).status, 404)
+  // An admin account, and a technician linked only by name (not an Odoo employee), have no roles to change.
+  assert.equal((await read(await rolesGet(api, planner, accountId(api, 'planner')))).status, 400)
+  api.accounts.create({ username: 'naam', name: 'Piet', role: 'monteur', personId: 'name:piet', password: PASSWORD })
+  api.accounts.create({ username: 'gebruiker', name: 'Els', role: 'monteur', personId: 'user:5', password: PASSWORD })
+  // A number too long for an Odoo id is not cut off into another employee's number.
+  api.accounts.create({ username: 'te.lang', name: 'Lang', role: 'monteur', personId: 'employee:12345678901', password: PASSWORD })
+  // Even an admin account that happens to carry an employee in its person field is not a technician.
+  api.accounts.create({ username: 'beheer.met.medewerker', name: 'Beheerder', role: 'admin', personId: 'employee:9', password: PASSWORD })
+  for (const username of ['naam', 'gebruiker', 'te.lang', 'beheer.met.medewerker']) {
+    assert.equal((await read(await rolesGet(api, planner, accountId(api, username)))).status, 400, username)
+    assert.equal((await read(await rolesSet(api, planner, accountId(api, username), { planningRoleIds: [3] }))).status, 400, username)
+  }
+  assert.equal(api.odoo.reads.length, 0)
+  assert.equal(api.odoo.sets.length, 0)
+})
+
+test('planning roles of a technician: with logins off there is none of this', async () => {
+  const api = setup({ mode: 'off' })
+  assert.equal((await read(await rolesGet(api, undefined, 'u_x'))).status, 404)
+  assert.equal((await read(await rolesSet(api, undefined, 'u_x', { planningRoleIds: [3] }))).status, 404)
+  assert.equal(api.odoo.reads.length + api.odoo.sets.length, 0)
+})
+
+test('planning roles of a technician: a problem of the gateway or Odoo is a clear error, a missing employee is a 404', async () => {
+  const api = setup()
+  const cookie = await plannerCookie(api)
+  const id = accountId(api, 'jan')
+  api.odoo.employeeRoles = () => ({ ok: false, message: 'De planningsrollen van deze medewerker konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' })
+  const failed = await read(await rolesGet(api, cookie, id))
+  assert.equal(failed.status, 502)
+  assert.match(failed.json.error, /konden niet/)
+  api.odoo.employeeRoles = () => ({ ok: false, notFound: true, message: 'Deze medewerker bestaat niet (meer) in Odoo, of is gearchiveerd.' })
+  assert.equal((await read(await rolesGet(api, cookie, id))).status, 404)
+  api.odoo.setRolesAnswer = () => ({ ok: false, message: 'Een gekozen planningsrol bestaat niet (meer) in Odoo, is gearchiveerd of is niet toegestaan. Er is niets gewijzigd.' })
+  const refused = await read(await rolesSet(api, cookie, id, { planningRoleIds: [3] }))
+  assert.equal(refused.status, 502)
+  assert.match(refused.json.error, /niets gewijzigd/)
+  api.odoo.setRolesAnswer = () => ({ ok: false, notFound: true, message: 'Deze medewerker bestaat niet (meer) in Odoo, of is gearchiveerd. Er is niets gewijzigd.' })
+  assert.equal((await read(await rolesSet(api, cookie, id, { planningRoleIds: [3] }))).status, 404)
+})

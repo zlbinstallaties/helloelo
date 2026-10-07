@@ -125,3 +125,65 @@ export async function listPlanningRolesViaGateway(options: { url: string; token:
     return { ok: false, message: 'De planningsrollen konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' }
   }
 }
+
+/** What the gateway answers about the planning roles of ONE employee. `notFound`: Odoo has no active employee with this id. */
+export type EmployeeRolesOutcome =
+  | { ok: true; planningRoleIds: number[]; defaultPlanningRoleId: number | null }
+  | { ok: false; message: string; notFound?: boolean }
+
+export type SetRolesOutcome =
+  | { ok: true; planningRoles: number; asked: number }
+  | { ok: false; message: string; notFound?: boolean }
+
+const NOT_ENABLED_ROLES = 'Het wijzigen van planningsrollen staat niet aan op de server. Neem contact op met de beheerder.'
+const TOKEN_INVALID = 'Het gateway-token van het dashboard is niet geldig. Neem contact op met de beheerder.'
+
+async function callGateway(options: { url: string; token: string; path: string; method: 'GET' | 'POST'; body?: unknown; fetchImpl?: typeof fetch; timeoutMs?: number }) {
+  const response = await (options.fetchImpl ?? fetch)(new URL(options.path, options.url), {
+    method: options.method,
+    headers: { authorization: `Bearer ${options.token}`, ...(options.body !== undefined && { 'content-type': 'application/json' }) },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
+  })
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  return { status: response.status, data: data && typeof data === 'object' && !Array.isArray(data) ? data : {} }
+}
+
+/** The planning roles the employee has in Odoo now, and his default role. */
+export async function readEmployeeRolesViaGateway(options: { url: string; token: string; employeeId: number; fetchImpl?: typeof fetch; timeoutMs?: number }): Promise<EmployeeRolesOutcome> {
+  if (!isId(options.employeeId)) return { ok: false, message: 'Dit account hangt niet aan een medewerker in Odoo.' }
+  try {
+    const { status, data } = await callGateway({ ...options, path: `/v1/employees/${options.employeeId}/planning-roles`, method: 'GET' })
+    if (status === 401) return { ok: false, message: TOKEN_INVALID }
+    if (status === 403) return { ok: false, message: NOT_ENABLED_ROLES }
+    if (status === 404 && data.error === 'employee_not_found') return { ok: false, notFound: true, message: 'Deze medewerker bestaat niet (meer) in Odoo, of is gearchiveerd.' }
+    if (status !== 200 || !Array.isArray(data.planningRoleIds) || !data.planningRoleIds.every(isId)) {
+      return { ok: false, message: 'De planningsrollen van deze medewerker konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' }
+    }
+    return { ok: true, planningRoleIds: [...(data.planningRoleIds as number[])], defaultPlanningRoleId: isId(data.defaultPlanningRoleId) ? data.defaultPlanningRoleId : null }
+  } catch {
+    return { ok: false, message: 'De planningsrollen van deze medewerker konden niet uit Odoo worden gelezen. Probeer het zo opnieuw.' }
+  }
+}
+
+/** Sets the planning roles of one employee (the first is the default). Setting the same roles twice is harmless, so a repeat is always allowed. */
+export async function setEmployeeRolesViaGateway(options: { url: string; token: string; employeeId: number; planningRoleIds: readonly number[]; fetchImpl?: typeof fetch; timeoutMs?: number }): Promise<SetRolesOutcome> {
+  if (!isId(options.employeeId)) return { ok: false, message: 'Dit account hangt niet aan een medewerker in Odoo.' }
+  try {
+    const { status, data } = await callGateway({ ...options, path: '/v1/actions/set_employee_planning_roles', method: 'POST', body: { employeeId: options.employeeId, planningRoleIds: options.planningRoleIds } })
+    if (status === 200 && isId(data.id) && Number.isInteger(data.planningRoles) && Number.isInteger(data.asked)) {
+      return { ok: true, planningRoles: data.planningRoles as number, asked: data.asked as number }
+    }
+    if (status === 401) return { ok: false, message: TOKEN_INVALID }
+    if (status === 403) return { ok: false, message: NOT_ENABLED_ROLES }
+    if (status === 404 && data.error === 'employee_not_found') return { ok: false, notFound: true, message: 'Deze medewerker bestaat niet (meer) in Odoo, of is gearchiveerd. Er is niets gewijzigd.' }
+    if (status === 409 && data.error === 'planning_role_not_allowed') return { ok: false, message: 'Een gekozen planningsrol bestaat niet (meer) in Odoo, is gearchiveerd of is niet toegestaan. Er is niets gewijzigd.' }
+    if (status === 429) return { ok: false, message: 'Er zijn te veel wijzigingen per uur gedaan. Probeer het later opnieuw; er is niets gewijzigd.' }
+    if (status === 400) return { ok: false, message: `De gateway heeft het verzoek geweigerd${typeof data.error === 'string' && PLAIN_REASON.test(data.error) ? ` (${data.error})` : ''}. Er is niets gewijzigd.` }
+    if (status === 502 && data.error === 'odoo_rejected') return { ok: false, message: 'Odoo heeft het wijzigen geweigerd. Er is niets gewijzigd.' }
+    // A time-out or an odd answer: the roles may or may not have changed; sending it again sets the same roles.
+    return { ok: false, message: 'Er kwam geen bruikbaar antwoord van Odoo. Open de medewerker in Odoo om te zien welke rollen hij heeft, of probeer het opnieuw: dat zet dezelfde rollen nog eens.' }
+  } catch {
+    return { ok: false, message: 'Er kwam geen bruikbaar antwoord van Odoo. Open de medewerker in Odoo om te zien welke rollen hij heeft, of probeer het opnieuw: dat zet dezelfde rollen nog eens.' }
+  }
+}

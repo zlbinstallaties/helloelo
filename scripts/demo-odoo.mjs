@@ -4,6 +4,8 @@
 // NOT a real Odoo; no auth beyond a non-empty bearer token.
 // Usage: node scripts/demo-odoo.mjs   (port 18069, DEMO_ODOO_PORT to change)
 //
+// `hr.employee/write` understands only the two planning-role fields (all the dashboard ever changes); anything else is an error.
+//
 // The employee part follows what the Odoo 20.0 source says: `create` takes `vals_list` and answers with the
 // new ids, a many2one comes back as [id, name] or false, a many2many as a list of ids, and an unknown field
 // is an error. It does not do what Odoo does around a create (work contact, resource, chatter note); it only
@@ -118,6 +120,38 @@ export function createDemoOdoo({ log = () => {} } = {}) {
         log('  (a real Odoo 20 also adds: a resource, a first hr.version, a work contact res.partner without login, an internal onboarding note)')
       }
       return [200, created]
+    }
+    if (model === 'hr.employee' && method === 'write') {
+      const allowedCompanies = body.context?.allowed_company_ids
+      if (!Array.isArray(allowedCompanies) || allowedCompanies.length === 0) return [500, odooError('builtins.ValueError', 'the rehearsal needs allowed_company_ids in the context')]
+      if (!Array.isArray(body.ids) || body.ids.length === 0 || !body.vals || typeof body.vals !== 'object' || Array.isArray(body.vals)) {
+        return [422, odooError('builtins.TypeError', "write() missing required arguments 'ids' and 'vals'")]
+      }
+      const targets = body.ids.map((id) => employees.find((employee) => employee.id === id))
+      if (targets.some((employee) => !employee)) return [404, odooError('odoo.exceptions.MissingError', 'Record does not exist or has been deleted.')]
+      for (const field of Object.keys(body.vals)) {
+        if (!['planning_role_ids', 'default_planning_role_id'].includes(field)) return [500, odooError('builtins.ValueError', `the rehearsal only writes the planning role fields, not '${field}'`)]
+      }
+      let roleIds = null
+      if (body.vals.planning_role_ids !== undefined) {
+        const command = body.vals.planning_role_ids
+        if (!Array.isArray(command) || command.length !== 1 || !Array.isArray(command[0]) || command[0][0] !== 6 || command[0][1] !== 0 || !Array.isArray(command[0][2])) {
+          return [500, odooError('builtins.ValueError', 'planning_role_ids: the rehearsal only understands [[6, 0, [ids]]]')]
+        }
+        roleIds = command[0][2]
+        if (roleIds.some((id) => !ROLES.some((role) => role.id === id && role.active))) return [500, odooError('odoo.exceptions.MissingError', 'a planning role does not exist or is archived')]
+      }
+      const defaultRole = body.vals.default_planning_role_id
+      if (defaultRole !== undefined && defaultRole !== false && !(roleIds ?? targets.flatMap((employee) => employee.roleIds)).includes(defaultRole)) {
+        return [500, odooError('odoo.exceptions.ValidationError', 'the default planning role must be one of the roles')]
+      }
+      for (const employee of targets) {
+        if (roleIds !== null) employee.roleIds = [...roleIds]
+        if (defaultRole !== undefined) employee.defaultRoleId = defaultRole || null
+        else if (roleIds !== null && !roleIds.includes(employee.defaultRoleId)) employee.defaultRoleId = null
+      }
+      log(`WRITE hr.employee ${JSON.stringify(body.ids)} ${JSON.stringify(body.vals)}`)
+      return [200, true]
     }
     if (!data[model]) return [404, odooError('odoo.exceptions.MissingError', 'unknown model')]
     if (method === 'fields_get') return [200, demoFields[model]]

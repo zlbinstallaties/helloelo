@@ -26,7 +26,7 @@ test('a read sends no body and no header of the dashboard', async () => {
 })
 
 test('everything that changes something carries the header of the dashboard, with a JSON body when there is one', async () => {
-  for (const method of ['POST', 'PATCH', 'DELETE'] as const) {
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
     const { calls, fetchImpl } = fake(() => json({ ok: true }))
     await api('/api/x', { method, body: { name: 'Jan' } }, fetchImpl)
     assert.equal(calls[0].init.method, method)
