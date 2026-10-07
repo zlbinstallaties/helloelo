@@ -161,6 +161,16 @@ gebruikt dit voor de knop **Planningsrollen** bij een monteur die aan een Odoo-m
 | Gezien op een echte lokale Odoo 20 Enterprise | het model `resource.calendar.leaves` heeft de velden `name`, `date_from`, `date_to` (verplicht), `resource_id` en `calendar_id` en geen `holiday_id` of `time_type` (de app Verlof is niet geïnstalleerd); een door het dashboard doorgegeven periode stond in Odoo bij Planning, Planning, *Onbeschikbaarheid van resource* (schermafbeelding van de gebruiker): reden `[Dashboard] Niet beschikbaar`, resource de medewerker, werkrooster *40 hours/week*, 17 okt 00:00 tot 17 okt 23:59 in zijn eigen tijd; en **Planning toont het**: in Planning, Inplannen, Per resource (schaal Kwartaal) staan alle resources als rij, ook zonder dienst, en de doorgegeven maandag 26 oktober is bij die ene monteur extra grijs, naast het weekend dat bij iedereen grijs is (schermafbeelding van de gebruiker) |
 | Niet gedaan | tegen een echte Odoo 20 nog niet bekeken of bevestigd: wat Odoo doet als je toch een dienst op zo'n grijze dag zet, het verwijderen van het record vanuit het dashboard, en de rechten van een gateway-gebruiker die geen `admin` is; echte telefoons en andere browsers dan Chromium |
 
+## Planning vraagt bevestiging (Odoo-module, alleen lokaal)
+
+`docs/planning-weigeren.md`, `odoo_addon/dig_planning_unavailability`. Planning vraagt "Monteur is niet beschikbaar. Toch inplannen?" als je een
+monteur inplant op een dag die hij zelf doorgaf.
+
+| Laag | Wat is gecontroleerd |
+|---|---|
+| Zonder Odoo (`bun run test:odoo-addon`, 14 tests; `test/odoo-addon-marker.test.ts`, 2) | alleen een record met de herkenning van het dashboard voor de toegewezen monteur dat de dienst overlapt, geeft de vraag (aansluiten telt niet, een ander of een handmatige vakantie niet); alleen bij aanmaken en bij wijzigen van begin, einde of monteurs; de vraag noemt de naam en de dagen; **Toch inplannen** doet dezelfde actie nog eens zonder te vragen; het systeem wordt nooit onderbroken; de herkenning is dezelfde als die van de gateway; 17 opzettelijke fouten, 16 gevangen (één gelijkwaardig) |
+| Niet gedaan | in een echte Odoo 20: installeren, de veldnamen van `planning.slot`, de vraag bij slepen in het Gantt-overzicht, bij een nieuwe dienst en bij toewijzen in het formulier, en **Toch inplannen**; `tests/test_unavailability.py` is niet gedraaid |
+
 ## Lokaal testpakket
 
 `docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen

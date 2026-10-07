@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="dig_planning_unavailable_confirm_form" model="ir.ui.view">
+        <field name="name">dig.planning.unavailable.confirm.form</field>
+        <field name="model">dig.planning.unavailable.confirm</field>
+        <field name="arch" type="xml">
+            <form string="Monteur is niet beschikbaar">
+                <field name="kind" invisible="1"/>
+                <field name="vals" invisible="1"/>
+                <field name="slot_ids" invisible="1"/>
+                <field name="message" nolabel="1" readonly="1"/>
+                <footer>
+                    <button string="Toch inplannen" name="action_confirm" type="object" class="btn-primary" data-hotkey="q"/>
+                    <button string="Annuleren" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -33,7 +33,8 @@
     "local:gateway": "node --env-file=.local/gateway.env --experimental-strip-types --no-warnings gateway/src/main.ts",
     "local:dashboard": "node --env-file=.local/dashboard.env scripts/serve.mjs",
     "local:demo-odoo": "node scripts/demo-odoo.mjs",
-    "local:rehearsal": "node scripts/local-rehearsal.mjs"
+    "local:rehearsal": "node scripts/local-rehearsal.mjs",
+    "test:odoo-addon": "python3 odoo_addon/dig_planning_unavailability/stub_tests/test_guard.py"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",
