@@ -38,8 +38,19 @@ export interface CreateEmployeePolicy {
   maxPerHour: number
 }
 
+/**
+ * Changing the planning roles of an existing employee (and nothing else about him), so that a technician made before the
+ * roles existed can get them later. Off unless the project asks for it.
+ */
+export interface SetPlanningRolesPolicy {
+  maxPerHour: number
+  /** The roles that may be set; null: every existing, active role. */
+  allowedPlanningRoleIds: readonly number[] | null
+}
+
 export interface ProjectActions {
   createEmployee?: CreateEmployeePolicy
+  setEmployeePlanningRoles?: SetPlanningRolesPolicy
 }
 
 export interface Project {
@@ -51,7 +62,7 @@ export interface Project {
   tokenSha256: Buffer
 }
 
-export const ACTIONS = ['createEmployee'] as const
+export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles'] as const
 const DEFAULT_MAX_PER_HOUR = 20
 const HARD_MAX_PER_HOUR = 200
 const MAX_ALLOWED_ROLES = 50
@@ -91,6 +102,25 @@ function parseModel(projectId: string, model: string, raw: unknown): ModelPolicy
   return { fields, methods: [...new Set(policy.methods as ReadMethod[])] }
 }
 
+function parseAllowedRoles(projectId: string, action: string, value: unknown): number[] | null {
+  const allowed = value ?? null
+  if (
+    allowed !== null &&
+    (!Array.isArray(allowed) || allowed.length < 1 || allowed.length > MAX_ALLOWED_ROLES || allowed.some((id) => !Number.isInteger(id) || id <= 0) || new Set(allowed).size !== allowed.length)
+  ) {
+    fail(`${projectId}: ${action}.allowedPlanningRoleIds must be a list of 1 to ${MAX_ALLOWED_ROLES} different positive integers`)
+  }
+  return allowed as number[] | null
+}
+
+function parseMaxPerHour(projectId: string, action: string, value: unknown): number {
+  const maxPerHour = value ?? DEFAULT_MAX_PER_HOUR
+  if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
+    fail(`${projectId}: ${action}.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
+  }
+  return maxPerHour as number
+}
+
 function parseActions(projectId: string, raw: unknown): ProjectActions {
   if (raw === undefined) return {}
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail(`${projectId}: actions must be an object`)
@@ -98,37 +128,42 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
   for (const name of Object.keys(actions)) {
     if (!(ACTIONS as readonly string[]).includes(name)) fail(`${projectId}: action ${name} is not allowed`)
   }
-  if (actions.createEmployee === undefined) return {}
-  const entry = actions.createEmployee as Record<string, unknown> | null
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-    fail(`${projectId}: createEmployee must be an object with responsibleUserId`)
-  }
-  for (const key of Object.keys(entry)) {
-    if (!['responsibleUserId', 'maxPerHour', 'allowedPlanningRoleIds'].includes(key)) {
-      fail(`${projectId}: createEmployee has an unknown setting ${key}`)
+  const result: ProjectActions = {}
+
+  if (actions.createEmployee !== undefined) {
+    const entry = actions.createEmployee as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: createEmployee must be an object with responsibleUserId`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (!['responsibleUserId', 'maxPerHour', 'allowedPlanningRoleIds'].includes(key)) {
+        fail(`${projectId}: createEmployee has an unknown setting ${key}`)
+      }
+    }
+    if (!Number.isInteger(entry.responsibleUserId) || (entry.responsibleUserId as number) <= 0) {
+      fail(`${projectId}: createEmployee.responsibleUserId must be a positive integer`)
+    }
+    result.createEmployee = {
+      responsibleUserId: entry.responsibleUserId as number,
+      maxPerHour: parseMaxPerHour(projectId, 'createEmployee', entry.maxPerHour),
+      allowedPlanningRoleIds: parseAllowedRoles(projectId, 'createEmployee', entry.allowedPlanningRoleIds),
     }
   }
-  if (!Number.isInteger(entry.responsibleUserId) || (entry.responsibleUserId as number) <= 0) {
-    fail(`${projectId}: createEmployee.responsibleUserId must be a positive integer`)
+
+  if (actions.setEmployeePlanningRoles !== undefined) {
+    const entry = actions.setEmployeePlanningRoles as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: setEmployeePlanningRoles must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (!['maxPerHour', 'allowedPlanningRoleIds'].includes(key)) fail(`${projectId}: setEmployeePlanningRoles has an unknown setting ${key}`)
+    }
+    result.setEmployeePlanningRoles = {
+      maxPerHour: parseMaxPerHour(projectId, 'setEmployeePlanningRoles', entry.maxPerHour),
+      allowedPlanningRoleIds: parseAllowedRoles(projectId, 'setEmployeePlanningRoles', entry.allowedPlanningRoleIds),
+    }
   }
-  const maxPerHour = entry.maxPerHour ?? DEFAULT_MAX_PER_HOUR
-  if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
-    fail(`${projectId}: createEmployee.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
-  }
-  const allowed = entry.allowedPlanningRoleIds ?? null
-  if (
-    allowed !== null &&
-    (!Array.isArray(allowed) || allowed.length < 1 || allowed.length > MAX_ALLOWED_ROLES || allowed.some((id) => !Number.isInteger(id) || id <= 0) || new Set(allowed).size !== allowed.length)
-  ) {
-    fail(`${projectId}: createEmployee.allowedPlanningRoleIds must be a list of 1 to ${MAX_ALLOWED_ROLES} different positive integers`)
-  }
-  return {
-    createEmployee: {
-      responsibleUserId: entry.responsibleUserId as number,
-      maxPerHour: maxPerHour as number,
-      allowedPlanningRoleIds: allowed as number[] | null,
-    },
-  }
+  return result
 }
 
 export function parseProjects(raw: unknown): Project[] {

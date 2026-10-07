@@ -104,3 +104,17 @@ test('the planning roles a planner may choose: no limit by default, otherwise a 
     assert.throws(() => parseProjects(create({ [old]: [3] })), /unknown/, old)
   }
 })
+
+test('the action that changes planning roles: off by default, may be empty, and has its own cap and its own limit on the roles', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.setEmployeePlanningRoles, undefined)
+  const [plain] = parseProjects(config({ actions: { setEmployeePlanningRoles: {} } }))
+  assert.deepEqual(plain.actions.setEmployeePlanningRoles, { maxPerHour: 20, allowedPlanningRoleIds: null })
+  assert.equal(plain.actions.createEmployee, undefined, 'it does not give the right to create employees')
+  const [limited] = parseProjects(config({ actions: { setEmployeePlanningRoles: { maxPerHour: 5, allowedPlanningRoleIds: [3, 4] } } }))
+  assert.deepEqual(limited.actions.setEmployeePlanningRoles, { maxPerHour: 5, allowedPlanningRoleIds: [3, 4] })
+  const create = (value: unknown) => config({ actions: { setEmployeePlanningRoles: value } })
+  for (const value of [null, 'ja', [], { responsibleUserId: 9 }, { userId: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }, { allowedPlanningRoleIds: [] }, { allowedPlanningRoleIds: [3, 3] }, { allowedPlanningRoleIds: ['3'] }]) {
+    assert.throws(() => parseProjects(create(value)), /setEmployeePlanningRoles/, JSON.stringify(value))
+  }
+})

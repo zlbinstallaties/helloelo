@@ -14,6 +14,9 @@ import { findProject, type Project, type ReadMethod } from './projects.ts'
  *   POST /v1/models/<model>/search_count     {domain?}
  *   GET  /v1/planning-roles                  the planning roles a planner can give a new employee (only for
  *                                            a project that has the createEmployee action)
+ *   GET  /v1/employees/<id>/planning-roles   the planning roles one employee has now (only with setEmployeePlanningRoles)
+ *   POST /v1/actions/set_employee_planning_roles  {employeeId, planningRoleIds}: the roles of ONE employee, nothing else
+ *                                            (only with setEmployeePlanningRoles; off by default)
  *   POST /v1/actions/create_employee         {requestId, name, planningRoleIds?}: an hr.employee without an Odoo user,
  *                                            only for projects whose config has the action (off by default)
  *
@@ -48,6 +51,8 @@ const MAX_BODY_BYTES = 64 * 1024
 const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
 const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
 const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
+const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
+const EMPLOYEE_ROLES_ROUTE = /^\/v1\/employees\/([0-9]+)\/planning-roles$/
 const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 
 interface Context {
@@ -206,6 +211,23 @@ export function createGateway(options: GatewayOptions) {
       ctx.model = 'planning.role'
       ctx.project = authenticate(req, projects)
       return actions.listPlanningRoles(ctx.project)
+    }
+
+    const rolesMatch = EMPLOYEE_ROLES_ROUTE.exec(url.pathname)
+    if (rolesMatch) {
+      if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      return actions.employeePlanningRoles(ctx.project, rolesMatch[1], ctx)
+    }
+
+    if (url.pathname === SET_ROLES_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.setEmployeePlanningRoles) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: setEmployeePlanningRoles')
+      return actions.setEmployeePlanningRoles(ctx.project, await readJson(req), ctx)
     }
 
     if (url.pathname === CREATE_EMPLOYEE_ROUTE) {

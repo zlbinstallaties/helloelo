@@ -82,6 +82,15 @@ fout, dan is er niets aangemaakt en mag dezelfde aanvraag opnieuw (`502 odoo_rej
 antwoord** (time-out, netwerk), dan blijft de `requestId` geblokkeerd (`504`/`409 outcome_unknown`): de medewerker
 kan bestaan en wordt niet nog eens aangemaakt. Dit geheugen zit in het proces (24 uur); na een herstart is het weg.
 
+**`set_employee_planning_roles`** (aparte instelling `setEmployeePlanningRoles`, **uit tenzij je haar aanzet**; het dashboard gebruikt haar
+nog niet) zet de planningsrollen van **één bestaande** medewerker: `POST /v1/actions/set_employee_planning_roles` met
+`{employeeId, planningRoleIds}` (de eerste rol wordt de standaardrol; een lege lijst haalt de rollen weg) en `GET
+/v1/employees/<id>/planning-roles` om te lezen wat hij nu heeft. Meer kan het verzoek niet sturen (andere namen: `400`), de
+rollen moeten bestaan en niet gearchiveerd zijn (en bij een beperking toegestaan), de medewerker moet bestaan en actief zijn in
+het bedrijf van het project (`404 employee_not_found`), en er geldt een eigen limiet per uur. Dezelfde rollen nog eens zetten
+geeft dezelfde medewerker, dus er is geen aanvraag-id en na een onduidelijk antwoord (`504`) mag je gewoon herhalen. Nog niet
+tegen een echte Odoo geprobeerd (`write` op `hr.employee` met alleen `planning_role_ids` en `default_planning_role_id`).
+
 Geef de actie aan een **eigen project en token** voor het live dashboard, nooit aan het project van een preview of
 de agent: elke code die dat token heeft, kan er medewerkers mee aanmaken. De voorbeeldconfig heeft geen acties en
 geen verzonnen gebruikers-id.

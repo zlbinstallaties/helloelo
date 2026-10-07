@@ -65,6 +65,9 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
     async listPlanningRoles() {
       throw new Error('listPlanningRoles is not used in these tests')
     },
+    async setEmployeePlanningRoles() {
+      throw new Error('setEmployeePlanningRoles is not used in these tests')
+    },
     async readEmployee() {
       throw new Error('readEmployee is not used in these tests')
     },

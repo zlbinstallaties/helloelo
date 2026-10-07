@@ -130,6 +130,15 @@ gatewayconfig; dat is vervangen omdat de planner de rollen zelf wil kiezen.
 | Opzettelijke fouten | 25 + 25 in gateway, client en dashboard; allemaal gevangen |
 | Niet gedaan | tegen een echte Odoo 20: of `planning_role_ids` en `default_planning_role_id` in `create` worden aangenomen, of het lezen van `planning.role` werkt, en of de rol dan in Planning werkt |
 
+### Rollen van een bestaande medewerker wijzigen (gateway; nog niet in het dashboard)
+
+De gateway kan de planningsrollen van **één bestaande** medewerker zetten (`set_employee_planning_roles`) en lezen
+(`GET /v1/employees/<id>/planning-roles`), onder een eigen instelling `setEmployeePlanningRoles` die uit staat. Het dashboard
+gebruikt dit **niet**; het staat er klaar voor het geval de planner rollen achteraf vanuit het dashboard wil wijzigen.
+Getest met nagebootste antwoorden (14 gateway-tests, 5 clienttests); 14 opzettelijke fouten, 13 gevangen, de overlevende is
+gelijkwaardig (het controleren van de instelling vóór het lezen van het verzoek staat er dubbel). Niet tegen een echte Odoo
+geprobeerd. Wil je dit niet, dan kan het zonder gevolgen voor de rest worden verwijderd.
+
 ## Lokaal testpakket
 
 `docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen
