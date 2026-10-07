@@ -128,7 +128,8 @@ gatewayconfig; dat is vervangen omdat de planner de rollen zelf wil kiezen.
 | Hele keten met nagebootste Odoo | lijst, keuze, `planning_role_ids` `[[6,0,[4,3]]]` met standaard 4, een rol die weg is stopt alles vóór er een medewerker is, een beperking van het project |
 | Echte processen en Chromium (demo-Odoo) | de lijst toont de rollen op naam zonder de gearchiveerde, de waarschuwing verdwijnt na kiezen, de aanmaak bevat de opdracht met de gekozen volgorde en `user_id: false`; zonder rol: waarschuwing en geen rol naar Odoo |
 | Opzettelijke fouten | 25 + 25 in gateway, client en dashboard; allemaal gevangen |
-| Niet gedaan | tegen een echte Odoo 20: of `planning_role_ids` en `default_planning_role_id` in `create` worden aangenomen, of het lezen van `planning.role` werkt, en of de rol dan in Planning werkt |
+| Gezien op een echte lokale Odoo 20 Enterprise | het lezen van `planning.role` werkt: de rol die in Odoo is aangemaakt staat als vinkje in het dashboard. Een medewerker (`manbakker`, schermafbeelding van de gebruiker) heeft *Gebruiker: Geen gebruiker gekoppeld*, *Functies: monteur*, *Standaardrol: monteur* en Hr-verantwoordelijke Administrator: `planning_role_ids` en `default_planning_role_id` worden bij het aanmaken dus aangenomen |
+| Niet gedaan | tegen een echte Odoo 20: of de rol dan bij een dienst in Planning te kiezen is, en `write` (rollen achteraf wijzigen, zie hieronder) |
 
 ### Rollen van een bestaande medewerker later wijzigen (knop Planningsrollen bij Accounts)
 

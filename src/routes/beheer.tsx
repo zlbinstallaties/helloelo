@@ -243,7 +243,7 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
                 <AlertTriangle className="size-4" />
                 <AlertTitle>Nog geen planningsrol</AlertTitle>
                 <AlertDescription>
-                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur een rol met de knop Planningsrollen bij Accounts hieronder, of in Odoo (Werknemers, veld Roles).
+                  Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft. Geef de monteur een rol met de knop Planningsrollen bij Accounts hieronder, of in Odoo (Werknemers, veld Functies (Roles)).
                 </AlertDescription>
               </Alert>
             )}
@@ -252,7 +252,7 @@ function AddTechnician({ onCreated }: { onCreated: () => void }) {
                 <AlertTriangle className="size-4" />
                 <AlertTitle>Niet alle planningsrollen bevestigd</AlertTitle>
                 <AlertDescription>
-                  Je koos {chosen.length} {chosen.length === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {done.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Roles) en controleer of de rol er staat.
+                  Je koos {chosen.length} {chosen.length === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {done.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Functies (Roles)) en controleer of de rol er staat.
                 </AlertDescription>
               </Alert>
             )}
@@ -477,7 +477,7 @@ function PlanningRolesDialog({ account }: { account: AccountRow }) {
         <DialogHeader>
           <DialogTitle>Planningsrollen van {account.name}</DialogTitle>
           <DialogDescription>
-            De rollen staan in Odoo bij de medewerker (Werknemers, veld Roles). Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft.
+            De rollen staan in Odoo bij de medewerker (Werknemers, veld Functies (Roles)). Een dienst met een rol kun je alleen toewijzen aan iemand die die rol heeft.
           </DialogDescription>
         </DialogHeader>
         {/* Only mounted while open: every opening reads Odoo again, so what is shown is what Odoo has now. */}
@@ -552,7 +552,7 @@ function PlanningRolesForm({ account, roles, current, onClose }: { account: Acco
               ? chosen.length === 0
                 ? <>{account.name} heeft in Odoo nu geen planningsrol meer.</>
                 : <>{account.name} heeft in Odoo nu {chosen.length === 1 ? 'de planningsrol' : 'de planningsrollen'} <strong>{chosen.map(name).join(', ')}</strong>.</>
-              : <>Je koos {save.data.asked} {save.data.asked === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {save.data.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Roles) en controleer welke rollen er staan.</>}
+              : <>Je koos {save.data.asked} {save.data.asked === 1 ? 'rol' : 'rollen'}, Odoo bevestigde er {save.data.planningRoles}. Open de medewerker in Odoo (Werknemers, veld Functies (Roles)) en controleer welke rollen er staan.</>}
           </AlertDescription>
         </Alert>
         <DialogFooter>
