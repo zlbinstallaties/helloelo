@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { api } from '#/lib/api-client'
 import type { Me } from '#/lib/session'
 
-type Page = 'dashboard' | 'beheer' | 'account'
+type Page = 'dashboard' | 'availability' | 'beheer' | 'account'
 
 const link = (active: boolean) =>
   `rounded-lg px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`
@@ -40,6 +40,7 @@ export function AppHeader({ me, active }: { me: Me | undefined; active: Page }) 
           {user && (
             <nav className="flex items-center gap-1" aria-label="Pagina's">
               <Link to="/" className={link(active === 'dashboard')}>Afspraken</Link>
+              <Link to="/beschikbaarheid" className={link(active === 'availability')}>Beschikbaarheid</Link>
               {me?.canManageAccounts && <Link to="/beheer" className={link(active === 'beheer')}>Beheer</Link>}
               <Link to="/account" className={link(active === 'account')}>Account</Link>
             </nav>

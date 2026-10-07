@@ -145,6 +145,18 @@ gebruikt dit voor de knop **Planningsrollen** bij een monteur die aan een Odoo-m
 | Opzettelijke fouten | 22 in de dashboardcode (client voor de gateway, handlers): 17 direct gevangen; van de 5 overlevers zijn er 4 gevangen na extra tests (status niet gecontroleerd, rol van het account niet gecontroleerd, te lang medewerkernummer niet afgekapt, bevestigd aantal = gevraagd aantal) en 1 gelijkwaardig (de planner-controle staat er dubbel: ook de beheerders-bewaking eist al een planner) |
 | Niet gedaan | tegen een echte Odoo 20: of `write` op `hr.employee` met `planning_role_ids` en `default_planning_role_id` wordt aangenomen (de demo-Odoo is daar streng in, maar is niet Odoo), en of een gewijzigde rol meteen te kiezen is bij een dienst. Test ook met een gateway-gebruiker die alleen Werknemers: Officer en Planning-leesrechten heeft; alle lokale tests gebruikten `admin` |
 
+## Beschikbaarheid doorgeven (alleen in het dashboard)
+
+`docs/beschikbaarheid.md`. De monteur geeft periodes door waarin hij niet beschikbaar is; de planner ziet ze. Nog **niet** naar Odoo.
+
+| Laag | Wat is gecontroleerd |
+|---|---|
+| Opslag (`test/availability.test.ts`, 13 tests) | echte kalenderdagen, laatste dag niet voor de eerste, 366 dagen (367 geweigerd), twee jaar vooruit (grens exact), vandaag in Nederlandse tijd (ook rond middernacht UTC, zomer en winter), opmerking van 200 tekens zonder regeleinden of stuurtekens, overlap (aansluiten mag, een ander niet geraakt), 50 per persoon (verlopen tellen niet mee), alleen de eigenaar verwijdert, oude periodes verdwijnen na 30 dagen, een beschadigd bestand wordt geweigerd en niet overschreven |
+| Handlers (`test/availability-handlers.test.ts`, 10 tests) | monteur ziet alleen zijn eigen periodes, de planner alles maar kan niets wijzigen (403), geen login 401, zonder kopje 403, inloggen uit 404, alleen de velden `from`, `to`, `note` (een account, medewerker, id of iets van Odoo: 400), overlap 409, de periode van een ander is 404, een verwijderd account neemt zijn periodes mee, een beschadigd bestand is een duidelijke 500 |
+| Chromium met echte processen (demo-Odoo, 21 controles) | de monteur ziet geen Beheer, begint leeg, de eerste dag is niet voor vandaag te kiezen, de laatste dag volgt de eerste, `Vakantie <b>x</b>` staat als tekst en niet als HTML, dezelfde periode nog eens geeft "overlapt", de planner ziet de periode zonder formulier of knoppen, 400/403 voor extra veld, planner en ontbrekend kopje, verwijderen door de monteur, en `availability.json` is leeg na het verwijderen van het account |
+| Opzettelijke fouten | 27 in opslag en handlers, allemaal gevangen |
+| Niet gedaan | de stap naar Odoo (zie `docs/beschikbaarheid.md`); echte telefoons en andere browsers dan Chromium |
+
 ## Lokaal testpakket
 
 `docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen

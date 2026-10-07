@@ -34,3 +34,9 @@ export async function readJsonBody(request: Request): Promise<{ ok: true; body: 
   }
   return { ok: true, body: parsed as Record<string, unknown> }
 }
+
+/** The answer to send when the body has a field that is not in the list; null when every field is allowed. */
+export function unknownField(body: Record<string, unknown>, allowed: readonly string[]): Response | null {
+  const extra = Object.keys(body).find((key) => !allowed.includes(key))
+  return extra === undefined ? null : fail(400, `Onbekend veld: ${extra}.`)
+}

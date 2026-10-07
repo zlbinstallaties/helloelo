@@ -1,6 +1,7 @@
 import { createAccountStore } from '../src/lib/accounts.ts'
 import type { AccountIo } from '../src/lib/accounts.ts'
 import { createAuth } from '../src/lib/auth.ts'
+import { createAvailabilityStore } from '../src/lib/availability.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
 import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
@@ -52,6 +53,11 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
   const io: AccountIo = { read: () => state.text, write: (text) => (state.text = text) }
   const journalState = { text: null as string | null }
   const journalIo: AccountIo = { read: () => journalState.text, write: (text) => (journalState.text = text) }
+  const availabilityState = { text: null as string | null }
+  const availabilityIo: AccountIo = { read: () => availabilityState.text, write: (text) => (availabilityState.text = text) }
+  // The day of the availability tests: Wednesday 7 October 2026.
+  const availabilityClock = { now: new Date('2026-10-07T10:00:00Z') }
+  const availability = createAvailabilityStore({ io: availabilityIo, now: () => availabilityClock.now })
   const accounts = createAccountStore({ io, reservedUsernames: ['noodadmin'] })
   const journal = createJournal({ io: journalIo })
   const clock = { now: 1_000_000 }
@@ -84,6 +90,7 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     auth: on ? auth : null,
     accounts: on ? accounts : null,
     journal: on ? journal : null,
+    availability: on ? availability : null,
     secureCookies: options.secure ?? true,
     clientAddress: (request) => request.headers.get('x-test-ip') ?? '10.0.0.1',
     loadData: async (refresh) => {
@@ -120,7 +127,7 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
   })
   accounts.create({ username: 'jan', name: 'Jan de Vries', role: 'monteur', personId: 'employee:7', password: PASSWORD })
   accounts.create({ username: 'planner', name: 'Petra Planner', role: 'admin', personId: null, password: PASSWORD })
-  return { handlers, accounts, auth, journal, loads, control, state, journalState, clock, odoo }
+  return { handlers, accounts, auth, journal, availability, availabilityState, availabilityClock, loads, control, state, journalState, clock, odoo }
 }
 
 export type Api = ReturnType<typeof setup>

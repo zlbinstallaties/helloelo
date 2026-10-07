@@ -7,7 +7,7 @@ import type { Context } from './handlers.ts'
 import { createTechnician } from './employee-service.ts'
 import { JournalFileError } from './employee-journal.ts'
 import type { DashboardAppointment } from './dashboard-types.ts'
-import { accountFileProblem, fail, json, readJsonBody } from './http.ts'
+import { accountFileProblem, fail, json, readJsonBody, unknownField } from './http.ts'
 
 /*
  * The admin part of the dashboard: add a technician (a new employee in Odoo plus a portal account) and manage the
@@ -23,11 +23,6 @@ function parseRoleIds(value: unknown): number[] | null {
 }
 
 const statusOf = (error: AccountError) => (error.code === 'invalid' ? 400 : error.code === 'conflict' ? 409 : 404)
-
-function unknownField(body: Record<string, unknown>, allowed: readonly string[]): Response | null {
-  const extra = Object.keys(body).find((key) => !allowed.includes(key))
-  return extra === undefined ? null : fail(400, `Onbekend veld: ${extra}.`)
-}
 
 export function createAdminHandlers(ctx: Context) {
   const { deps } = ctx
@@ -257,6 +252,8 @@ export function createAdminHandlers(ctx: Context) {
         if (!deps.accounts) return fail(503, 'Inloggen is niet ingesteld op de server.')
         if (id === guard.user.id) return fail(400, 'Je kunt je eigen account niet verwijderen.')
         deps.accounts.remove(id)
+        // What a technician filled in about his availability goes with the account.
+        deps.availability?.removeAllOf(id)
         return json({ ok: true })
       })
     },

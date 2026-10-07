@@ -4,6 +4,7 @@ import path from 'node:path'
 import { AccountsFileError, createAccountStore } from '#/lib/accounts'
 import type { AccountIo } from '#/lib/accounts'
 import { createAuth } from '#/lib/auth'
+import { AvailabilityFileError, createAvailabilityStore } from '#/lib/availability'
 import { getDigDashboardData } from '#/lib/cache'
 import { createJournal } from '#/lib/employee-journal'
 import { JournalFileError } from '#/lib/employee-journal'
@@ -28,7 +29,8 @@ import { createLoginLimiter, createSessions } from '#/lib/sessions'
  *   ODOO_PUBLIC_URL        only for links to Odoo forms
  *
  * Besides accounts.json the data directory holds employee-requests.json: the journal of "add a technician"
- * requests (no passwords), which is what recognises a repeated request.
+ * requests (no passwords), which is what recognises a repeated request, and availability.json: the periods in which
+ * technicians gave that they are not available.
  */
 
 export const DEFAULT_ODOO_PUBLIC_URL = 'https://odoo20.srv1938209.hstgr.cloud'
@@ -83,6 +85,7 @@ export function getHandlers(): Handlers {
   let auth = null
   let accounts = null
   let journal = null
+  let availability = null
   if (mode === 'on') {
     if (!sessionSecretConfigured()) {
       console.error('DIG_SESSION_SECRET is missing or shorter than 32 bytes: every request is refused until it is set (or DIG_AUTH=off).')
@@ -95,6 +98,7 @@ export function getHandlers(): Handlers {
         reservedUsernames: [username],
       })
       journal = createJournal({ io: fileIo(path.join(dataDir(), 'employee-requests.json'), () => new JournalFileError('het bestand kan niet worden gelezen.')) })
+      availability = createAvailabilityStore({ io: fileIo(path.join(dataDir(), 'availability.json'), () => new AvailabilityFileError('het bestand kan niet worden gelezen.')) })
       auth = createAuth({
         accounts,
         sessions: createSessions({ secret: process.env.DIG_SESSION_SECRET as string }),
@@ -108,6 +112,7 @@ export function getHandlers(): Handlers {
     auth,
     accounts,
     journal,
+    availability,
     secureCookies: secure,
     clientAddress,
     loadData: (refresh) => (refresh ? getDigDashboardData.refresh() : getDigDashboardData()),

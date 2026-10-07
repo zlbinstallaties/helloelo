@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as BeheerRouteImport } from './routes/beheer'
+import { Route as BeschikbaarheidRouteImport } from './routes/beschikbaarheid'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiDashboardRouteImport } from './routes/api/dashboard'
 import { Route as ApiEmployeesRouteImport } from './routes/api/employees'
@@ -23,6 +24,8 @@ import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
 import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
 import { Route as ApiAuthPasswordRouteImport } from './routes/api/auth/password'
+import { Route as ApiAvailabilityIndexRouteImport } from './routes/api/availability/index'
+import { Route as ApiAvailabilityIdRouteImport } from './routes/api/availability/$id'
 import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
 import { Route as ApiAccountsIdPlanningRolesRouteImport } from './routes/api/accounts/$id.planning-roles'
 
@@ -39,6 +42,11 @@ const AccountRoute = AccountRouteImport.update({
 const BeheerRoute = BeheerRouteImport.update({
   id: '/beheer',
   path: '/beheer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BeschikbaarheidRoute = BeschikbaarheidRouteImport.update({
+  id: '/beschikbaarheid',
+  path: '/beschikbaarheid',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -96,6 +104,16 @@ const ApiAuthPasswordRoute = ApiAuthPasswordRouteImport.update({
   path: '/api/auth/password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAvailabilityIndexRoute = ApiAvailabilityIndexRouteImport.update({
+  id: '/api/availability/',
+  path: '/api/availability/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAvailabilityIdRoute = ApiAvailabilityIdRouteImport.update({
+  id: '/api/availability/$id',
+  path: '/api/availability/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAccountsIdPasswordRoute = ApiAccountsIdPasswordRouteImport.update({
   id: '/password',
   path: '/password',
@@ -112,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
@@ -122,7 +141,9 @@ export interface FileRoutesByFullPath {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
@@ -130,6 +151,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
@@ -140,7 +162,9 @@ export interface FileRoutesByTo {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRoute
   '/api/accounts': typeof ApiAccountsIndexRoute
+  '/api/availability': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
@@ -149,6 +173,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
   '/api/employees': typeof ApiEmployeesRoute
@@ -159,7 +184,9 @@ export interface FileRoutesById {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
 }
@@ -169,6 +196,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/beheer'
+    | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
     | '/api/employees'
@@ -179,7 +207,9 @@ export interface FileRouteTypes {
     | '/api/auth/logout'
     | '/api/auth/me'
     | '/api/auth/password'
+    | '/api/availability/$id'
     | '/api/accounts/'
+    | '/api/availability/'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
   fileRoutesByTo: FileRoutesByTo
@@ -187,6 +217,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/beheer'
+    | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
     | '/api/employees'
@@ -197,7 +228,9 @@ export interface FileRouteTypes {
     | '/api/auth/logout'
     | '/api/auth/me'
     | '/api/auth/password'
+    | '/api/availability/$id'
     | '/api/accounts'
+    | '/api/availability'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
   id:
@@ -205,6 +238,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/beheer'
+    | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
     | '/api/employees'
@@ -215,7 +249,9 @@ export interface FileRouteTypes {
     | '/api/auth/logout'
     | '/api/auth/me'
     | '/api/auth/password'
+    | '/api/availability/$id'
     | '/api/accounts/'
+    | '/api/availability/'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
   fileRoutesById: FileRoutesById
@@ -224,6 +260,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
   BeheerRoute: typeof BeheerRoute
+  BeschikbaarheidRoute: typeof BeschikbaarheidRoute
   LoginRoute: typeof LoginRoute
   ApiDashboardRoute: typeof ApiDashboardRoute
   ApiEmployeesRoute: typeof ApiEmployeesRoute
@@ -234,7 +271,9 @@ export interface RootRouteChildren {
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthMeRoute: typeof ApiAuthMeRoute
   ApiAuthPasswordRoute: typeof ApiAuthPasswordRoute
+  ApiAvailabilityIdRoute: typeof ApiAvailabilityIdRoute
   ApiAccountsIndexRoute: typeof ApiAccountsIndexRoute
+  ApiAvailabilityIndexRoute: typeof ApiAvailabilityIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -258,6 +297,13 @@ declare module '@tanstack/react-router' {
       path: '/beheer'
       fullPath: '/beheer'
       preLoaderRoute: typeof BeheerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/beschikbaarheid': {
+      id: '/beschikbaarheid'
+      path: '/beschikbaarheid'
+      fullPath: '/beschikbaarheid'
+      preLoaderRoute: typeof BeschikbaarheidRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -337,6 +383,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/availability/': {
+      id: '/api/availability/'
+      path: '/api/availability'
+      fullPath: '/api/availability/'
+      preLoaderRoute: typeof ApiAvailabilityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/availability/$id': {
+      id: '/api/availability/$id'
+      path: '/api/availability/$id'
+      fullPath: '/api/availability/$id'
+      preLoaderRoute: typeof ApiAvailabilityIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/accounts/$id/password': {
       id: '/api/accounts/$id/password'
       path: '/password'
@@ -372,6 +432,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
   BeheerRoute: BeheerRoute,
+  BeschikbaarheidRoute: BeschikbaarheidRoute,
   LoginRoute: LoginRoute,
   ApiDashboardRoute: ApiDashboardRoute,
   ApiEmployeesRoute: ApiEmployeesRoute,
@@ -382,7 +443,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthMeRoute: ApiAuthMeRoute,
   ApiAuthPasswordRoute: ApiAuthPasswordRoute,
+  ApiAvailabilityIdRoute: ApiAvailabilityIdRoute,
   ApiAccountsIndexRoute: ApiAccountsIndexRoute,
+  ApiAvailabilityIndexRoute: ApiAvailabilityIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

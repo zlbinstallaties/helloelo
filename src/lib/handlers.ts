@@ -2,6 +2,8 @@ import { AccountsFileError } from './accounts.ts'
 import type { AccountStore } from './accounts.ts'
 import { buildAppointments, filterByTechnician, inScope } from './appointments.ts'
 import type { Auth } from './auth.ts'
+import type { AvailabilityStore } from './availability.ts'
+import { createAvailabilityHandlers } from './availability-handlers.ts'
 import { canManageAccounts, canRefresh, technicianChoicesFor, visibleAppointments } from './authorization.ts'
 import type { User } from './authorization.ts'
 import type { DashboardData, DashboardResponse } from './dashboard-types.ts'
@@ -29,6 +31,8 @@ export interface HandlerDeps {
   accounts: AccountStore | null
   /** The journal of "add a technician" requests; null together with `auth`. */
   journal: Journal | null
+  /** The periods technicians are not available, as they filled them in; null together with `auth`. */
+  availability: AvailabilityStore | null
   secureCookies: boolean
   clientAddress: (request: Request) => string
   loadData: (refresh: boolean) => Promise<DashboardData>
@@ -123,6 +127,7 @@ export function createHandlers(deps: HandlerDeps) {
   return {
     ctx,
     ...createAdminHandlers(ctx),
+    ...createAvailabilityHandlers(ctx),
 
     async login(request: Request): Promise<Response> {
       if (deps.authMode === 'off') return fail(404, 'Inloggen staat uit.')
