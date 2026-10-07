@@ -129,6 +129,7 @@ gatewayconfig; dat is vervangen omdat de planner de rollen zelf wil kiezen.
 | Echte processen en Chromium (demo-Odoo) | de lijst toont de rollen op naam zonder de gearchiveerde, de waarschuwing verdwijnt na kiezen, de aanmaak bevat de opdracht met de gekozen volgorde en `user_id: false`; zonder rol: waarschuwing en geen rol naar Odoo |
 | Opzettelijke fouten | 25 + 25 in gateway, client en dashboard; allemaal gevangen |
 | Gezien op een echte lokale Odoo 20 Enterprise | het lezen van `planning.role` werkt: de rol die in Odoo is aangemaakt staat als vinkje in het dashboard. Een medewerker (`manbakker`, schermafbeelding van de gebruiker) heeft *Gebruiker: Geen gebruiker gekoppeld*, *Functies: monteur*, *Standaardrol: monteur* en Hr-verantwoordelijke Administrator: `planning_role_ids` en `default_planning_role_id` worden bij het aanmaken dus aangenomen |
+| Gezien op een echte lokale Odoo 20 Enterprise (nogmaals) | een monteur aangemaakt vanuit het dashboard met de rol `monteur`: Odoo bevestigde de rol bij het terugkijken (medewerker 6, schermafbeelding van de gebruiker) |
 | Niet gedaan | tegen een echte Odoo 20: of de rol dan bij een dienst in Planning te kiezen is, en `write` (rollen achteraf wijzigen, zie hieronder) |
 
 ### Rollen van een bestaande medewerker later wijzigen (knop Planningsrollen bij Accounts)
@@ -157,7 +158,8 @@ gebruikt dit voor de knop **Planningsrollen** bij een monteur die aan een Odoo-m
 | Client (`scripts/test-odoo-client.mjs`, 36 tests) | één `create`, één `unlink`, één vaste lezing; alleen de vaste velden; vreemde waarden voor het verzenden geweigerd; de uitkomst van een mislukking juist (geweigerd of onzeker) |
 | Chromium met echte processen en de demo-Odoo (18 controles) | een periode wordt **In Odoo** met precies één record `[Dashboard] Niet beschikbaar: ...` voor de resource van de medewerker, van 00:00:00 tot 23:59:59 Nederlandse tijd en zonder ander veld; de planner ziet het ook; een medewerker of Odoo-record meesturen: 400; verwijderen doet precies één `UNLINK`; een monteur die in de demo-Odoo geen medewerker is, krijgt "Niet in Odoo gekomen" met de reden, een werkende opnieuw-knop, niets nieuws in Odoo en bij verwijderen geen vraag aan Odoo; geen browserfouten |
 | Opzettelijke fouten | 70 in opslag, handlers, gateway, client en tijdzonehulp; alle gevangen (enkele pas na extra tests; één is gelijkwaardig: de controle of de actie aan staat zit er dubbel) |
-| Niet gedaan | tegen een echte Odoo 20: het aanmaken en verwijderen van het record, het lezen van `resource_id`, `resource_calendar_id` en `tz`, of Planning de dagen als niet beschikbaar toont, en de rechten van de gateway-gebruiker; echte telefoons en andere browsers dan Chromium |
+| Gezien op een echte lokale Odoo 20 Enterprise | het model `resource.calendar.leaves` heeft de velden `name`, `date_from`, `date_to` (verplicht), `resource_id` en `calendar_id` en geen `holiday_id` of `time_type` (de app Verlof is niet geïnstalleerd); een door het dashboard doorgegeven periode kwam volgens de gebruiker in Odoo te staan |
+| Niet gedaan | tegen een echte Odoo 20 nog niet bekeken of bevestigd: de exacte begin- en eindtijd van het record, of Planning de dagen als niet beschikbaar toont, het verwijderen van het record vanuit het dashboard, en de rechten van een gateway-gebruiker die geen `admin` is; echte telefoons en andere browsers dan Chromium |
 
 ## Lokaal testpakket
 
