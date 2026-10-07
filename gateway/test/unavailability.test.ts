@@ -405,3 +405,24 @@ test('the action is no other action: a project with it cannot create employees o
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 })
+
+test('when Odoo answers with an error, the log says which kind (its class name), so a wrong key or missing right can be seen; never free text', async () => {
+  const logs: AccessLogEntry[] = []
+  let thrown: OdooError = new OdooError('Odoo hr.employee read failed (401): Jan de Vries is geheim', 401, 'odoo.exceptions.AccessDenied', true)
+  const { odoo } = fakeOdoo({ async readEmployee() { throw thrown } })
+  await withGateway(odoo, async (gw) => {
+    assert.equal((await gw.add(add())).status, 502)
+    thrown = new OdooError('Odoo hr.employee read failed (network)', 0)
+    assert.equal((await gw.add(add({ requestId: 'req-2-0123456789abcdef' }))).status, 502)
+    thrown = new OdooError('failed', 500, 'Jan de Vries, Straat 1', true)
+    assert.equal((await gw.add(add({ requestId: 'req-3-0123456789abcdef' }))).status, 502)
+    assert.equal((await gw.add(add({ requestId: 'req-4-0123456789abcdef', employeeId: 0 }))).status, 400)
+  }, { logs })
+  assert.deepEqual(logs.map((entry) => [entry.status, entry.code, entry.upstream]), [
+    [502, 'odoo_error', 'odoo.exceptions.AccessDenied'],
+    [502, 'odoo_error', 'upstream status 0'],
+    [502, 'odoo_error', undefined],
+    [400, 'invalid_employee_id', undefined],
+  ])
+  assert.ok(!JSON.stringify(logs).includes('Jan de Vries'))
+})

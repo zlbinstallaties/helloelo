@@ -37,6 +37,8 @@ export interface AccessLogEntry {
   domainFields?: string[]
   requestId?: string
   employeeId?: number
+  /** For an error of Odoo: the class name Odoo gave (`odoo.exceptions.AccessDenied`) or its status; never Odoo's own text. */
+  upstream?: string
 }
 
 export interface GatewayOptions {
@@ -52,6 +54,8 @@ const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
 const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
 const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
 const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
+/** What may be logged of an error of Odoo: a class name like odoo.exceptions.AccessDenied, or `upstream status 401`. */
+const PLAIN_UPSTREAM = /^(?:[A-Za-z_][\w.]{0,80}|upstream status \d{1,3})$/
 const ADD_UNAVAILABILITY_ROUTE = '/v1/actions/add_employee_unavailability'
 const REMOVE_UNAVAILABILITY_ROUTE = '/v1/actions/remove_employee_unavailability'
 const EMPLOYEE_ROLES_ROUTE = /^\/v1\/employees\/([0-9]+)\/planning-roles$/
@@ -60,6 +64,7 @@ const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 interface Context {
   project: Project | null
   model: string | null
+  upstream?: string
   rows?: number
   fields?: number
   domainFields?: string[]
@@ -305,6 +310,8 @@ export function createGateway(options: GatewayOptions) {
       const failure = toGatewayError(error)
       status = failure.status
       code = failure.code
+      // Which kind of error Odoo gave helps to find a wrong key or a missing right; only a plain class name is logged.
+      if (failure.code === 'odoo_error' && PLAIN_UPSTREAM.test(failure.message)) ctx.upstream = failure.message
       send(res, status, { error: failure.code, message: failure.message, ...(failure.details && { details: failure.details }) })
     } finally {
       if (url.pathname !== '/healthz') {
@@ -321,6 +328,7 @@ export function createGateway(options: GatewayOptions) {
           ...(ctx.domainFields && { domainFields: ctx.domainFields }),
           ...(ctx.requestId !== undefined && { requestId: ctx.requestId }),
           ...(ctx.employeeId !== undefined && { employeeId: ctx.employeeId }),
+          ...(ctx.upstream !== undefined && { upstream: ctx.upstream }),
         })
       }
     }

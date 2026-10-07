@@ -169,6 +169,13 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
 
 ## 6. Als er iets misgaat
 
+**Alles aan Odoo geeft `502 odoo_error`** (ook het lezen van de planningsrollen, dat eerst wel werkte): meestal klopt de API-sleutel niet.
+De gatewaylog (`bun run local:rehearsal logs gateway`) toont dan achter `odoo_error` een veld `upstream` met het soort fout dat Odoo gaf,
+bijvoorbeeld `odoo.exceptions.AccessDenied` (sleutel onbekend of de verkeerde scope: kies bij het maken van de sleutel **RPC**, niet MCP)
+of `upstream status 0` (Odoo gaf helemaal geen antwoord). Daar staat nooit Odoo's eigen tekst in. Na het wisselen van de sleutel in
+`.local/gateway.env`: `bun run local:rehearsal stop` en `start`, want de gateway leest het bestand alleen bij het starten.
+
+
 | Melding | Betekenis |
 |---|---|
 | "staat niet aan op de server" | de gateway heeft geen `actions.createEmployee`: draai `local:setup` met `--responsible-id` |
