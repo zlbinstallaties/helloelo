@@ -10,7 +10,7 @@
 //   bun run local:rehearsal stop     stop the three
 //   bun run local:rehearsal reset    stop and remove .local (only when it belongs to the demo)
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,6 +91,25 @@ function stop() {
   return stopped
 }
 
+/** The newest change time of a file under `dir` (0 when there is none). */
+function newestChange(dir) {
+  let newest = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name)
+    newest = Math.max(newest, entry.isDirectory() ? newestChange(file) : statSync(file).mtimeMs)
+  }
+  return newest
+}
+
+/** No build yet, or the code (src/, the package files, the config) changed after it: the screens would be old. */
+function buildIsOld() {
+  const built = path.join(ROOT, 'dist', 'server', 'server.js')
+  if (!existsSync(built)) return 'er is nog geen bouw'
+  const builtAt = statSync(built).mtimeMs
+  const changed = Math.max(newestChange(path.join(ROOT, 'src')), ...['package.json', 'vite.config.ts', 'bun.lock'].map((file) => (existsSync(path.join(ROOT, file)) ? statSync(path.join(ROOT, file)).mtimeMs : 0)))
+  return changed > builtAt ? 'de code is nieuwer dan de laatste bouw' : null
+}
+
 function envValue(file, name) {
   try {
     const line = readFileSync(path.join(LOCAL, file), 'utf8').split('\n').find((item) => item.startsWith(`${name}=`))
@@ -151,8 +170,9 @@ async function start() {
     writeFileSync(path.join(LOCAL, 'gateway.env'), gatewayEnv.replace(/^ODOO_API_KEY=$/m, 'ODOO_API_KEY=demo'))
   }
 
-  if (!existsSync(path.join(ROOT, 'dist', 'server', 'server.js'))) {
-    out('Eerst het dashboard bouwen (eenmalig, even geduld)...')
+  const oldBuild = buildIsOld()
+  if (oldBuild) {
+    out(`Het dashboard wordt gebouwd (${oldBuild}); even geduld...`)
     const build = spawnSync('bun', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' })
     if (build.status !== 0) {
       out('Het bouwen is mislukt; zie hierboven.')

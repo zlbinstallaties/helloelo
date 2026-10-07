@@ -19,6 +19,7 @@ portaalgebruiker, 4 is gedeactiveerd en 99 bestaat niet. Eén terminal is genoeg
 
 ```bash
 bun run local:rehearsal start     # maakt .local (eerste keer), start demo-Odoo, gateway en dashboard, toont het wachtwoord
+                                  # bouwt het dashboard zelf opnieuw als de code nieuwer is dan de laatste bouw
 bun run local:rehearsal logs      # de demo-Odoo: elke aanmaak staat als regel "CREATE hr.employee ..."
 bun run local:rehearsal stop      # stopt alles
 bun run local:rehearsal reset     # stopt en verwijdert .local (alleen als het bij de demo hoort)
@@ -128,6 +129,7 @@ dienst met een rol toewijzen.
 
 ```bash
 bun run local:rehearsal start       # gateway en dashboard, op .local; start geen demo-Odoo en wijzigt .local niet
+                                    # bouwt het dashboard zelf opnieuw als de code nieuwer is dan de laatste bouw (na een git pull)
 bun run local:rehearsal logs gateway
 curl -s http://127.0.0.1:8070/healthz
 TOKEN=$(grep '^DIG_GATEWAY_TOKEN=' .local/dashboard.env | cut -d= -f2-)
