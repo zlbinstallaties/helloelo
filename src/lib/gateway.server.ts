@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only'
 import { GatewayError } from '#/lib/gateway-error'
-import { createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, setEmployeeRolesViaGateway } from '#/lib/gateway-employee'
-import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from '#/lib/gateway-employee'
+import { addUnavailabilityViaGateway, createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, removeUnavailabilityViaGateway, setEmployeeRolesViaGateway } from '#/lib/gateway-employee'
+import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from '#/lib/gateway-employee'
 import { PAGE_SIZE, readAllPages } from '#/lib/paging'
 
 /*
@@ -91,4 +91,19 @@ export async function setEmployeeRoles(employeeId: number, planningRoleIds: read
   if (!gatewayConfigured()) return NOT_CONFIGURED
   const { url, token } = config()
   return setEmployeeRolesViaGateway({ url, token, employeeId, planningRoleIds })
+}
+
+/** Without a gateway the period simply stays in the dashboard. */
+const AWAY_OFF = { ok: false as const, kind: 'not_enabled' as const, message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+
+export async function addUnavailability(input: { requestId: string; employeeId: number; from: string; to: string; note: string }): Promise<AddUnavailabilityOutcome> {
+  if (!gatewayConfigured()) return AWAY_OFF
+  const { url, token } = config()
+  return addUnavailabilityViaGateway({ url, token, ...input })
+}
+
+export async function removeUnavailability(input: { employeeId: number; leaveId: number }): Promise<RemoveUnavailabilityOutcome> {
+  if (!gatewayConfigured()) return AWAY_OFF
+  const { url, token } = config()
+  return removeUnavailabilityViaGateway({ url, token, ...input })
 }

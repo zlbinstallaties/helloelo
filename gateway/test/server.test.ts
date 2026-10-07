@@ -56,6 +56,15 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
     async createEmployee() {
       throw new Error('createEmployee is not used in these tests')
     },
+    async createUnavailability() {
+      throw new Error('createUnavailability is not used in these tests')
+    },
+    async readUnavailability() {
+      throw new Error('readUnavailability is not used in these tests')
+    },
+    async removeUnavailability() {
+      throw new Error('removeUnavailability is not used in these tests')
+    },
     async checkResponsible() {
       throw new Error('checkResponsible is not used in these tests')
     },

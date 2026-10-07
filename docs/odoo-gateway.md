@@ -17,6 +17,8 @@ De gateway **leest**. Er is één benoemde actie die schrijft en die voor elk pr
 | `POST` | `/v1/models/<model>/search_count` | `{domain?}` → `{count}` |
 | `GET` | `/v1/planning-roles` | `{roles: [{id, name}]}`: de planningsrollen die een planner een nieuwe monteur kan geven; alleen voor projecten met de actie |
 | `POST` | `/v1/actions/create_employee` | `{requestId, name, planningRoleIds?}` → `{id, name, verified, planningRoles}`; alleen voor projecten met de actie (zie "Acties") |
+| `POST` | `/v1/actions/add_employee_unavailability` | `{requestId, employeeId, from, to, note?}` → `{id, employeeId, from, to, verified}`; alleen voor projecten met `employeeUnavailability` |
+| `POST` | `/v1/actions/remove_employee_unavailability` | `{employeeId, leaveId}` → `{leaveId, removed}`; alleen voor projecten met `employeeUnavailability` |
 
 Elke `/v1`-aanroep vereist `Authorization: Bearer <projecttoken>`.
 
@@ -90,6 +92,21 @@ rollen moeten bestaan en niet gearchiveerd zijn (en bij een beperking toegestaan
 het bedrijf van het project (`404 employee_not_found`), en er geldt een eigen limiet per uur. Dezelfde rollen nog eens zetten
 geeft dezelfde medewerker, dus er is geen aanvraag-id en na een onduidelijk antwoord (`504`) mag je gewoon herhalen. Nog niet
 tegen een echte Odoo geprobeerd (`write` op `hr.employee` met alleen `planning_role_ids` en `default_planning_role_id`).
+
+**`add_employee_unavailability` en `remove_employee_unavailability`** (aparte instelling `employeeUnavailability`, **uit tenzij je haar aanzet**, met
+alleen `maxPerHour`; standaard 100 per uur voor het hele project, optellend voor toevoegen en verwijderen) zetten één monteur als niet
+beschikbaar in Odoo. Toevoegen maakt **één** `resource.calendar.leaves` aan voor de resource van die ene medewerker (`{name, resource_id,
+calendar_id, date_from, date_to}`, verder niets): geen dienst, geen planning, geen verlofaanvraag. `from` en `to` zijn hele kalenderdagen
+(beide inbegrepen, hoogstens 366 dagen) in de **tijdzone van de medewerker** zoals Odoo die heeft (onbekend: `409
+employee_timezone_unknown`, er wordt niet geraden); dat wordt 00:00:00 tot 23:59:59 lokaal, als UTC aan Odoo gegeven, ook rond het verzetten
+van de klok. De naam begint met `[Dashboard] Niet beschikbaar` (met de opmerking erachter), en daaraan herkent verwijderen zijn eigen
+records. De medewerker moet bestaan, actief zijn en in het bedrijf van het project staan (`404 employee_not_found`) en een resource hebben
+(`409 employee_has_no_resource`). Herhalen werkt als bij `create_employee`: dezelfde `requestId` met dezelfde gegevens geeft hetzelfde
+record zonder opnieuw te schrijven, andere gegevens `409 request_id_reused`, tegelijk lopend `409 in_progress`, geen bruikbaar antwoord
+`504`/`409 outcome_unknown` (het record kan bestaan: niet opnieuw proberen), en alleen een echte weigering van Odoo (`502 odoo_rejected`)
+mag opnieuw. **Verwijderen haalt alleen een record weg dat van die medewerker is én met de herkenning begint**: een vakantiedag van het
+bedrijf, een record dat iemand met de hand maakte of het record van een ander geeft `404 unavailability_not_found` en er wordt niets
+verwijderd; een record dat er niet meer is, is `200` met `alreadyGone`. Nog niet tegen een echte Odoo geprobeerd.
 
 Geef de actie aan een **eigen project en token** voor het live dashboard, nooit aan het project van een preview of
 de agent: elke code die dat token heeft, kan er medewerkers mee aanmaken. De voorbeeldconfig heeft geen acties en

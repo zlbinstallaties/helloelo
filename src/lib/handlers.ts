@@ -8,7 +8,7 @@ import { canManageAccounts, canRefresh, technicianChoicesFor, visibleAppointment
 import type { User } from './authorization.ts'
 import type { DashboardData, DashboardResponse } from './dashboard-types.ts'
 import type { Journal } from './employee-journal.ts'
-import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from './gateway-employee.ts'
+import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from './gateway-employee.ts'
 import { GatewayError } from './gateway-error.ts'
 import { createAdminHandlers } from './admin-handlers.ts'
 import { accountFileProblem, fail, json, readJsonBody } from './http.ts'
@@ -45,6 +45,10 @@ export interface HandlerDeps {
   getEmployeeRoles: (employeeId: number) => Promise<EmployeeRolesOutcome>
   /** Sets the planning roles of one Odoo employee (the first is the default). */
   setEmployeeRoles: (employeeId: number, planningRoleIds: readonly number[]) => Promise<SetRolesOutcome>
+  /** Marks one Odoo employee as not available in a period (one record, no shift or planning) through the gateway. */
+  addUnavailability: (input: { requestId: string; employeeId: number; from: string; to: string; note: string }) => Promise<AddUnavailabilityOutcome>
+  /** Removes the record the dashboard made for such a period. */
+  removeUnavailability: (input: { employeeId: number; leaveId: number }) => Promise<RemoveUnavailabilityOutcome>
   generatePassword: () => string
 }
 

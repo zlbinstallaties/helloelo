@@ -1,17 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { CalendarOff, CheckCircle2, Trash2 } from 'lucide-react'
+import { CalendarOff, CheckCircle2, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { AppHeader } from '@/components/app-header'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '#/lib/api-client'
-import type { AvailabilityPeriod, AvailabilityResponse } from '#/lib/availability-types'
+import type { AvailabilityOdoo, AvailabilityPeriod, AvailabilityResponse } from '#/lib/availability-types'
 import { useMe } from '#/lib/session'
 
 export const Route = createFileRoute('/beschikbaarheid')({ component: Availability })
@@ -55,7 +56,7 @@ function Availability() {
           </Alert>
         )}
         {periods.data?.canEdit && <GiveAvailability today={periods.data.today} />}
-        {periods.data && <PeriodsTable data={periods.data} />}
+        {periods.data && <PeriodsTable data={periods.data} linkedToOdoo={(user?.personId ?? '').startsWith('employee:')} />}
       </div>
     </main>
   )
@@ -151,10 +152,28 @@ function GiveAvailability({ today }: { today: string }) {
 
 /* ---------------------------------------------------------------- Overzicht */
 
-function PeriodsTable({ data }: { data: AvailabilityResponse }) {
+/** What the planner and the technician see about the record in Odoo, in a few words. */
+function OdooState({ odoo }: { odoo: AvailabilityOdoo }) {
+  if (odoo.state === 'synced') return <Badge variant="secondary">{odoo.verified ? 'In Odoo' : 'In Odoo (niet gecontroleerd)'}</Badge>
+  if (odoo.state === 'none') return <Badge variant="outline">Alleen in dashboard</Badge>
+  return (
+    <div className="space-y-1">
+      <Badge variant="destructive">{odoo.state === 'failed' ? 'Niet in Odoo gekomen' : 'Onzeker of in Odoo'}</Badge>
+      <p className="max-w-[16rem] text-xs text-muted-foreground">{odoo.message}</p>
+    </div>
+  )
+}
+
+function PeriodsTable({ data, linkedToOdoo }: { data: AvailabilityResponse; linkedToOdoo: boolean }) {
   const queryClient = useQueryClient()
+  const [warning, setWarning] = useState<string | null>(null)
   const remove = useMutation({
-    mutationFn: (period: AvailabilityPeriod) => api(`/api/availability/${period.id}`, { method: 'DELETE', fallback: 'Verwijderen is niet gelukt.' }),
+    mutationFn: (period: AvailabilityPeriod) => api<{ ok: true; warning?: string }>(`/api/availability/${period.id}`, { method: 'DELETE', fallback: 'Verwijderen is niet gelukt.' }),
+    onSuccess: (result) => setWarning(result.warning ?? null),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: KEY }),
+  })
+  const retry = useMutation({
+    mutationFn: (period: AvailabilityPeriod) => api(`/api/availability/${period.id}/retry`, { method: 'POST', fallback: 'Opnieuw naar Odoo sturen is niet gelukt.' }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: KEY }),
   })
 
@@ -173,6 +192,18 @@ function PeriodsTable({ data }: { data: AvailabilityResponse }) {
             <AlertDescription>{remove.error.message}</AlertDescription>
           </Alert>
         )}
+        {retry.isError && (
+          <Alert variant="destructive">
+            <AlertTitle>Niet naar Odoo gestuurd</AlertTitle>
+            <AlertDescription>{retry.error.message}</AlertDescription>
+          </Alert>
+        )}
+        {warning && (
+          <Alert>
+            <AlertTitle>Controleer dit in Odoo</AlertTitle>
+            <AlertDescription>{warning}</AlertDescription>
+          </Alert>
+        )}
         {data.periods.length === 0 ? (
           <p className="text-sm text-muted-foreground">{data.canEdit ? 'Je hebt niets doorgegeven.' : 'Niemand heeft iets doorgegeven.'}</p>
         ) : (
@@ -183,6 +214,7 @@ function PeriodsTable({ data }: { data: AvailabilityResponse }) {
                 <TableHead>Eerste dag</TableHead>
                 <TableHead>Laatste dag</TableHead>
                 <TableHead>Opmerking</TableHead>
+                <TableHead>Odoo</TableHead>
                 {data.canEdit && <TableHead className="text-right">Acties</TableHead>}
               </TableRow>
             </TableHeader>
@@ -193,11 +225,19 @@ function PeriodsTable({ data }: { data: AvailabilityResponse }) {
                   <TableCell>{day(period.from)}</TableCell>
                   <TableCell>{day(period.to)}</TableCell>
                   <TableCell className="max-w-[18rem] break-words">{period.note || <span className="text-muted-foreground">-</span>}</TableCell>
+                  <TableCell><OdooState odoo={period.odoo} /></TableCell>
                   {data.canEdit && (
                     <TableCell className="text-right">
-                      <Button type="button" variant="outline" size="sm" onClick={() => remove.mutate(period)} disabled={remove.isPending}>
-                        <Trash2 className="size-4" /> Verwijderen
-                      </Button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {linkedToOdoo && (period.odoo.state === 'failed' || period.odoo.state === 'none') && (
+                          <Button type="button" variant="outline" size="sm" onClick={() => retry.mutate(period)} disabled={retry.isPending}>
+                            <RefreshCw className="size-4" /> Naar Odoo sturen
+                          </Button>
+                        )}
+                        <Button type="button" variant="outline" size="sm" onClick={() => remove.mutate(period)} disabled={remove.isPending}>
+                          <Trash2 className="size-4" /> Verwijderen
+                        </Button>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>

@@ -15,6 +15,8 @@ const sanne = async (api: Api) => {
 const list = (api: Api, cookie?: string) => api.handlers.availabilityList(request('/api/availability', { cookie }))
 const addPeriod = (api: Api, cookie: string | undefined, body: unknown, init: { csrf?: boolean } = {}) =>
   api.handlers.availabilityAdd(request('/api/availability', { method: 'POST', cookie, body, csrf: init.csrf }))
+const retryPeriod = (api: Api, cookie: string | undefined, id: string, init: { csrf?: boolean } = {}) =>
+  api.handlers.availabilityRetry(request(`/api/availability/${id}/retry`, { method: 'POST', cookie, csrf: init.csrf }), id)
 const removePeriod = (api: Api, cookie: string | undefined, id: string, init: { csrf?: boolean } = {}) =>
   api.handlers.availabilityRemove(request(`/api/availability/${id}`, { method: 'DELETE', cookie, csrf: init.csrf }), id)
 const janId = (api: Api) => api.accounts.list().find((account) => account.username === 'jan')?.id as string
@@ -25,7 +27,7 @@ test('a technician gives a period he is not available, and it is kept for his ow
   const added = await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-16', note: 'Vakantie' }))
   assert.equal(added.status, 201)
   assert.deepEqual(Object.keys(added.json), ['period'])
-  assert.deepEqual({ ...added.json.period, id: '' }, { id: '', from: '2026-10-12', to: '2026-10-16', note: 'Vakantie' })
+  assert.deepEqual({ ...added.json.period, id: '' }, { id: '', from: '2026-10-12', to: '2026-10-16', note: 'Vakantie', odoo: { state: 'synced', verified: true } })
   assert.match(added.json.period.id, /^p_[0-9a-f]{32}$/)
   assert.deepEqual(api.availability.list().map((period) => [period.accountId, period.from, period.to, period.note]), [[janId(api), '2026-10-12', '2026-10-16', 'Vakantie']])
   const noNote = await read(await addPeriod(api, cookie, { from: '2026-10-20', to: '2026-10-20' }))
@@ -160,4 +162,178 @@ test('a damaged availability file is a clear error and is never overwritten', as
   assert.match(listed.json.error, /beschikbaarheidsbestand/)
   assert.equal((await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-12' }))).status, 500)
   assert.equal(api.availabilityState.text, '{ kapot')
+})
+
+// ---------------------------------------------------------------- the record in Odoo
+
+const stored = (api: Api) => api.availability.list()
+
+test('a period of a technician who is an Odoo employee is sent to Odoo: with the period id as request id, and what Odoo confirms is kept', async () => {
+  const api = setup()
+  const added = await read(await addPeriod(api, await jan(api), { from: '2026-10-12', to: '2026-10-13', note: 'Vakantie' }))
+  assert.equal(added.status, 201)
+  const id = added.json.period.id as string
+  assert.deepEqual(api.odoo.away.adds, [{ requestId: id, employeeId: 7, from: '2026-10-12', to: '2026-10-13', note: 'Vakantie' }])
+  assert.deepEqual(stored(api)[0].odoo, { employeeId: 7, state: 'synced', leaveId: 901, verified: true })
+  assert.deepEqual(added.json.period.odoo, { state: 'synced', verified: true })
+  assert.ok(!JSON.stringify(added.json).includes('901'), 'the record number of Odoo is not sent to the browser')
+})
+
+test('a technician that is not an Odoo employee, or a gateway without the action, keeps the period in the dashboard only', async () => {
+  const api = setup()
+  api.accounts.create({ username: 'naam', name: 'Piet', role: 'monteur', personId: 'name:piet', password: PASSWORD })
+  const byName = await read(await addPeriod(api, (await login(api, 'naam')).cookie, { from: '2026-10-12', to: '2026-10-12' }))
+  assert.equal(byName.status, 201)
+  assert.deepEqual(byName.json.period.odoo, { state: 'none' })
+  assert.equal(api.odoo.away.adds.length, 0, 'nobody to mark in Odoo')
+
+  // An account that carries a number too long for an Odoo id is not cut off into another employee's number.
+  api.accounts.create({ username: 'te.lang', name: 'Lang', role: 'monteur', personId: 'employee:12345678901', password: PASSWORD })
+  const tooLong = await read(await addPeriod(api, (await login(api, 'te.lang')).cookie, { from: '2026-10-12', to: '2026-10-12' }))
+  assert.deepEqual(tooLong.json.period.odoo, { state: 'none' })
+  assert.equal(api.odoo.away.adds.length, 0)
+
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'not_enabled', message: 'staat niet aan' })
+  const off = await read(await addPeriod(api, await jan(api), { from: '2026-10-12', to: '2026-10-12' }))
+  assert.equal(off.status, 201)
+  assert.deepEqual(off.json.period.odoo, { state: 'none' })
+  assert.equal(api.odoo.away.adds.length, 1, 'asked once; the answer was "not switched on"')
+  assert.equal(stored(api).find((period) => period.id === off.json.period.id)?.odoo, undefined)
+})
+
+test('Odoo refuses: the period is kept and says so; no usable answer: it says it is not certain', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'rejected', message: 'Odoo heeft het geweigerd (AccessError). De periode is niet naar Odoo gestuurd.' })
+  const refused = await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-12' }))
+  assert.equal(refused.status, 201, 'the technician gave it, so it stays in the dashboard')
+  assert.deepEqual(refused.json.period.odoo, { state: 'failed', message: 'Odoo heeft het geweigerd (AccessError). De periode is niet naar Odoo gestuurd.' })
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'unknown', message: 'Het is niet zeker of deze periode in Odoo staat.' })
+  const unclear = await read(await addPeriod(api, cookie, { from: '2026-10-14', to: '2026-10-14' }))
+  assert.deepEqual(unclear.json.period.odoo, { state: 'unknown', message: 'Het is niet zeker of deze periode in Odoo staat.' })
+  assert.deepEqual(stored(api).map((period) => [period.odoo?.state, period.odoo?.employeeId]), [['failed', 7], ['unknown', 7]])
+})
+
+test('the list shows the state of every period, to the technician and to the planner', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-12' })
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'rejected', message: 'Geweigerd.' })
+  await addPeriod(api, cookie, { from: '2026-10-14', to: '2026-10-14' })
+  for (const who of [cookie, await planner(api)]) {
+    const answer = await read(await list(api, who))
+    assert.deepEqual(answer.json.periods.map((period: { odoo: unknown }) => period.odoo), [{ state: 'synced', verified: true }, { state: 'failed', message: 'Geweigerd.' }])
+    assert.ok(!JSON.stringify(answer.json).includes('leaveId'))
+  }
+})
+
+test('trying again: a period that was refused, or never sent, is sent again with the same request id; otherwise it is not', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'rejected', message: 'Geweigerd.' })
+  const added = await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-13', note: 'Vakantie' }))
+  const id = added.json.period.id as string
+  api.odoo.away.addAnswer = () => ({ ok: true, leaveId: 902, verified: true })
+  const again = await read(await retryPeriod(api, cookie, id))
+  assert.equal(again.status, 200)
+  assert.deepEqual(again.json.period.odoo, { state: 'synced', verified: true })
+  assert.deepEqual(api.odoo.away.adds.map((call) => call.requestId), [id, id], 'the same request id: the gateway never makes it twice')
+  assert.deepEqual(stored(api)[0].odoo, { employeeId: 7, state: 'synced', leaveId: 902, verified: true })
+
+  const done = await read(await retryPeriod(api, cookie, id))
+  assert.equal(done.status, 409, 'it is in Odoo already')
+  assert.equal(api.odoo.away.adds.length, 2)
+
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'unknown', message: 'Niet zeker.' })
+  const unsure = (await read(await addPeriod(api, cookie, { from: '2026-10-20', to: '2026-10-20' }))).json.period.id as string
+  const blocked = await read(await retryPeriod(api, cookie, unsure))
+  assert.equal(blocked.status, 409, 'it may exist: not sent again')
+  assert.match(blocked.json.error, /planner|Odoo/)
+  assert.equal(api.odoo.away.adds.length, 3)
+})
+
+test('trying again for a period that never went to Odoo, because the action was off: sent now, and still off is a clear answer', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'not_enabled', message: 'staat niet aan' })
+  const id = (await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-13' }))).json.period.id as string
+  const still = await read(await retryPeriod(api, cookie, id))
+  assert.equal(still.status, 409)
+  assert.match(still.json.error, /staat niet aan/)
+  api.odoo.away.addAnswer = () => ({ ok: true, leaveId: 903, verified: true })
+  const now = await read(await retryPeriod(api, cookie, id))
+  assert.equal(now.status, 200)
+  assert.equal(now.json.period.odoo.state, 'synced')
+})
+
+test('trying again: only the technician, only his own, and only when he is an Odoo employee', async () => {
+  const api = setup()
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'rejected', message: 'Geweigerd.' })
+  const own = await jan(api)
+  const other = await sanne(api)
+  const id = (await read(await addPeriod(api, own, { from: '2026-10-12', to: '2026-10-13' }))).json.period.id as string
+  assert.equal((await read(await retryPeriod(api, undefined, id))).status, 401)
+  assert.equal((await read(await retryPeriod(api, own, id, { csrf: false }))).status, 403)
+  assert.equal((await read(await retryPeriod(api, await planner(api), id))).status, 403)
+  assert.equal((await read(await retryPeriod(api, other, id))).status, 404, 'the period of someone else looks like it does not exist')
+  assert.equal((await read(await retryPeriod(api, own, 'p_bestaat_niet'))).status, 404)
+  api.accounts.create({ username: 'naam', name: 'Piet', role: 'monteur', personId: 'name:piet', password: PASSWORD })
+  const byName = (await login(api, 'naam')).cookie
+  const named = (await read(await addPeriod(api, byName, { from: '2026-10-12', to: '2026-10-13' }))).json.period.id as string
+  assert.equal((await read(await retryPeriod(api, byName, named))).status, 400)
+  assert.equal(api.odoo.away.adds.length, 1, 'none of these reached the gateway')
+  const off = setup({ mode: 'off' })
+  assert.equal((await read(await retryPeriod(off, undefined, 'p_1'))).status, 404)
+})
+
+test('removing a period that is in Odoo removes the record there first, using what was kept, not what the browser says', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  const id = (await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-13' }))).json.period.id as string
+  // The technician is linked to another employee afterwards; the record that was made is still removed for the employee it was made for.
+  api.accounts.update(janId(api), { personId: 'employee:8' })
+  const removed = await read(await removePeriod(api, (await login(api, 'jan')).cookie, id))
+  assert.equal(removed.status, 200)
+  assert.deepEqual(removed.json, { ok: true })
+  assert.deepEqual(api.odoo.away.removes, [{ employeeId: 7, leaveId: 901 }])
+  assert.deepEqual(stored(api), [])
+})
+
+test('removing: when Odoo refuses, is silent or the action is off, the period stays, and removing again is allowed', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  const id = (await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-13' }))).json.period.id as string
+  const cases: Array<[() => any, number, RegExp]> = [
+    [() => ({ ok: false, kind: 'rejected', message: 'Odoo heeft het verwijderen geweigerd. Er is niets verwijderd.' }), 502, /geweigerd/],
+    [() => ({ ok: false, kind: 'unknown', message: 'Niet zeker of de periode uit Odoo is verwijderd; probeer het opnieuw.' }), 504, /opnieuw/],
+    [() => ({ ok: false, kind: 'not_enabled', message: 'staat niet aan' }), 409, /Odoo/],
+  ]
+  for (const [answer, status, message] of cases) {
+    api.odoo.away.removeAnswer = answer
+    const refused = await read(await removePeriod(api, cookie, id))
+    assert.equal(refused.status, status)
+    assert.match(refused.json.error, message)
+    assert.equal(stored(api).length, 1, 'the period is still there')
+  }
+  api.odoo.away.removeAnswer = () => ({ ok: true, removed: false })
+  assert.equal((await read(await removePeriod(api, cookie, id))).status, 200, 'already gone in Odoo: gone here too')
+  assert.deepEqual(stored(api), [])
+})
+
+test('removing a period that never reached Odoo, or failed, asks Odoo nothing; one that may exist says so', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'rejected', message: 'Geweigerd.' })
+  const failed = (await read(await addPeriod(api, cookie, { from: '2026-10-12', to: '2026-10-12' }))).json.period.id as string
+  assert.deepEqual(await read(await removePeriod(api, cookie, failed)).then((answer) => answer.json), { ok: true })
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'not_enabled', message: 'x' })
+  const none = (await read(await addPeriod(api, cookie, { from: '2026-10-14', to: '2026-10-14' }))).json.period.id as string
+  assert.equal((await read(await removePeriod(api, cookie, none))).status, 200)
+  api.odoo.away.addAnswer = () => ({ ok: false, kind: 'unknown', message: 'Niet zeker.' })
+  const unsure = (await read(await addPeriod(api, cookie, { from: '2026-10-16', to: '2026-10-16' }))).json.period.id as string
+  const answer = await read(await removePeriod(api, cookie, unsure))
+  assert.equal(answer.status, 200)
+  assert.match(answer.json.warning, /niet zeker/i)
+  assert.equal(api.odoo.away.removes.length, 0)
+  assert.deepEqual(stored(api), [])
 })

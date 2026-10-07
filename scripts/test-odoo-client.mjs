@@ -296,7 +296,7 @@ test('employee read-back: one fixed hr.employee record in the company; user_id f
   const calls = []
   const rows = [{ id: 41, name: 'Jan de Vries', company_id: [2, 'DIG'], user_id: false, active: true }]
   const client = createOdooClient({ ...base, fetch: mockFetch(200, rows, calls) })
-  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true })
+  assert.deepEqual(await client.readEmployee({ id: 41, companyId: 2 }), { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null })
   assert.equal(calls[0].url, 'https://odoo.example.com/json/2/hr.employee/search_read')
   const body = JSON.parse(calls[0].init.body)
   // No company in the domain: an employee that ended up in another company is reported as such, not as missing.
@@ -433,4 +433,92 @@ test('change the roles: odd values are refused before anything is sent; the outc
   await assert.rejects(odd.setEmployeePlanningRoles({ id: 41, companyId: 2, planningRoleIds: [3] }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown', 'an answer that is not `true` leaves the outcome open')
   const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
   await assert.rejects(down.setEmployeePlanningRoles({ id: 41, companyId: 2, planningRoleIds: [3] }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
+})
+
+// ---- unavailability of one employee (resource.calendar.leaves) ----
+
+test('employee read-back with resource: also reads the resource, the working schedule and the time zone, as they are', async () => {
+  const calls = []
+  const row = { id: 41, name: 'Jan', company_id: [2, 'DIG'], user_id: false, active: true, resource_id: [77, 'Jan'], resource_calendar_id: [5, 'Standaard 40 uur'], tz: 'Europe/Amsterdam' }
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [row], calls) })
+  const record = await client.readEmployee({ id: 41, companyId: 2, resource: true })
+  assert.deepEqual(JSON.parse(calls[0].init.body).fields, ['id', 'name', 'company_id', 'user_id', 'active', 'resource_id', 'resource_calendar_id', 'tz'])
+  assert.deepEqual([record.resourceId, record.resourceCalendarId, record.tz], [77, 5, 'Europe/Amsterdam'])
+  const plain = await createOdooClient({ ...base, fetch: mockFetch(200, [row]) }).readEmployee({ id: 41, companyId: 2 })
+  assert.deepEqual([plain.resourceId, plain.resourceCalendarId, plain.tz], [null, null, null], 'not asked for: not read, not guessed')
+  const odd = await createOdooClient({ ...base, fetch: mockFetch(200, [{ ...row, resource_id: false, resource_calendar_id: false, tz: false }]) }).readEmployee({ id: 41, companyId: 2, resource: true })
+  assert.deepEqual([odd.resourceId, odd.resourceCalendarId, odd.tz], [null, null, null])
+  const weird = await createOdooClient({ ...base, fetch: mockFetch(200, [{ ...row, tz: 5 }]) }).readEmployee({ id: 41, companyId: 2, resource: true })
+  assert.equal(weird.tz, null)
+})
+
+const leave = { name: '[Dashboard] Niet beschikbaar: Vakantie', resourceId: 77, calendarId: 5, companyId: 2, dateFrom: '2026-10-11 22:00:00', dateTo: '2026-10-13 21:59:59' }
+
+test('unavailability: one create of one resource.calendar.leaves with only the fixed values, and the id Odoo confirms', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [901], calls) })
+  const id = await client.createUnavailability({ ...leave, user_id: 5, vals: { active: false }, company_id: 9 })
+  assert.equal(id, 901)
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/resource.calendar.leaves/create')
+  const body = JSON.parse(calls[0].init.body)
+  assert.deepEqual(body.vals_list, [{ name: '[Dashboard] Niet beschikbaar: Vakantie', resource_id: 77, calendar_id: 5, date_from: '2026-10-11 22:00:00', date_to: '2026-10-13 21:59:59' }], 'nothing else is written')
+  assert.deepEqual(body.context.allowed_company_ids, [2])
+  await client.createUnavailability({ ...leave, calendarId: null })
+  assert.equal('calendar_id' in JSON.parse(calls[1].init.body).vals_list[0], false, 'no calendar: none sent')
+})
+
+test('unavailability: odd values are refused before anything is sent; the outcome of a failure is told as it is', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [901], calls) })
+  for (const extra of [
+    { name: '' }, { name: '  ' }, { name: 'x'.repeat(256) }, { name: 'twee\nregels' }, { name: 5 }, { resourceId: 0 }, { resourceId: '77' }, { resourceId: null }, { calendarId: 0 }, { calendarId: '5' }, { companyId: 0 },
+    { dateFrom: '2026-10-11' }, { dateFrom: '2026-10-11T22:00:00' }, { dateFrom: '2026-13-11 22:00:00' }, { dateTo: '2026-10-13 25:00:00' }, { dateTo: 5 },
+    { dateFrom: '2026-10-13 22:00:00', dateTo: '2026-10-13 22:00:00' }, { dateFrom: '2026-10-14 00:00:00' },
+  ]) {
+    await assert.rejects(client.createUnavailability({ ...leave, ...extra }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected', JSON.stringify(extra))
+  }
+  assert.equal(calls.length, 0)
+  const refused = createOdooClient({ ...base, fetch: mockFetch(403, { name: 'odoo.exceptions.AccessError', message: 'no' }) })
+  await assert.rejects(refused.createUnavailability(leave), (error) => error instanceof OdooWriteError && error.outcome === 'rejected')
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, true) })
+  await assert.rejects(odd.createUnavailability(leave), (error) => error instanceof OdooWriteError && error.outcome === 'unknown', 'no id: the record may exist')
+  const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
+  await assert.rejects(down.createUnavailability(leave), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
+})
+
+test('unavailability read-back: one fixed record by id, with the resource as an id', async () => {
+  const calls = []
+  const row = { id: 901, name: '[Dashboard] Niet beschikbaar', resource_id: [77, 'Jan'], calendar_id: [5, 'Standaard'], date_from: '2026-10-11 22:00:00', date_to: '2026-10-13 21:59:59' }
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [row], calls) })
+  assert.deepEqual(await client.readUnavailability({ id: 901, companyId: 2 }), { id: 901, name: '[Dashboard] Niet beschikbaar', resourceId: 77, dateFrom: '2026-10-11 22:00:00', dateTo: '2026-10-13 21:59:59' })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/resource.calendar.leaves/search_read')
+  const body = JSON.parse(calls[0].init.body)
+  assert.deepEqual(body.domain, [['id', '=', 901]])
+  assert.deepEqual(body.fields, ['id', 'name', 'resource_id', 'date_from', 'date_to'])
+  assert.equal(body.limit, 1)
+  assert.equal(await createOdooClient({ ...base, fetch: mockFetch(200, []) }).readUnavailability({ id: 901, companyId: 2 }), null)
+  const global = await createOdooClient({ ...base, fetch: mockFetch(200, [{ ...row, resource_id: false }]) }).readUnavailability({ id: 901, companyId: 2 })
+  assert.equal(global?.resourceId, null, 'a leave of nobody in particular has no resource')
+  await assert.rejects(client.readUnavailability({ id: 0, companyId: 2 }), OdooError)
+  await assert.rejects(createOdooClient({ ...base, fetch: mockFetch(200, { x: 1 }) }).readUnavailability({ id: 901, companyId: 2 }), OdooError)
+})
+
+test('unavailability removal: one unlink of one record, nothing else; the outcome of a failure is told as it is', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, true, calls) })
+  await client.removeUnavailability({ id: 901, companyId: 2, ids: [1, 2] })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/resource.calendar.leaves/unlink')
+  const body = JSON.parse(calls[0].init.body)
+  assert.deepEqual(body.ids, [901], 'one record')
+  assert.deepEqual(Object.keys(body).sort(), ['context', 'ids'])
+  for (const extra of [{ id: 0 }, { id: -1 }, { id: '901' }, { companyId: 0 }]) {
+    await assert.rejects(client.removeUnavailability({ id: 901, companyId: 2, ...extra }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected', JSON.stringify(extra))
+  }
+  assert.equal(calls.length, 1)
+  const refused = createOdooClient({ ...base, fetch: mockFetch(403, { name: 'odoo.exceptions.AccessError', message: 'no' }) })
+  await assert.rejects(refused.removeUnavailability({ id: 901, companyId: 2 }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected')
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, [901]) })
+  await assert.rejects(odd.removeUnavailability({ id: 901, companyId: 2 }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
+  const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
+  await assert.rejects(down.removeUnavailability({ id: 901, companyId: 2 }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
 })

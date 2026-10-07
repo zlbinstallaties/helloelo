@@ -118,3 +118,18 @@ test('the action that changes planning roles: off by default, may be empty, and 
     assert.throws(() => parseProjects(create(value)), /setEmployeePlanningRoles/, JSON.stringify(value))
   }
 })
+
+test('the action that marks an employee as not available: off by default, may be empty, has its own cap, and gives no other right', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.employeeUnavailability, undefined)
+  const [plain] = parseProjects(config({ actions: { employeeUnavailability: {} } }))
+  assert.deepEqual(plain.actions.employeeUnavailability, { maxPerHour: 100 })
+  assert.equal(plain.actions.createEmployee, undefined)
+  assert.equal(plain.actions.setEmployeePlanningRoles, undefined)
+  const [capped] = parseProjects(config({ actions: { employeeUnavailability: { maxPerHour: 5 } } }))
+  assert.deepEqual(capped.actions.employeeUnavailability, { maxPerHour: 5 })
+  const create = (value: unknown) => config({ actions: { employeeUnavailability: value } })
+  for (const value of [null, 'ja', [], { responsibleUserId: 9 }, { allowedPlanningRoleIds: [3] }, { resourceId: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }]) {
+    assert.throws(() => parseProjects(create(value)), /employeeUnavailability/, JSON.stringify(value))
+  }
+})

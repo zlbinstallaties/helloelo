@@ -28,6 +28,7 @@ import { Route as ApiAvailabilityIndexRouteImport } from './routes/api/availabil
 import { Route as ApiAvailabilityIdRouteImport } from './routes/api/availability/$id'
 import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
 import { Route as ApiAccountsIdPlanningRolesRouteImport } from './routes/api/accounts/$id.planning-roles'
+import { Route as ApiAvailabilityIdRetryRouteImport } from './routes/api/availability/$id.retry'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -125,6 +126,11 @@ const ApiAccountsIdPlanningRolesRoute =
     path: '/planning-roles',
     getParentRoute: () => ApiAccountsIdRoute,
   } as any)
+const ApiAvailabilityIdRetryRoute = ApiAvailabilityIdRetryRouteImport.update({
+  id: '/retry',
+  path: '/retry',
+  getParentRoute: () => ApiAvailabilityIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -141,11 +147,12 @@ export interface FileRoutesByFullPath {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
-  '/api/availability/$id': typeof ApiAvailabilityIdRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -162,11 +169,12 @@ export interface FileRoutesByTo {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
-  '/api/availability/$id': typeof ApiAvailabilityIdRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
   '/api/accounts': typeof ApiAccountsIndexRoute
   '/api/availability': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -184,11 +192,12 @@ export interface FileRoutesById {
   '/api/auth/logout': typeof ApiAuthLogoutRoute
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
-  '/api/availability/$id': typeof ApiAvailabilityIdRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
   '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -212,6 +221,7 @@ export interface FileRouteTypes {
     | '/api/availability/'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -233,6 +243,7 @@ export interface FileRouteTypes {
     | '/api/availability'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
   id:
     | '__root__'
     | '/'
@@ -254,6 +265,7 @@ export interface FileRouteTypes {
     | '/api/availability/'
     | '/api/accounts/$id/password'
     | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -271,7 +283,7 @@ export interface RootRouteChildren {
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
   ApiAuthMeRoute: typeof ApiAuthMeRoute
   ApiAuthPasswordRoute: typeof ApiAuthPasswordRoute
-  ApiAvailabilityIdRoute: typeof ApiAvailabilityIdRoute
+  ApiAvailabilityIdRoute: typeof ApiAvailabilityIdRouteWithChildren
   ApiAccountsIndexRoute: typeof ApiAccountsIndexRoute
   ApiAvailabilityIndexRoute: typeof ApiAvailabilityIndexRoute
 }
@@ -411,6 +423,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAccountsIdPlanningRolesRouteImport
       parentRoute: typeof ApiAccountsIdRoute
     }
+    '/api/availability/$id/retry': {
+      id: '/api/availability/$id/retry'
+      path: '/retry'
+      fullPath: '/api/availability/$id/retry'
+      preLoaderRoute: typeof ApiAvailabilityIdRetryRouteImport
+      parentRoute: typeof ApiAvailabilityIdRoute
+    }
   }
 }
 
@@ -428,6 +447,17 @@ const ApiAccountsIdRouteWithChildren = ApiAccountsIdRoute._addFileChildren(
   ApiAccountsIdRouteChildren,
 )
 
+interface ApiAvailabilityIdRouteChildren {
+  ApiAvailabilityIdRetryRoute: typeof ApiAvailabilityIdRetryRoute
+}
+
+const ApiAvailabilityIdRouteChildren: ApiAvailabilityIdRouteChildren = {
+  ApiAvailabilityIdRetryRoute: ApiAvailabilityIdRetryRoute,
+}
+
+const ApiAvailabilityIdRouteWithChildren =
+  ApiAvailabilityIdRoute._addFileChildren(ApiAvailabilityIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
@@ -443,7 +473,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
   ApiAuthMeRoute: ApiAuthMeRoute,
   ApiAuthPasswordRoute: ApiAuthPasswordRoute,
-  ApiAvailabilityIdRoute: ApiAvailabilityIdRoute,
+  ApiAvailabilityIdRoute: ApiAvailabilityIdRouteWithChildren,
   ApiAccountsIndexRoute: ApiAccountsIndexRoute,
   ApiAvailabilityIndexRoute: ApiAvailabilityIndexRoute,
 }

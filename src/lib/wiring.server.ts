@@ -8,7 +8,7 @@ import { AvailabilityFileError, createAvailabilityStore } from '#/lib/availabili
 import { getDigDashboardData } from '#/lib/cache'
 import { createJournal } from '#/lib/employee-journal'
 import { JournalFileError } from '#/lib/employee-journal'
-import { createEmployee, getEmployeeRoles, listPlanningRoles, setEmployeeRoles } from '#/lib/gateway.server'
+import { addUnavailability, createEmployee, getEmployeeRoles, listPlanningRoles, removeUnavailability, setEmployeeRoles } from '#/lib/gateway.server'
 import { createHandlers } from '#/lib/handlers'
 import type { Handlers } from '#/lib/handlers'
 import { generatePassword, isPasswordHash } from '#/lib/password'
@@ -121,6 +121,8 @@ export function getHandlers(): Handlers {
     listPlanningRoles,
     getEmployeeRoles,
     setEmployeeRoles,
+    addUnavailability,
+    removeUnavailability,
     generatePassword,
   })
   return cached

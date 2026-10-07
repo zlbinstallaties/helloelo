@@ -168,3 +168,50 @@ test('hr.employee write: the roles are replaced as a whole, and a default that i
     assert.deepEqual(row, { planning_role_ids: [2], default_planning_role_id: false })
   })
 })
+
+test('an employee has a resource, a working schedule and a time zone, as Odoo has', async () => {
+  await withDemo(async ({ call }) => {
+    await call('hr.employee', 'create', { vals_list: [vals], context })
+    const read = await call('hr.employee', 'search_read', { domain: [['id', '=', 900]], fields: ['resource_id', 'resource_calendar_id', 'tz'], limit: 1, context })
+    assert.deepEqual(read.body, [{ resource_id: [5900, 'Piet Proef'], resource_calendar_id: [1, 'Standaard 40 uur'], tz: 'Europe/Amsterdam' }])
+  })
+})
+
+test('resource.calendar.leaves: one record for the resource of an employee, read back by id, and removed', async () => {
+  await withDemo(async ({ call, demo, lines }) => {
+    await call('hr.employee', 'create', { vals_list: [vals], context })
+    const leave = { name: '[Dashboard] Niet beschikbaar: Vakantie', resource_id: 5900, calendar_id: 1, date_from: '2026-10-11 22:00:00', date_to: '2026-10-13 21:59:59' }
+    const created = await call('resource.calendar.leaves', 'create', { vals_list: [leave], context })
+    assert.deepEqual([created.status, created.body], [200, [7000]])
+    assert.match(lines.join('\n'), /CREATE resource\.calendar\.leaves .*"resource_id":5900/)
+    const read = await call('resource.calendar.leaves', 'search_read', { domain: [['id', '=', 7000]], fields: ['id', 'name', 'resource_id', 'date_from', 'date_to'], limit: 1, context })
+    assert.deepEqual(read.body, [{ id: 7000, name: leave.name, resource_id: [5900, 'Piet Proef'], date_from: leave.date_from, date_to: leave.date_to }])
+    assert.deepEqual((await call('resource.calendar.leaves', 'search_read', { domain: [['id', '=', 7001]], fields: ['id'], context })).body, [])
+    const removed = await call('resource.calendar.leaves', 'unlink', { ids: [7000], context })
+    assert.deepEqual([removed.status, removed.body], [200, true])
+    assert.equal(demo.leaves.length, 0)
+    assert.equal((await call('resource.calendar.leaves', 'unlink', { ids: [7000], context })).status, 404, 'a record that is gone is an error, as in Odoo')
+  })
+})
+
+test('resource.calendar.leaves is as strict as Odoo: unknown fields, unknown resource, odd dates and an end before the start are errors', async () => {
+  await withDemo(async ({ call, demo }) => {
+    await call('hr.employee', 'create', { vals_list: [vals], context })
+    const leave = { name: 'x', resource_id: 5900, date_from: '2026-10-11 22:00:00', date_to: '2026-10-13 21:59:59' }
+    const fails = async (extra) => {
+      const answer = await call('resource.calendar.leaves', 'create', { vals_list: [{ ...leave, ...extra }], context })
+      assert.equal(answer.status, 500, JSON.stringify(extra))
+    }
+    await fails({ user_id: 2 })
+    await fails({ company_id: 2 })
+    await fails({ resource_id: 99 })
+    await fails({ resource_id: false })
+    await fails({ calendar_id: 9 })
+    await fails({ name: '  ' })
+    await fails({ date_from: '2026-10-11' })
+    await fails({ date_to: '2026-10-11 22:00:00' })
+    await fails({ date_from: '2026-10-14 00:00:00' })
+    assert.equal((await call('resource.calendar.leaves', 'create', { vals: leave, context })).status, 422)
+    assert.equal(demo.leaves.length, 0, 'nothing was created')
+  })
+})

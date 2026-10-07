@@ -28,7 +28,7 @@ De gateway leest de configuratie uit zijn eigen omgeving (`gateway/src/main.ts`)
   `user_id: false` en `date_version`. Er is geen parameter voor een ander veld, een ander model of een Odoo-gebruiker.
   Een fout met een antwoord van Odoo is `rejected` (er is niets aangemaakt); alles waarbij een bruikbaar antwoord
   ontbreekt is `unknown` (de medewerker kan bestaan). Daarnaast twee vaste leesacties: `checkResponsible` (één
-  `res.users`-record, vier velden) en `readEmployee` (één `hr.employee`-record, vijf velden).
+  `res.users`-record, vier velden) en `readEmployee` (één `hr.employee`-record, vijf velden). Daarnaast de smalle schrijfacties `setEmployeePlanningRoles`, `createUnavailability` en `removeUnavailability` (één `resource.calendar.leaves`-record met vaste velden, geen dienst of planning) en de vaste lezing `readUnavailability`.
 - Modelallowlist en verplicht company-filter (domain + context), vastgelegd bij het aanmaken van de
   client.
 - De API-key staat alleen in de Authorization-header en komt niet in foutmeldingen.

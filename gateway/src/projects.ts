@@ -48,9 +48,19 @@ export interface SetPlanningRolesPolicy {
   allowedPlanningRoleIds: readonly number[] | null
 }
 
+/**
+ * Marking that ONE employee is not available in a period (a `resource.calendar.leaves`: no shift, no planning), and removing
+ * what the dashboard marked itself. Off unless the project asks for it.
+ */
+export interface EmployeeUnavailabilityPolicy {
+  /** The most periods that may be added per hour, per project. */
+  maxPerHour: number
+}
+
 export interface ProjectActions {
   createEmployee?: CreateEmployeePolicy
   setEmployeePlanningRoles?: SetPlanningRolesPolicy
+  employeeUnavailability?: EmployeeUnavailabilityPolicy
 }
 
 export interface Project {
@@ -62,9 +72,11 @@ export interface Project {
   tokenSha256: Buffer
 }
 
-export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles'] as const
+export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability'] as const
 const DEFAULT_MAX_PER_HOUR = 20
 const HARD_MAX_PER_HOUR = 200
+/** All technicians of a company share one cap, and many fill in their holidays at the same moment. */
+const DEFAULT_UNAVAILABILITY_PER_HOUR = 100
 const MAX_ALLOWED_ROLES = 50
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
@@ -113,8 +125,8 @@ function parseAllowedRoles(projectId: string, action: string, value: unknown): n
   return allowed as number[] | null
 }
 
-function parseMaxPerHour(projectId: string, action: string, value: unknown): number {
-  const maxPerHour = value ?? DEFAULT_MAX_PER_HOUR
+function parseMaxPerHour(projectId: string, action: string, value: unknown, fallback = DEFAULT_MAX_PER_HOUR): number {
+  const maxPerHour = value ?? fallback
   if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
     fail(`${projectId}: ${action}.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
   }
@@ -162,6 +174,17 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
       maxPerHour: parseMaxPerHour(projectId, 'setEmployeePlanningRoles', entry.maxPerHour),
       allowedPlanningRoleIds: parseAllowedRoles(projectId, 'setEmployeePlanningRoles', entry.allowedPlanningRoleIds),
     }
+  }
+
+  if (actions.employeeUnavailability !== undefined) {
+    const entry = actions.employeeUnavailability as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: employeeUnavailability must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (key !== 'maxPerHour') fail(`${projectId}: employeeUnavailability has an unknown setting ${key}`)
+    }
+    result.employeeUnavailability = { maxPerHour: parseMaxPerHour(projectId, 'employeeUnavailability', entry.maxPerHour, DEFAULT_UNAVAILABILITY_PER_HOUR) }
   }
   return result
 }

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, setEmployeeRolesViaGateway } from '../src/lib/gateway-employee.ts'
+import { addUnavailabilityViaGateway, createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, removeUnavailabilityViaGateway, setEmployeeRolesViaGateway } from '../src/lib/gateway-employee.ts'
 import type { GatewayOutcome } from '../src/lib/gateway-employee.ts'
 
 const TOKEN = 'gateway-token-very-secret'
@@ -253,5 +253,98 @@ test('changing the roles: every refusal says that nothing was changed, and an un
     const result = await fail(reply)
     assert.match(result.message, /opnieuw/)
     assert.match(result.message, /Open de medewerker in Odoo/)
+  }
+})
+
+// ---------------------------------------------------------------- not available (resource.calendar.leaves)
+
+const period = { requestId: 'p_0123456789abcdef0123456789abcdef', employeeId: 41, from: '2026-10-12', to: '2026-10-13', note: 'Vakantie' }
+const addAway = (reply: () => Response | Promise<Response>, input: Partial<typeof period> = {}) =>
+  viaGateway((fetchImpl) => addUnavailabilityViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, ...period, ...input, fetchImpl }), reply)
+const removeAway = (reply: () => Response | Promise<Response>, employeeId = 41, leaveId = 901) =>
+  viaGateway((fetchImpl) => removeUnavailabilityViaGateway({ url: 'http://odoo-gateway:8070', token: TOKEN, employeeId, leaveId, fetchImpl }), reply)
+
+test('marking not available: the request has the request id, the employee, the days and the note, and nothing else', async () => {
+  const { calls, result } = addAway(() => answer(200, { id: 901, employeeId: 41, from: '2026-10-12', to: '2026-10-13', verified: true }))
+  assert.deepEqual(await result, { ok: true, leaveId: 901, verified: true })
+  assert.equal(calls[0].url, 'http://odoo-gateway:8070/v1/actions/add_employee_unavailability')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal((calls[0].init.headers as Record<string, string>).authorization, `Bearer ${TOKEN}`)
+  assert.deepEqual(JSON.parse(calls[0].init.body as string), period)
+  const none = addAway(() => answer(200, { id: 901, verified: false }), { note: '' })
+  assert.deepEqual(await none.result, { ok: true, leaveId: 901, verified: false })
+  assert.deepEqual(JSON.parse(none.calls[0].init.body as string), { requestId: period.requestId, employeeId: 41, from: '2026-10-12', to: '2026-10-13' }, 'no note: none sent')
+})
+
+test('marking not available: an employee that is not an id is not even asked', async () => {
+  for (const employeeId of [0, -1, 1.5, Number.NaN]) {
+    const { calls, result } = addAway(() => answer(200, { id: 901 }), { employeeId })
+    const outcome = await result
+    assert.equal(outcome.ok, false)
+    assert.equal(calls.length, 0)
+  }
+})
+
+test('marking not available: what each answer means: not switched on, refused (nothing marked), or unclear (it may exist)', async () => {
+  const kind = async (reply: () => Response | Promise<Response>) => {
+    const outcome = (await addAway(reply).result) as { ok: false; kind: string; message: string }
+    assert.equal(outcome.ok, false)
+    return outcome
+  }
+  assert.equal((await kind(() => answer(403, { error: 'action_not_allowed' }))).kind, 'not_enabled')
+  const token = await kind(() => answer(401, { error: 'unauthorized' }))
+  assert.equal(token.kind, 'rejected', 'a token that does not work is a visible failure, not a quiet "off"')
+  assert.match(token.message, /token/)
+  for (const [status, body, expected] of [
+    [404, { error: 'employee_not_found' }, /bestaat niet/], [409, { error: 'employee_has_no_resource' }, /resource/], [409, { error: 'employee_timezone_unknown' }, /tijdzone/],
+    [429, { error: 'rate_limited' }, /te veel/], [400, { error: 'invalid_dates' }, /geweigerd/], [502, { error: 'odoo_rejected', message: 'odoo.exceptions.AccessError' }, /AccessError/],
+    [502, { error: 'odoo_error', message: 'upstream status 500' }, /niet naar Odoo gestuurd/], [504, { error: 'odoo_timeout' }, /niet naar Odoo gestuurd/],
+  ] as const) {
+    const refused = await kind(() => answer(status, body))
+    assert.equal(refused.kind, 'rejected', `${status} ${JSON.stringify(body)}`)
+    assert.match(refused.message, expected)
+  }
+  for (const reply of [
+    () => answer(504, { error: 'outcome_unknown' }), () => answer(409, { error: 'outcome_unknown' }), () => answer(409, { error: 'in_progress' }), () => answer(500, { error: 'internal_error' }),
+    () => answer(200, { verified: true }), () => answer(200, 'geen json'), () => { throw new TypeError('connection reset') },
+  ]) {
+    const unclear = await kind(reply)
+    assert.equal(unclear.kind, 'unknown')
+    assert.match(unclear.message, /niet zeker|controleer/)
+  }
+})
+
+test('marking not available: free text of Odoo is not passed on, only a plain class name', async () => {
+  const outcome = (await addAway(() => answer(502, { error: 'odoo_rejected', message: 'Jan de Vries, Straat 1: niet toegestaan' })).result) as { message: string }
+  assert.ok(!outcome.message.includes('Jan de Vries'))
+})
+
+test('removing: the request has the employee and the record, and nothing else; the answer says whether something was removed', async () => {
+  const { calls, result } = removeAway(() => answer(200, { leaveId: 901, removed: true }))
+  assert.deepEqual(await result, { ok: true, removed: true })
+  assert.equal(calls[0].url, 'http://odoo-gateway:8070/v1/actions/remove_employee_unavailability')
+  assert.deepEqual(JSON.parse(calls[0].init.body as string), { employeeId: 41, leaveId: 901 })
+  assert.deepEqual(await removeAway(() => answer(200, { leaveId: 901, removed: false, alreadyGone: true })).result, { ok: true, removed: false })
+  for (const reply of [() => answer(404, { error: 'unavailability_not_found' }), () => answer(404, { error: 'employee_not_found' })]) {
+    assert.deepEqual(await removeAway(reply).result, { ok: true, removed: false }, 'nothing of the dashboard there: nothing to remove')
+  }
+  for (const [employeeId, leaveId] of [[0, 901], [41, 0], [41, 1.5], [-1, 901]]) {
+    const { calls: sent, result: outcome } = removeAway(() => answer(200, { removed: true }), employeeId, leaveId)
+    assert.equal((await outcome).ok, false)
+    assert.equal(sent.length, 0)
+  }
+})
+
+test('removing: not switched on, refused, or unclear are told apart', async () => {
+  const kind = async (reply: () => Response | Promise<Response>) => (await removeAway(reply).result) as { ok: false; kind: string; message: string }
+  assert.equal((await kind(() => answer(403, { error: 'action_not_allowed' }))).kind, 'not_enabled')
+  assert.equal((await kind(() => answer(401, { error: 'unauthorized' }))).kind, 'rejected')
+  for (const [status, body] of [[429, { error: 'rate_limited' }], [502, { error: 'odoo_rejected', message: 'odoo.exceptions.AccessError' }], [502, { error: 'odoo_error' }], [504, { error: 'odoo_timeout' }], [409, { error: 'employee_has_no_resource' }], [400, { error: 'invalid_leave_id' }]] as const) {
+    assert.equal((await kind(() => answer(status, body))).kind, 'rejected', String(status))
+  }
+  for (const reply of [() => answer(504, { error: 'outcome_unknown' }), () => answer(500, {}), () => answer(200, { removed: 'ja' }), () => answer(200, 'geen json'), () => { throw new TypeError('connection reset') }]) {
+    const unclear = await kind(reply)
+    assert.equal(unclear.kind, 'unknown')
+    assert.match(unclear.message, /opnieuw|niet zeker/)
   }
 })

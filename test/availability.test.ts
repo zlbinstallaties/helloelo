@@ -185,3 +185,44 @@ test('without a given id generator the ids are different every time', () => {
   assert.notEqual(first.id, second.id)
   assert.match(first.id, /^p_[0-9a-f]{32}$/)
 })
+
+test('what is known of the record in Odoo is kept with the period, and can be changed or cleared', () => {
+  const { store, file } = setup()
+  const period = add(store, '2026-10-12', '2026-10-13')
+  assert.equal(period.odoo, undefined, 'a new period is only in the dashboard')
+  store.setOdoo(period.id, { employeeId: 7, state: 'synced', leaveId: 901, verified: true })
+  assert.deepEqual(store.list()[0].odoo, { employeeId: 7, state: 'synced', leaveId: 901, verified: true })
+  store.setOdoo(period.id, { employeeId: 7, state: 'failed', message: 'Odoo heeft het geweigerd.' })
+  assert.deepEqual(store.list()[0].odoo, { employeeId: 7, state: 'failed', message: 'Odoo heeft het geweigerd.' })
+  store.setOdoo(period.id, { employeeId: 7, state: 'unknown', message: 'Niet zeker.' })
+  assert.equal(store.list()[0].odoo?.state, 'unknown')
+  store.setOdoo(period.id, null)
+  assert.equal(store.list()[0].odoo, undefined)
+  assert.equal('odoo' in JSON.parse(file.text as string).periods[0], false, 'nothing about Odoo in the file')
+  assert.equal(code(() => store.setOdoo('p_99', null)), 'not_found')
+})
+
+test('finding a period: only for its owner', () => {
+  const { store } = setup()
+  const own = add(store, '2026-10-12', '2026-10-13')
+  assert.equal(store.find(own.id, 'u_jan')?.id, own.id)
+  assert.equal(store.find(own.id, 'u_sanne'), undefined)
+  assert.equal(store.find('p_99', 'u_jan'), undefined)
+})
+
+test('the part about Odoo in the file is checked too', () => {
+  const good = { id: 'p_1', accountId: 'u_jan', from: '2026-10-12', to: '2026-10-13', note: '', createdAt: '2026-10-07T10:00:00.000Z' }
+  const broken = (odoo: unknown) => {
+    const damaged = setup()
+    damaged.file.text = JSON.stringify({ version: 1, periods: [{ ...good, odoo }] })
+    assert.throws(() => damaged.store.list(), AvailabilityFileError, JSON.stringify(odoo))
+  }
+  for (const odoo of [
+    'synced', 5, [], { state: 'synced', leaveId: 901, verified: true }, { employeeId: 0, state: 'synced', leaveId: 901, verified: true },
+    { employeeId: 7, state: 'synced', leaveId: 0, verified: true }, { employeeId: 7, state: 'synced', leaveId: 901 }, { employeeId: 7, state: 'synced', leaveId: 901, verified: 'ja' },
+    { employeeId: 7, state: 'failed' }, { employeeId: 7, state: 'unknown', message: 5 }, { employeeId: 7, state: 'failed', message: 'x'.repeat(301) }, { employeeId: 7, state: 'klaar', leaveId: 901, verified: true },
+  ]) broken(odoo)
+  const fine = setup()
+  fine.file.text = JSON.stringify({ version: 1, periods: [{ ...good, odoo: { employeeId: 7, state: 'synced', leaveId: 901, verified: false } }] })
+  assert.equal(fine.store.list()[0].odoo?.state, 'synced')
+})

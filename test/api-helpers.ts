@@ -3,7 +3,7 @@ import type { AccountIo } from '../src/lib/accounts.ts'
 import { createAuth } from '../src/lib/auth.ts'
 import { createAvailabilityStore } from '../src/lib/availability.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
-import type { EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
+import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
 import { hashPassword } from '../src/lib/password.ts'
 import { createLoginLimiter, createSessions } from '../src/lib/sessions.ts'
@@ -79,6 +79,13 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     employeeRoles: (): EmployeeRolesOutcome | Promise<EmployeeRolesOutcome> => ({ ok: true, planningRoleIds: [3, 4], defaultPlanningRoleId: 3 }),
     setRolesAnswer: (): SetRolesOutcome | Promise<SetRolesOutcome> => ({ ok: true, planningRoles: 2, asked: 2 }),
     reads: [] as number[],
+    /** What the gateway is asked about marking an employee as not available, and what it answers. */
+    away: {
+      adds: [] as Array<{ requestId: string; employeeId: number; from: string; to: string; note: string }>,
+      removes: [] as Array<{ employeeId: number; leaveId: number }>,
+      addAnswer: (): AddUnavailabilityOutcome | Promise<AddUnavailabilityOutcome> => ({ ok: true, leaveId: 901, verified: true }),
+      removeAnswer: (): RemoveUnavailabilityOutcome | Promise<RemoveUnavailabilityOutcome> => ({ ok: true, removed: true }),
+    },
     sets: [] as Array<{ employeeId: number; planningRoleIds: readonly number[] }>,
     outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
@@ -123,6 +130,14 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
         odoo.sets.push({ employeeId, planningRoleIds })
         return odoo.setRolesAnswer()
       }),
+    addUnavailability: async (input) => {
+      odoo.away.adds.push(input)
+      return odoo.away.addAnswer()
+    },
+    removeUnavailability: async (input) => {
+      odoo.away.removes.push(input)
+      return odoo.away.removeAnswer()
+    },
     generatePassword: () => GENERATED,
   })
   accounts.create({ username: 'jan', name: 'Jan de Vries', role: 'monteur', personId: 'employee:7', password: PASSWORD })

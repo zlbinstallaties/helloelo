@@ -52,6 +52,8 @@ const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
 const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
 const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
 const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
+const ADD_UNAVAILABILITY_ROUTE = '/v1/actions/add_employee_unavailability'
+const REMOVE_UNAVAILABILITY_ROUTE = '/v1/actions/remove_employee_unavailability'
 const EMPLOYEE_ROLES_ROUTE = /^\/v1\/employees\/([0-9]+)\/planning-roles$/
 const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 
@@ -228,6 +230,16 @@ export function createGateway(options: GatewayOptions) {
       // Not allowed for the project: refused before the body is even read.
       if (!ctx.project.actions.setEmployeePlanningRoles) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: setEmployeePlanningRoles')
       return actions.setEmployeePlanningRoles(ctx.project, await readJson(req), ctx)
+    }
+
+    if (url.pathname === ADD_UNAVAILABILITY_ROUTE || url.pathname === REMOVE_UNAVAILABILITY_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'resource.calendar.leaves'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.employeeUnavailability) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
+      const body = await readJson(req)
+      return url.pathname === ADD_UNAVAILABILITY_ROUTE ? actions.addEmployeeUnavailability(ctx.project, body, ctx) : actions.removeEmployeeUnavailability(ctx.project, body, ctx)
     }
 
     if (url.pathname === CREATE_EMPLOYEE_ROUTE) {

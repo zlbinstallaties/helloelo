@@ -96,7 +96,16 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
     },
     async readEmployee(params) {
       calls.push({ method: 'readEmployee', params })
-      return { id: params.id, name: lastName, companyId: params.companyId, planningRoleIds: params.planningRoles ? [...lastRoles] : null, defaultPlanningRoleId: params.planningRoles ? (lastRoles[0] ?? null) : null, userId: null, userLinked: false, active: true }
+      return { id: params.id, name: lastName, companyId: params.companyId, planningRoleIds: params.planningRoles ? [...lastRoles] : null, defaultPlanningRoleId: params.planningRoles ? (lastRoles[0] ?? null) : null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null }
+    },
+    async createUnavailability() {
+      throw new Error('unexpected call: createUnavailability')
+    },
+    async readUnavailability() {
+      throw new Error('unexpected call: readUnavailability')
+    },
+    async removeUnavailability() {
+      throw new Error('unexpected call: removeUnavailability')
     },
     ...overrides,
   }
@@ -384,10 +393,10 @@ test('two different people with the same name are two employees: there are such 
 
 test('read-back: an employee that came out with an Odoo user or in another company is reported, never as a success', async () => {
   for (const record of [
-    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: 5, userLinked: true, active: true },
-    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: true, active: true }, // a user is linked, its id was unreadable
-    { id: 41, name: 'Jan de Vries', companyId: 3, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true },
-    { id: 41, name: 'Jan de Vries', companyId: null, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true }, // company unreadable
+    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: 5, userLinked: true, active: true, resourceId: null, resourceCalendarId: null, tz: null },
+    { id: 41, name: 'Jan de Vries', companyId: 2, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: true, active: true, resourceId: null, resourceCalendarId: null, tz: null }, // a user is linked, its id was unreadable
+    { id: 41, name: 'Jan de Vries', companyId: 3, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null },
+    { id: 41, name: 'Jan de Vries', companyId: null, planningRoleIds: null, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null }, // company unreadable
   ]) {
     const { odoo, count } = fakeOdoo({ async readEmployee() { return record } })
     await withGateway(odoo, async (gw) => {
@@ -592,7 +601,7 @@ test('an error while checking the roles creates nothing and is not remembered', 
 
 test('what Odoo says about the roles after creating counts: fewer, none, extra ones, or no answer', async () => {
   type Read = (params: { id: number; companyId: number }) => ReturnType<OdooClient['readEmployee']>
-  const record = (planningRoleIds: number[] | null): Read => async (params) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true })
+  const record = (planningRoleIds: number[] | null): Read => async (params) => ({ id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null })
   const cases: Array<[Read, number]> = [
     [record([3]), 1], [record([]), 0], [record([3, 4, 9]), 2], [record(null), 0],
     [async () => { throw new OdooError('Odoo hr.employee read timed out', 0) }, 0],
@@ -610,7 +619,7 @@ test('what Odoo says about the roles after creating counts: fewer, none, extra o
 test('the roles do not change the safety checks: an Odoo user on the employee is still reported', async () => {
   const { odoo } = fakeOdoo({
     async readEmployee(params) {
-      return { id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [3, 4], defaultPlanningRoleId: null, userId: 5, userLinked: true, active: true }
+      return { id: params.id, name: 'Jan de Vries', companyId: params.companyId, planningRoleIds: [3, 4], defaultPlanningRoleId: null, userId: 5, userLinked: true, active: true, resourceId: null, resourceCalendarId: null, tz: null }
     },
   })
   await withGateway(odoo, async (gw) => {
@@ -655,7 +664,7 @@ test('read the roles of an employee: what Odoo has now, only with the action, on
   const { odoo, calls } = fakeOdoo({
     async readEmployee(params) {
       calls.push({ method: 'readEmployee', params })
-      return { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [4, 3], defaultPlanningRoleId: 4, userId: null, userLinked: false, active: true }
+      return { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [4, 3], defaultPlanningRoleId: 4, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null }
     },
   })
   await withGateway(odoo, async (gw) => {
@@ -675,7 +684,7 @@ test('read the roles of an employee: what Odoo has now, only with the action, on
 })
 
 test('read the roles: an employee that does not exist, or is archived, is not found', async () => {
-  for (const record of [null, { id: 41, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: false }]) {
+  for (const record of [null, { id: 41, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: false, resourceId: null, resourceCalendarId: null, tz: null }]) {
     const { odoo } = fakeOdoo({ async readEmployee() { return record } })
     await withGateway(odoo, async (gw) => {
       const answer = await getRoles(gw, 41)
@@ -748,7 +757,7 @@ test('an employee that is gone, or a role that is gone, stops the change: nothin
   let present = true
   const { odoo, count } = fakeOdoo({
     async readEmployee(params) {
-      return present ? { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: true } : null
+      return present ? { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null } : null
     },
     async checkPlanningRoles() { return found },
   })
@@ -793,7 +802,7 @@ test('Odoo refuses the change: an error; an unclear answer: another error; and a
 
 test('what Odoo says after the change is counted: fewer, none, extra ones, or no answer; the change itself still counts as done', async () => {
   type Read = (params: { id: number; companyId: number }) => ReturnType<OdooClient['readEmployee']>
-  const record = (planningRoleIds: number[] | null): Read => async (params) => ({ id: params.id, name: 'Jan', companyId: params.companyId, planningRoleIds, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true })
+  const record = (planningRoleIds: number[] | null): Read => async (params) => ({ id: params.id, name: 'Jan', companyId: params.companyId, planningRoleIds, defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null })
   const cases: Array<[Read, number]> = [[record([3]), 1], [record([]), 0], [record([3, 4, 9]), 2], [record(null), 0]]
   for (const [readEmployee, planningRoles] of cases) {
     const { odoo } = fakeOdoo({ readEmployee })
@@ -808,7 +817,7 @@ test('what Odoo says after the change is counted: fewer, none, extra ones, or no
     async readEmployee(params) {
       reads += 1
       if (reads > 1) throw new OdooError('Odoo hr.employee read timed out', 0)
-      return { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: true }
+      return { id: params.id, name: 'Jan', companyId: 2, planningRoleIds: [], defaultPlanningRoleId: null, userId: null, userLinked: false, active: true, resourceId: null, resourceCalendarId: null, tz: null }
     },
   })
   await withGateway(odoo, async (gw) => {

@@ -80,7 +80,7 @@ staan in `docs/verification.md`.
 - `docs/architecture.md`: huidige request- en dataarchitectuur
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
 - `docs/accounts.md`: accounts, inloggen en monteurs toevoegen (ook in Odoo, zonder Odoo-account)
-- `docs/beschikbaarheid.md`: monteurs geven door wanneer ze niet beschikbaar zijn (nu alleen in het dashboard)
+- `docs/beschikbaarheid.md`: monteurs geven door wanneer ze niet beschikbaar zijn (dashboard, en als één record per periode in Odoo)
 - `docs/proefrun-resultaten.md`: wat de agent op het dashboard deed en wat ik daarvan overnam
 - `RULES.md`: de projectregels die de agent bij elke opdracht leest
 

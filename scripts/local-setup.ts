@@ -17,7 +17,8 @@ import { generatePassword, hashPassword } from '../src/lib/password.ts'
  *
  * Without --responsible-id the dashboard cannot create employees in Odoo (the action stays off). The planning roles of
  * a technician are chosen by the admin in the dashboard, from the roles that exist in Odoo: when a technician is
- * added, and later per technician. With --responsible-id both actions are switched on, and nothing else.
+ * added, and later per technician. With --responsible-id both actions are switched on, and so is marking a technician as not available (his availability
+ * goes to Odoo as one record per period); nothing else is.
  */
 
 export interface LocalSetupOptions {
@@ -118,7 +119,7 @@ export function buildLocalSetup(options: LocalSetupOptions, secrets: LocalSetupS
     tokenSha256: sha256Hex(secrets.gatewayToken),
     companyId: options.companyId,
   }
-  if (options.responsibleId !== null) project.actions = { createEmployee: { responsibleUserId: options.responsibleId }, setEmployeePlanningRoles: {} }
+  if (options.responsibleId !== null) project.actions = { createEmployee: { responsibleUserId: options.responsibleId }, setEmployeePlanningRoles: {}, employeeUnavailability: {} }
   else delete project.actions
   const projects = { projects: [project] }
   parseProjects(projects) // throws when the gateway would refuse this file
@@ -208,6 +209,7 @@ function main() {
     out()
     out(`Monteur toevoegen in Odoo staat AAN met Odoo-gebruiker ${options.responsibleId} als verantwoordelijke (bedrijf ${options.companyId}).`)
     out('De planningsrollen van een monteur kies je in het dashboard (bij het toevoegen, en later bij Accounts), uit de rollen die in Odoo (Planning, Configuratie, Rollen) staan.')
+    out('De beschikbaarheid die een monteur doorgeeft, komt ook in Odoo (een niet-beschikbaar-record per periode; geen dienst of planning).')
   }
 }
 

@@ -158,6 +158,11 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
    **Later wijzigen:** kies bij Accounts bij de monteur **Planningsrollen**, vink andere rollen aan of uit en kies **Opslaan
    in Odoo**. Controleer in Odoo (Werknemers, veld *Functies* (Roles)) dat de rollen kloppen en dat er geen Odoo-gebruiker bij is gekomen.
    Zie je een foutmelding, stuur me die dan: dit is het deel dat nog niet tegen een echte Odoo 20 is gezien.
+   **Beschikbaarheid:** log in als de monteur (privévenster), kies **Beschikbaarheid** en geef een periode door met een opmerking. Het
+   label wordt **In Odoo**. Controleer in Odoo (Planning, het Gantt-overzicht van die medewerker voor die dagen, of via een
+   technische weergave van *Resource Time Off* / `resource.calendar.leaves`) dat er één record staat met de naam
+   `[Dashboard] Niet beschikbaar: <opmerking>` voor die medewerker, van 00:00 tot 23:59 jouw tijd, en dat Planning de dagen als niet
+   beschikbaar toont. Verwijder de periode in het dashboard: het record verdwijnt in Odoo. Zie `docs/beschikbaarheid.md`.
 4. Klik in het scherm nog eens op toevoegen met dezelfde gegevens (herhaling): er mag geen tweede medewerker komen.
 5. Log in als de nieuwe monteur: hij ziet alleen zijn eigen afspraken en geen Beheer. Hij staat pas in de lijst van de
    planning zodra hij is ingepland.

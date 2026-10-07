@@ -18,6 +18,10 @@
  * It cannot take another model, another field or another value for `user_id`.
  * Next to it two fixed reads: `checkResponsible` (is this Odoo user a valid
  * responsible for the company) and `readEmployee` (read back what was created).
+ *
+ * The other writes are just as narrow and each takes a fixed set of values: `setEmployeePlanningRoles` (the planning
+ * roles of one employee), `createUnavailability` and `removeUnavailability` (one `resource.calendar.leaves` record that
+ * says one employee is not available: it is no shift and no planning).
  */
 
 export interface OdooClientConfig {
@@ -100,6 +104,32 @@ export interface EmployeeRecord {
    */
   userLinked: boolean
   active: boolean
+  /** `resource_id`, `resource_calendar_id` and `tz`; null when they were not asked for (`resource: true`) or are empty. */
+  resourceId: number | null
+  resourceCalendarId: number | null
+  tz: string | null
+}
+
+/** One `resource.calendar.leaves` record, as read back. The dates are Odoo's own `YYYY-MM-DD HH:MM:SS` (UTC). */
+export interface UnavailabilityRecord {
+  id: number
+  name: string
+  /** The resource (the employee) it is for; null for a leave of nobody in particular. */
+  resourceId: number | null
+  dateFrom: string
+  dateTo: string
+}
+
+export interface CreateUnavailabilityParams {
+  name: string
+  /** `resource.resource` of the employee. */
+  resourceId: number
+  /** The working schedule of the employee, when known; none is sent otherwise. */
+  calendarId?: number | null
+  companyId: number
+  /** `YYYY-MM-DD HH:MM:SS`, UTC. */
+  dateFrom: string
+  dateTo: string
 }
 
 export interface OdooClient {
@@ -117,7 +147,13 @@ export interface OdooClient {
   /** Replaces the planning roles of one employee (`write` of `planning_role_ids` and `default_planning_role_id` only). Throws `OdooWriteError`. */
   setEmployeePlanningRoles(params: { id: number; companyId: number; planningRoleIds: readonly number[]; defaultPlanningRoleId?: number | null }): Promise<void>
   /** `planningRoles: true` also reads `planning_role_ids` and `default_planning_role_id` (the Planning module must be installed). */
-  readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null>
+  readEmployee(params: { id: number; companyId: number; planningRoles?: boolean; resource?: boolean }): Promise<EmployeeRecord | null>
+  /** Creates one `resource.calendar.leaves` for one employee and returns the id Odoo confirms. Throws `OdooWriteError`. */
+  createUnavailability(params: CreateUnavailabilityParams): Promise<number>
+  /** One fixed `resource.calendar.leaves` record by id, or null when there is none. */
+  readUnavailability(params: { id: number; companyId: number }): Promise<UnavailabilityRecord | null>
+  /** Removes one `resource.calendar.leaves` record. Throws `OdooWriteError`. */
+  removeUnavailability(params: { id: number; companyId: number }): Promise<void>
 }
 
 export class OdooError extends Error {
@@ -450,13 +486,17 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       .map((row) => ({ id: row.id as number, name: (row.name as string).slice(0, 80) }))
   }
 
-  async function readEmployee(params: { id: number; companyId: number; planningRoles?: boolean }): Promise<EmployeeRecord | null> {
+  async function readEmployee(params: { id: number; companyId: number; planningRoles?: boolean; resource?: boolean }): Promise<EmployeeRecord | null> {
     if (!isId(params?.id)) throw new OdooError('id is required', 0)
     checkCompany(params.companyId)
     const payload = await call('hr.employee', 'search_read', {
       // No company in the domain: an employee in another company must show up as such, not as "not found".
       domain: [['id', '=', params.id]],
-      fields: params.planningRoles === true ? ['id', 'name', 'company_id', 'user_id', 'active', 'planning_role_ids', 'default_planning_role_id'] : ['id', 'name', 'company_id', 'user_id', 'active'],
+      fields: [
+        'id', 'name', 'company_id', 'user_id', 'active',
+        ...(params.planningRoles === true ? ['planning_role_ids', 'default_planning_role_id'] : []),
+        ...(params.resource === true ? ['resource_id', 'resource_calendar_id', 'tz'] : []),
+      ],
       limit: 1,
       context: { allowed_company_ids: [params.companyId], active_test: false },
     })
@@ -474,8 +514,87 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       // Only an explicit empty value means "no Odoo login"; a missing field or an odd shape counts as linked.
       userLinked: row.user_id !== false && row.user_id !== null,
       active: row.active === true,
+      resourceId: params.resource === true ? relatedId(row.resource_id) : null,
+      resourceCalendarId: params.resource === true ? relatedId(row.resource_calendar_id) : null,
+      tz: params.resource === true && typeof row.tz === 'string' && row.tz !== '' ? row.tz : null,
     }
   }
 
-  return { searchRead, searchCount, fieldsGet, createEmployee, setEmployeePlanningRoles, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee }
+  const odooDateTime = (value: unknown): value is string => {
+    if (typeof value !== 'string') return false
+    const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value)
+    if (!match) return false
+    const [, year, month, day, hour, minute, second] = match.map(Number)
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+    return date.toISOString().slice(0, 19).replace('T', ' ') === value
+  }
+
+  async function createUnavailability(params: CreateUnavailabilityParams): Promise<number> {
+    // Only these values are read from `params`; the company of the record is Odoo's own business (a computed field).
+    const name = typeof params?.name === 'string' ? params.name.trim() : ''
+    if (name.length < 1 || name.length > 255 || hasControlCharacter(name)) throw new OdooWriteError('Invalid name', 0, 'rejected')
+    if (!isId(params.resourceId)) throw new OdooWriteError('resourceId is required', 0, 'rejected')
+    const calendarId = params.calendarId ?? null
+    if (calendarId !== null && !isId(calendarId)) throw new OdooWriteError('Invalid calendarId', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (!odooDateTime(params.dateFrom) || !odooDateTime(params.dateTo) || params.dateFrom >= params.dateTo) {
+      throw new OdooWriteError('Invalid dates', 0, 'rejected')
+    }
+    let payload: unknown
+    try {
+      payload = await call(
+        'resource.calendar.leaves',
+        'create',
+        {
+          vals_list: [{ name, resource_id: params.resourceId, ...(calendarId !== null && { calendar_id: calendarId }), date_from: params.dateFrom, date_to: params.dateTo }],
+          context: { allowed_company_ids: [params.companyId], mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true },
+        },
+        'write',
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const id = Array.isArray(payload) && payload.length === 1 ? payload[0] : null
+    if (!isId(id)) throw new OdooWriteError('Odoo resource.calendar.leaves returned an unexpected response', 200, 'unknown')
+    return id
+  }
+
+  async function readUnavailability(params: { id: number; companyId: number }): Promise<UnavailabilityRecord | null> {
+    if (!isId(params?.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('resource.calendar.leaves', 'search_read', {
+      domain: [['id', '=', params.id]],
+      fields: ['id', 'name', 'resource_id', 'date_from', 'date_to'],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo resource.calendar.leaves returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    return {
+      id: params.id,
+      name: typeof row.name === 'string' ? row.name : '',
+      resourceId: relatedId(row.resource_id),
+      dateFrom: typeof row.date_from === 'string' ? row.date_from : '',
+      dateTo: typeof row.date_to === 'string' ? row.date_to : '',
+    }
+  }
+
+  async function removeUnavailability(params: { id: number; companyId: number }): Promise<void> {
+    if (!isId(params?.id)) throw new OdooWriteError('id is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    let payload: unknown
+    try {
+      payload = await call('resource.calendar.leaves', 'unlink', { ids: [params.id], context: { allowed_company_ids: [params.companyId] } }, 'write')
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    // Odoo answers `true`; anything else is not a usable answer: the record may or may not be gone (removing it again is harmless).
+    if (payload !== true) throw new OdooWriteError('Odoo resource.calendar.leaves returned an unexpected response', 200, 'unknown')
+  }
+
+  return {
+    searchRead, searchCount, fieldsGet, createEmployee, setEmployeePlanningRoles, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee,
+    createUnavailability, readUnavailability, removeUnavailability,
+  }
 }

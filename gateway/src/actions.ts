@@ -1,6 +1,7 @@
 import { OdooWriteError, type OdooClient } from '../../src/lib/odoo-client.ts'
 import { GatewayError } from './errors.ts'
 import type { Project } from './projects.ts'
+import { dayRangeInUtc, isTimeZone } from './zoned.ts'
 
 /*
  * The named actions of the gateway. Today there is one: create a technician as an Odoo employee WITHOUT an Odoo
@@ -18,7 +19,18 @@ import type { Project } from './projects.ts'
  *    may exist, so the caller has to look in Odoo instead of trying again;
  *  - only when Odoo itself answered with an error is trying again allowed.
  * This memory lives in this process (24 hours): after a restart the caller's own journal is the safeguard.
+ *
+ * The same holds for marking an employee as not available (`addEmployeeUnavailability`): one record of
+ * `resource.calendar.leaves` for the resource of ONE employee, in whole days of his own time zone, with a name that
+ * starts with a fixed marker. Removing (`removeEmployeeUnavailability`) only ever touches a record that has that marker
+ * and belongs to the resource of the employee that is named, so it cannot remove a holiday, a record made by hand in
+ * Odoo, or the record of someone else.
  */
+
+/** What every record made by the dashboard starts with; it is what removing recognises its own records by. */
+export const UNAVAILABILITY_MARKER = '[Dashboard] Niet beschikbaar'
+const MAX_NOTE = 200
+const MAX_SPAN_DAYS = 366
 
 const REQUEST_ID = /^[A-Za-z0-9_-]{16,64}$/
 const ENTRY_TTL_MS = 24 * 60 * 60_000
@@ -28,6 +40,14 @@ const HOUR_MS = 60 * 60_000
 export interface ActionContext {
   requestId?: string
   employeeId?: number
+}
+
+type UnavailabilityEntry = {
+  /** The request as it was understood; a repeat must be the same request. */
+  same: string
+  state: 'pending' | 'done' | 'unknown'
+  result?: { id: number; employeeId: number; from: string; to: string; verified: boolean }
+  expires: number
 }
 
 type Entry = {
@@ -79,6 +99,37 @@ export function validateEmployeeName(value: unknown): string {
   return name
 }
 
+function validateLeaveId(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0 || value > 2_147_483_647) {
+    throw new GatewayError(400, 'invalid_leave_id', 'leaveId must be a positive integer')
+  }
+  return value
+}
+
+const dayNumber = (value: string) => Date.parse(`${value}T00:00:00Z`) / 86_400_000
+
+/** A first and a last day (both included): real calendar days, in order, at most 366 days. */
+function validateDays(from: unknown, to: unknown): { from: string; to: string } {
+  const real = (value: unknown): value is string =>
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+  if (!real(from) || !real(to)) throw new GatewayError(400, 'invalid_dates', 'from and to must be calendar days like 2026-10-12')
+  if (to < from) throw new GatewayError(400, 'invalid_dates', 'to must not be before from')
+  if (dayNumber(to) - dayNumber(from) + 1 > MAX_SPAN_DAYS) throw new GatewayError(400, 'invalid_dates', `a period is at most ${MAX_SPAN_DAYS} days`)
+  return { from, to }
+}
+
+/** The note is optional plain text on one line. */
+function validateNote(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  const hasControl = typeof value === 'string' && [...value].some((char) => char.charCodeAt(0) < 32 || (char.charCodeAt(0) >= 127 && char.charCodeAt(0) <= 159) || char === '\u2028' || char === '\u2029')
+  if (typeof value !== 'string' || value.length > MAX_NOTE || hasControl) {
+    throw new GatewayError(400, 'invalid_note', `note must be text of at most ${MAX_NOTE} characters on one line`)
+  }
+  return value.trim()
+}
+
+const isDashboardLeave = (name: string) => name === UNAVAILABILITY_MARKER || name.startsWith(`${UNAVAILABILITY_MARKER}: `)
+
 function amsterdamDate(ms: number) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date(ms))
 }
@@ -86,6 +137,7 @@ function amsterdamDate(ms: number) {
 export function createActions(options: { odoo: OdooClient; now: () => number }) {
   const { odoo, now } = options
   const entries = new Map<string, Entry>()
+  const unavailabilityEntries = new Map<string, UnavailabilityEntry>()
   const attempts = new Map<string, number[]>()
 
   function remember(key: string, entry: Entry) {
@@ -173,6 +225,110 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
         // The roles were written (Odoo said so); only the check failed.
       }
       return { id, planningRoles: confirmed, asked: roles.length }
+    },
+
+    /** Marks ONE employee as not available in a period: one `resource.calendar.leaves`, no shift, no planning. */
+    async addEmployeeUnavailability(project: Project, body: Record<string, unknown>, ctx: ActionContext) {
+      const policy = project.actions.employeeUnavailability
+      if (!policy) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
+      const extra = Object.keys(body).filter((key) => !['requestId', 'employeeId', 'from', 'to', 'note'].includes(key))
+      if (extra.length > 0) throw new GatewayError(400, 'unknown_parameter', `unknown parameter: ${extra[0]}`)
+      const requestId = validateRequestId(body.requestId)
+      const employeeId = validateEmployeeId(body.employeeId)
+      const days = validateDays(body.from, body.to)
+      const note = validateNote(body.note)
+      ctx.requestId = requestId
+      ctx.employeeId = employeeId
+      const same = JSON.stringify([employeeId, days.from, days.to, note])
+
+      const key = `${project.id}:away:${requestId}`
+      const known = unavailabilityEntries.get(key)
+      if (known && known.expires > now()) {
+        if (known.same !== same) throw new GatewayError(409, 'request_id_reused', 'this requestId was used for another period, employee or note')
+        if (known.state === 'pending') throw new GatewayError(409, 'in_progress', 'this request is still running')
+        if (known.state === 'unknown') throw new GatewayError(409, 'outcome_unknown', 'it is not known whether the period was marked; look in Odoo')
+        return { ...known.result, replayed: true }
+      }
+
+      const entry: UnavailabilityEntry = { same, state: 'pending', expires: now() + ENTRY_TTL_MS }
+      unavailabilityEntries.set(key, entry)
+      let attempted = false
+      try {
+        const employee = await odoo.readEmployee({ id: employeeId, companyId: project.companyId, resource: true })
+        if (!employee || !employee.active || employee.companyId !== project.companyId) {
+          throw new GatewayError(404, 'employee_not_found', 'no active employee with this id in the company of the project')
+        }
+        if (employee.resourceId === null) throw new GatewayError(409, 'employee_has_no_resource', 'the employee has no resource in Odoo, so he cannot be marked as not available')
+        // The days are the days of the employee's own time zone; one that is not known is never guessed.
+        if (!isTimeZone(employee.tz)) throw new GatewayError(409, 'employee_timezone_unknown', 'the employee has no known time zone in Odoo')
+        const range = dayRangeInUtc(days.from, days.to, employee.tz)
+        const name = note ? `${UNAVAILABILITY_MARKER}: ${note}` : UNAVAILABILITY_MARKER
+
+        const bucket = `${project.id}:away`
+        if (limitReached(bucket, policy.maxPerHour)) throw new GatewayError(429, 'rate_limited', `at most ${policy.maxPerHour} changes per hour`)
+        attempts.set(bucket, [...(attempts.get(bucket) ?? []), now()])
+
+        attempted = true
+        let id: number
+        try {
+          id = await odoo.createUnavailability({ name, resourceId: employee.resourceId, calendarId: employee.resourceCalendarId, companyId: project.companyId, dateFrom: range.dateFrom, dateTo: range.dateTo })
+        } catch (error) {
+          if (error instanceof OdooWriteError && error.outcome === 'rejected') {
+            unavailabilityEntries.delete(key)
+            throw new GatewayError(502, 'odoo_rejected', error.odooName ?? `upstream status ${error.status}`)
+          }
+          entry.state = 'unknown'
+          throw new GatewayError(504, 'outcome_unknown', 'it is not known whether the period was marked; look in Odoo')
+        }
+
+        // Read back what Odoo made: for this resource, with these days. A failing read-back does not undo the record.
+        let verified = false
+        try {
+          const record = await odoo.readUnavailability({ id, companyId: project.companyId })
+          verified = record !== null && record.resourceId === employee.resourceId && record.name === name && record.dateFrom === range.dateFrom && record.dateTo === range.dateTo
+        } catch {
+          // The record exists (Odoo gave its id); it is just not verified.
+        }
+        entry.state = 'done'
+        entry.result = { id, employeeId, from: days.from, to: days.to, verified }
+        return entry.result
+      } catch (error) {
+        if (!attempted) unavailabilityEntries.delete(key)
+        throw error
+      }
+    },
+
+    /** Removes ONE record that the dashboard marked for this employee; nothing else can be removed this way. */
+    async removeEmployeeUnavailability(project: Project, body: Record<string, unknown>, ctx: ActionContext) {
+      const policy = project.actions.employeeUnavailability
+      if (!policy) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
+      const extra = Object.keys(body).filter((key) => key !== 'employeeId' && key !== 'leaveId')
+      if (extra.length > 0) throw new GatewayError(400, 'unknown_parameter', `unknown parameter: ${extra[0]}`)
+      const employeeId = validateEmployeeId(body.employeeId)
+      const leaveId = validateLeaveId(body.leaveId)
+      ctx.employeeId = employeeId
+
+      // An employee who has left (archived) can still have his record removed; one of another company cannot.
+      const employee = await odoo.readEmployee({ id: employeeId, companyId: project.companyId, resource: true })
+      if (!employee || employee.companyId !== project.companyId) {
+        throw new GatewayError(404, 'employee_not_found', 'no employee with this id in the company of the project')
+      }
+      if (employee.resourceId === null) throw new GatewayError(409, 'employee_has_no_resource', 'the employee has no resource in Odoo')
+      const record = await odoo.readUnavailability({ id: leaveId, companyId: project.companyId })
+      if (!record) return { leaveId, removed: false, alreadyGone: true }
+      if (record.resourceId !== employee.resourceId || !isDashboardLeave(record.name)) {
+        throw new GatewayError(404, 'unavailability_not_found', 'no record that the dashboard made for this employee')
+      }
+      const bucket = `${project.id}:away`
+      if (limitReached(bucket, policy.maxPerHour)) throw new GatewayError(429, 'rate_limited', `at most ${policy.maxPerHour} changes per hour`)
+      attempts.set(bucket, [...(attempts.get(bucket) ?? []), now()])
+      try {
+        await odoo.removeUnavailability({ id: leaveId, companyId: project.companyId })
+      } catch (error) {
+        if (error instanceof OdooWriteError && error.outcome === 'rejected') throw new GatewayError(502, 'odoo_rejected', error.odooName ?? `upstream status ${error.status}`)
+        throw new GatewayError(504, 'outcome_unknown', 'it is not known whether the record was removed; repeat the request (removing it again is harmless)')
+      }
+      return { leaveId, removed: true }
     },
 
     async createEmployee(project: Project, body: Record<string, unknown>, ctx: ActionContext) {

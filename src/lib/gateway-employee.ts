@@ -187,3 +187,104 @@ export async function setEmployeeRolesViaGateway(options: { url: string; token: 
     return { ok: false, message: 'Er kwam geen bruikbaar antwoord van Odoo. Open de medewerker in Odoo om te zien welke rollen hij heeft, of probeer het opnieuw: dat zet dezelfde rollen nog eens.' }
   }
 }
+
+/* ---------------------------------------------------------------- not available (one record per period) */
+
+/**
+ * What the gateway says about marking one employee as not available. `not_enabled`: the action is off for this token,
+ * so the period stays in the dashboard only. `rejected`: nothing was marked, and trying again is safe. `unknown`: no
+ * usable answer, so the record may exist in Odoo.
+ */
+export type AddUnavailabilityOutcome =
+  | { ok: true; leaveId: number; verified: boolean }
+  | { ok: false; kind: 'not_enabled' | 'rejected' | 'unknown'; message: string }
+
+export type RemoveUnavailabilityOutcome =
+  | { ok: true; /** False when there was nothing of the dashboard to remove (it was already gone). */ removed: boolean }
+  | { ok: false; kind: 'not_enabled' | 'rejected' | 'unknown'; message: string }
+
+const AWAY_UNKNOWN = 'Er kwam geen bruikbaar antwoord van Odoo. Het is niet zeker of deze periode in Odoo staat: controleer dat in Odoo (Planning).'
+const AWAY_REMOVE_UNKNOWN = 'Er kwam geen bruikbaar antwoord van Odoo. Het is niet zeker of de periode uit Odoo is verwijderd; probeer het opnieuw (nog eens verwijderen is niet erg).'
+const AWAY_TOKEN = 'Het gateway-token van het dashboard is niet geldig. Neem contact op met de beheerder.'
+
+function errorOf(body: unknown) {
+  const data = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>
+  const code = typeof data.error === 'string' ? data.error : ''
+  const reason = typeof data.message === 'string' && PLAIN_REASON.test(data.message) ? ` (${data.message})` : ''
+  return { data, code, reason }
+}
+
+export async function addUnavailabilityViaGateway(options: {
+  url: string
+  token: string
+  requestId: string
+  employeeId: number
+  from: string
+  to: string
+  note: string
+  fetchImpl?: typeof fetch
+  timeoutMs?: number
+}): Promise<AddUnavailabilityOutcome> {
+  if (!isId(options.employeeId)) return { ok: false, kind: 'rejected', message: 'Dit account hangt niet aan een medewerker in Odoo.' }
+  try {
+    const { status, data: body } = await callGateway({
+      ...options,
+      path: '/v1/actions/add_employee_unavailability',
+      method: 'POST',
+      body: { requestId: options.requestId, employeeId: options.employeeId, from: options.from, to: options.to, ...(options.note && { note: options.note }) },
+    })
+    const { code, reason } = errorOf(body)
+    if (status === 200) {
+      if (!isId(body.id)) return { ok: false, kind: 'unknown', message: AWAY_UNKNOWN }
+      return { ok: true, leaveId: body.id, verified: body.verified === true }
+    }
+    const refused = (message: string): AddUnavailabilityOutcome => ({ ok: false, kind: 'rejected', message })
+    if (status === 403) return { ok: false, kind: 'not_enabled', message: 'Het doorgeven van beschikbaarheid aan Odoo staat niet aan op de server.' }
+    if (status === 401) return refused(AWAY_TOKEN)
+    if (status === 404 && code === 'employee_not_found') return refused('De medewerker bestaat niet (meer) in Odoo, of is gearchiveerd. De periode is niet naar Odoo gestuurd.')
+    if (status === 409 && code === 'employee_has_no_resource') return refused('De medewerker heeft in Odoo geen resource, dus de periode is niet naar Odoo gestuurd.')
+    if (status === 409 && code === 'employee_timezone_unknown') return refused('De medewerker heeft in Odoo geen (bekende) tijdzone, dus de periode is niet naar Odoo gestuurd.')
+    if (status === 429 && code === 'rate_limited') return refused('Er zijn te veel wijzigingen per uur gedaan. Probeer het later opnieuw; de periode is niet naar Odoo gestuurd.')
+    if (status === 400) return refused(`De gateway heeft het verzoek geweigerd${PLAIN_REASON.test(code) ? ` (${code})` : ''}. De periode is niet naar Odoo gestuurd.`)
+    if (status === 502 && code === 'odoo_rejected') return refused(`Odoo heeft het geweigerd${reason}. De periode is niet naar Odoo gestuurd.`)
+    // Odoo could not be read before anything was written (these codes only come from reads): nothing was marked.
+    if ((status === 502 && code === 'odoo_error') || (status === 504 && code === 'odoo_timeout')) return refused('Odoo gaf een fout of reageerde niet. De periode is niet naar Odoo gestuurd; probeer het zo opnieuw.')
+    return { ok: false, kind: 'unknown', message: AWAY_UNKNOWN }
+  } catch {
+    return { ok: false, kind: 'unknown', message: AWAY_UNKNOWN }
+  }
+}
+
+export async function removeUnavailabilityViaGateway(options: {
+  url: string
+  token: string
+  employeeId: number
+  leaveId: number
+  fetchImpl?: typeof fetch
+  timeoutMs?: number
+}): Promise<RemoveUnavailabilityOutcome> {
+  if (!isId(options.employeeId) || !isId(options.leaveId)) return { ok: false, kind: 'rejected', message: 'Deze periode hoort niet bij een record in Odoo.' }
+  try {
+    const { status, data: body } = await callGateway({
+      ...options,
+      path: '/v1/actions/remove_employee_unavailability',
+      method: 'POST',
+      body: { employeeId: options.employeeId, leaveId: options.leaveId },
+    })
+    const { code, reason } = errorOf(body)
+    if (status === 200 && typeof body.removed === 'boolean') return { ok: true, removed: body.removed }
+    const refused = (message: string): RemoveUnavailabilityOutcome => ({ ok: false, kind: 'rejected', message })
+    if (status === 403) return { ok: false, kind: 'not_enabled', message: 'Het doorgeven van beschikbaarheid aan Odoo staat niet aan op de server.' }
+    if (status === 401) return refused(AWAY_TOKEN)
+    // Nothing of the dashboard there (the employee or the record is gone, or it is not a record of the dashboard): nothing to remove.
+    if (status === 404 && (code === 'unavailability_not_found' || code === 'employee_not_found')) return { ok: true, removed: false }
+    if (status === 409 && code === 'employee_has_no_resource') return refused('De medewerker heeft in Odoo geen resource; de periode is niet uit Odoo verwijderd.')
+    if (status === 429 && code === 'rate_limited') return refused('Er zijn te veel wijzigingen per uur gedaan. Probeer het later opnieuw; er is niets verwijderd.')
+    if (status === 400) return refused(`De gateway heeft het verzoek geweigerd${PLAIN_REASON.test(code) ? ` (${code})` : ''}. Er is niets verwijderd.`)
+    if (status === 502 && code === 'odoo_rejected') return refused(`Odoo heeft het verwijderen geweigerd${reason}. Er is niets verwijderd.`)
+    if ((status === 502 && code === 'odoo_error') || (status === 504 && code === 'odoo_timeout')) return refused('Odoo gaf een fout of reageerde niet. Er is niets verwijderd; probeer het zo opnieuw.')
+    return { ok: false, kind: 'unknown', message: AWAY_REMOVE_UNKNOWN }
+  } catch {
+    return { ok: false, kind: 'unknown', message: AWAY_REMOVE_UNKNOWN }
+  }
+}

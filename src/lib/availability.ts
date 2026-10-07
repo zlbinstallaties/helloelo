@@ -10,6 +10,18 @@ import type { AccountIo } from './accounts.ts'
  * own (`AccountIo`), so it is unit-tested in test/. A damaged file is refused as a whole, never repaired.
  */
 
+/**
+ * What is known of the record that marks this period in Odoo. No link at all: the period is only in the dashboard
+ * (the technician is not an Odoo employee, or sending it to Odoo is switched off).
+ *   synced   Odoo confirmed a record (`leaveId`), for this employee.
+ *   failed   Odoo or the gateway refused: nothing was marked and it may be sent again.
+ *   unknown  no usable answer: the record may exist in Odoo, so it is NOT sent again.
+ */
+export type OdooLink = { employeeId: number } & (
+  | { state: 'synced'; leaveId: number; verified: boolean }
+  | { state: 'failed' | 'unknown'; message: string }
+)
+
 export type Period = {
   id: string
   /** The account (id) of the technician it belongs to. */
@@ -20,6 +32,7 @@ export type Period = {
   to: string
   note: string
   createdAt: string
+  odoo?: OdooLink
 }
 
 export class AvailabilityError extends Error {
@@ -74,6 +87,15 @@ function checkNote(value: unknown): string | null {
   return value.trim()
 }
 
+const isId = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0
+
+function validLink(value: unknown): boolean {
+  const link = value as Record<string, unknown> | null
+  if (typeof link !== 'object' || link === null || Array.isArray(link) || !isId(link.employeeId)) return false
+  if (link.state === 'synced') return isId(link.leaveId) && typeof link.verified === 'boolean'
+  return (link.state === 'failed' || link.state === 'unknown') && typeof link.message === 'string' && link.message.length <= 300
+}
+
 function parse(text: string | null): Period[] {
   if (text === null) return []
   let data: unknown
@@ -98,6 +120,7 @@ function parse(text: string | null): Period[] {
     ) {
       throw new AvailabilityFileError(`periode ${index + 1} mist een veld of heeft een onjuiste waarde.`)
     }
+    if (p.odoo !== undefined && !validLink(p.odoo)) throw new AvailabilityFileError(`periode ${index + 1}: de gegevens over Odoo kloppen niet.`)
     if (seen.has(p.id)) throw new AvailabilityFileError(`periode ${index + 1}: dubbel id.`)
     seen.add(p.id)
     return p as unknown as Period
@@ -156,6 +179,20 @@ export function createAvailabilityStore(options: { io: AccountIo; now?: () => Da
         from: dateOf(from), to: dateOf(to), note, createdAt: now().toISOString(),
       }
       save([...periods, period])
+      return period
+    },
+
+    /** A period of this owner, or nothing (also when it belongs to someone else). */
+    find: (id: string, accountId: string): Period | undefined => load().find((period) => period.id === id && period.accountId === accountId),
+
+    /** Records what is known of the record in Odoo; `null` forgets it again (the period is then only in the dashboard). */
+    setOdoo(id: string, link: OdooLink | null): Period {
+      const periods = load()
+      const period = periods.find((item) => item.id === id)
+      if (!period) throw new AvailabilityError('not_found', 'Periode niet gevonden.')
+      if (link === null) delete period.odoo
+      else period.odoo = link
+      save(periods)
       return period
     },
 

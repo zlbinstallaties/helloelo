@@ -5,6 +5,7 @@
 // Usage: node scripts/demo-odoo.mjs   (port 18069, DEMO_ODOO_PORT to change)
 //
 // `hr.employee/write` understands only the two planning-role fields (all the dashboard ever changes); anything else is an error.
+// `resource.calendar.leaves` (a period in which one employee is not available) can be created, read by id and removed.
 //
 // The employee part follows what the Odoo 20.0 source says: `create` takes `vals_list` and answers with the
 // new ids, a many2one comes back as [id, name] or false, a many2many as a list of ids, and an unknown field
@@ -16,6 +17,9 @@ import { demoData, demoFields } from './demo-data.mjs'
 
 const EMPLOYEE_FIELDS = ['name', 'company_id', 'hr_responsible_id', 'user_id', 'date_version', 'planning_role_ids', 'default_planning_role_id']
 const COMPANY_NAME = 'Demo bedrijf'
+const CALENDAR = [1, 'Standaard 40 uur']
+// The resource of an employee has an id of its own, as in Odoo.
+const resourceIdOf = (employeeId) => 5000 + employeeId
 // res.users the rehearsal can use as responsible: 2 is a valid choice, the others are not.
 const USERS = [
   { id: 2, active: true, share: false, company_ids: [1, 2] },
@@ -40,7 +44,9 @@ const pick = (row, wanted) => Object.fromEntries(wanted.filter((field) => field 
 export function createDemoOdoo({ log = () => {} } = {}) {
   const data = demoData()
   const employees = []
+  const leaves = []
   let nextEmployeeId = 900
+  let nextLeaveId = 7000
 
   function employeeRow(employee) {
     return {
@@ -51,6 +57,9 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       planning_role_ids: [...employee.roleIds],
       default_planning_role_id: employee.defaultRoleId ? [employee.defaultRoleId, ROLES.find((role) => role.id === employee.defaultRoleId)?.name ?? ''] : false,
       active: true,
+      resource_id: [resourceIdOf(employee.id), employee.name],
+      resource_calendar_id: CALENDAR,
+      tz: 'Europe/Amsterdam',
       hr_responsible_id: [employee.responsibleId, 'Verantwoordelijke'],
       date_version: employee.dateVersion,
     }
@@ -153,6 +162,49 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       log(`WRITE hr.employee ${JSON.stringify(body.ids)} ${JSON.stringify(body.vals)}`)
       return [200, true]
     }
+    if (model === 'resource.calendar.leaves') {
+      const dateTime = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+      const row = (leave) => ({
+        id: leave.id,
+        name: leave.name,
+        resource_id: leave.resourceId ? [leave.resourceId, employees.find((employee) => resourceIdOf(employee.id) === leave.resourceId)?.name ?? ''] : false,
+        calendar_id: leave.calendarId ? CALENDAR : false,
+        date_from: leave.dateFrom,
+        date_to: leave.dateTo,
+      })
+      if (method === 'create') {
+        if (!Array.isArray(body.vals_list)) return [422, odooError('builtins.TypeError', "create() missing 1 required positional argument: 'vals_list'")]
+        const created = []
+        for (const vals of body.vals_list) {
+          for (const field of Object.keys(vals)) {
+            if (!['name', 'resource_id', 'calendar_id', 'date_from', 'date_to'].includes(field)) return [500, odooError('builtins.ValueError', `Invalid field '${field}' in 'resource.calendar.leaves'`)]
+          }
+          if (!employees.some((employee) => resourceIdOf(employee.id) === vals.resource_id)) return [500, odooError('odoo.exceptions.MissingError', 'the resource does not exist')]
+          if (vals.calendar_id !== undefined && vals.calendar_id !== CALENDAR[0]) return [500, odooError('odoo.exceptions.MissingError', 'the working schedule does not exist')]
+          if (typeof vals.name !== 'string' || !vals.name.trim()) return [500, odooError('odoo.exceptions.ValidationError', 'name is required')]
+          if (!dateTime.test(vals.date_from ?? '') || !dateTime.test(vals.date_to ?? '')) return [500, odooError('builtins.ValueError', 'date_from and date_to must be YYYY-MM-DD HH:MM:SS')]
+          if (vals.date_from >= vals.date_to) return [500, odooError('odoo.exceptions.ValidationError', 'The start date must be earlier than the end date.')]
+          const leave = { id: nextLeaveId++, name: vals.name, resourceId: vals.resource_id, calendarId: vals.calendar_id ?? null, dateFrom: vals.date_from, dateTo: vals.date_to }
+          leaves.push(leave)
+          created.push(leave.id)
+          log(`CREATE resource.calendar.leaves ${JSON.stringify(vals)} -> id ${leave.id}`)
+        }
+        return [200, created]
+      }
+      if (method === 'search_read') {
+        const id = idFilter(body.domain)
+        const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : ['id', 'name']
+        return [200, leaves.filter((leave) => leave.id === id).map((leave) => pick(row(leave), wanted))]
+      }
+      if (method === 'unlink') {
+        if (!Array.isArray(body.ids) || body.ids.length === 0) return [422, odooError('builtins.TypeError', "unlink() needs 'ids'")]
+        if (body.ids.some((id) => !leaves.some((leave) => leave.id === id))) return [404, odooError('odoo.exceptions.MissingError', 'Record does not exist or has been deleted.')]
+        for (const id of body.ids) leaves.splice(leaves.findIndex((leave) => leave.id === id), 1)
+        log(`UNLINK resource.calendar.leaves ${JSON.stringify(body.ids)}`)
+        return [200, true]
+      }
+      return [404, odooError('odoo.exceptions.MissingError', 'unknown method')]
+    }
     if (!data[model]) return [404, odooError('odoo.exceptions.MissingError', 'unknown model')]
     if (method === 'fields_get') return [200, demoFields[model]]
     if (method === 'search_count') return [200, data[model].length]
@@ -182,7 +234,7 @@ export function createDemoOdoo({ log = () => {} } = {}) {
     return send(...handle(model, method, body))
   })
 
-  return { server, employees }
+  return { server, employees, leaves }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
