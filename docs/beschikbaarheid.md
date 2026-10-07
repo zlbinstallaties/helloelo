@@ -42,8 +42,9 @@ de volgende wijziging vergeten. Een beschadigd bestand wordt als geheel geweiger
 Een periode van een monteur die aan een Odoo-medewerker hangt (`employee:<nummer>`) gaat ook naar Odoo, door de gateway, als **één
 record** dat zegt dat die medewerker in die dagen niet beschikbaar is (`resource.calendar.leaves` voor zijn resource, in Odoo 20
 gezien met de velden `name`, `date_from`, `date_to`, `resource_id`, `calendar_id`). Het is **geen dienst, geen planning en geen
-verlofaanvraag**. Odoo Planning houdt er normaal rekening mee (de medewerker staat dan als niet beschikbaar); dat is nog niet op een
-echte Odoo gezien.
+verlofaanvraag**. In Odoo Planning (Inplannen, Per resource) staan alle monteurs als rij en zijn de doorgegeven dagen bij die monteur grijs, net
+als het weekend; een beschikbare monteur herken je dus aan een niet-grijze dag in zijn rij, en daar zet de planner een klus neer (zo gezien op een lokale
+Odoo 20).
 
 - De dagen worden hele dagen in de tijdzone van de medewerker in Odoo (00:00:00 tot 23:59:59), als UTC aan Odoo gegeven. Heeft de
   medewerker geen bekende tijdzone, dan gaat er niets naar Odoo en zegt het scherm dat.
@@ -66,8 +67,8 @@ echte Odoo gezien.
 - De gateway-actie is een aparte instelling `employeeUnavailability` die **uit staat** tenzij je haar aanzet; `bun run local:setup
   --responsible-id ...` zet haar aan. Zie `docs/odoo-gateway.md`.
 
-Nog niet tegen een echte Odoo 20 gezien: het aanmaken van het record, het lezen van `resource_id`, `resource_calendar_id` en `tz` van
-een medewerker, of Planning de periode als niet beschikbaar toont, en of de Odoo-gebruiker achter de gateway dit mag (rechten op
+Nog niet tegen een echte Odoo 20 gezien: wat Odoo doet als de planner toch een dienst op een grijze dag zet, het verwijderen van het
+record vanuit het dashboard, en of een Odoo-gebruiker die geen `admin` is (de gebruiker achter de gateway) dit mag (rechten op
 `resource.calendar.leaves`).
 
 ## Zo probeer je het lokaal
