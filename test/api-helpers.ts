@@ -2,7 +2,9 @@ import { createAccountStore } from '../src/lib/accounts.ts'
 import type { AccountIo } from '../src/lib/accounts.ts'
 import { createAuth } from '../src/lib/auth.ts'
 import { createAvailabilityStore } from '../src/lib/availability.ts'
+import { createDocumentJournal } from '../src/lib/document-journal.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
+import type { PostDocumentOutcome } from '../src/lib/gateway-document.ts'
 import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
 import { hashPassword } from '../src/lib/password.ts'
@@ -60,6 +62,11 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
   const availability = createAvailabilityStore({ io: availabilityIo, now: () => availabilityClock.now })
   const accounts = createAccountStore({ io, reservedUsernames: ['noodadmin'] })
   const journal = createJournal({ io: journalIo })
+  const documentState = { text: null as string | null }
+  const documentIo: AccountIo = { read: () => documentState.text, write: (text) => (documentState.text = text) }
+  // The day of the document tests: Thursday 8 October 2026, 11:30 in Amsterdam.
+  const documentClock = { now: new Date('2026-10-08T09:30:00Z') }
+  const documents = createDocumentJournal({ io: documentIo, now: () => documentClock.now })
   const clock = { now: 1_000_000 }
   const auth = createAuth({
     accounts,
@@ -68,7 +75,7 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     emergency: { username: 'noodadmin', passwordHash: hashPassword(EMERGENCY_PASSWORD) },
   })
   const loads: boolean[] = []
-  const control = { failWith: null as Error | null }
+  const control = { failWith: null as Error | null, /** Other planning data than DATA, for a test that needs it. */ data: null as DashboardData | null }
   // What the dashboard sends to Odoo (through the gateway), and what Odoo answers. Nothing here is a real Odoo.
   const odoo = {
     calls: [] as Array<{ requestId: string; name: string; planningRoleIds?: readonly number[] }>,
@@ -87,6 +94,11 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
       removeAnswer: (): RemoveUnavailabilityOutcome | Promise<RemoveUnavailabilityOutcome> => ({ ok: true, removed: true }),
     },
     sets: [] as Array<{ employeeId: number; planningRoleIds: readonly number[] }>,
+    /** What the gateway is asked about a document, and what it answers. Nothing here is a real Odoo. */
+    docs: {
+      posts: [] as Array<{ requestId: string; reference: { model: string; id: number }; filename: string; summary: string; pdf: Uint8Array }>,
+      answer: (): PostDocumentOutcome | Promise<PostDocumentOutcome> => ({ ok: true, noted: true, customer: 'Klant van Odoo', replayed: false }),
+    },
     outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const mode = options.mode ?? 'on'
@@ -98,12 +110,14 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     accounts: on ? accounts : null,
     journal: on ? journal : null,
     availability: on ? availability : null,
+    documents: on ? documents : null,
+    now: () => documentClock.now,
     secureCookies: options.secure ?? true,
     clientAddress: (request) => request.headers.get('x-test-ip') ?? '10.0.0.1',
     loadData: async (refresh) => {
       loads.push(refresh)
       if (control.failWith) throw control.failWith
-      return DATA
+      return control.data ?? DATA
     },
     odooBaseUrl: ODOO,
     createEmployee:
@@ -138,11 +152,15 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
       odoo.away.removes.push(input)
       return odoo.away.removeAnswer()
     },
+    postDocument: async (input) => {
+      odoo.docs.posts.push(input)
+      return odoo.docs.answer()
+    },
     generatePassword: () => GENERATED,
   })
   accounts.create({ username: 'jan', name: 'Jan de Vries', role: 'monteur', personId: 'employee:7', password: PASSWORD })
   accounts.create({ username: 'planner', name: 'Petra Planner', role: 'admin', personId: null, password: PASSWORD })
-  return { handlers, accounts, auth, journal, availability, availabilityState, availabilityClock, loads, control, state, journalState, clock, odoo }
+  return { handlers, accounts, auth, journal, availability, availabilityState, availabilityClock, documents, documentState, documentClock, loads, control, state, journalState, clock, odoo }
 }
 
 export type Api = ReturnType<typeof setup>

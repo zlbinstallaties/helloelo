@@ -19,6 +19,7 @@ De gateway **leest**. Er is één benoemde actie die schrijft en die voor elk pr
 | `POST` | `/v1/actions/create_employee` | `{requestId, name, planningRoleIds?}` → `{id, name, verified, planningRoles}`; alleen voor projecten met de actie (zie "Acties") |
 | `POST` | `/v1/actions/add_employee_unavailability` | `{requestId, employeeId, from, to, note?}` → `{id, employeeId, from, to, verified}`; alleen voor projecten met `employeeUnavailability` |
 | `POST` | `/v1/actions/remove_employee_unavailability` | `{employeeId, leaveId}` → `{leaveId, removed}`; alleen voor projecten met `employeeUnavailability` |
+| `POST` | `/v1/actions/post_document` | `{requestId, reference: {model, id}, filename, summary, pdf}` → `{id, noted, customer}`; alleen voor projecten met `postDocument`; body tot 12 MB |
 
 Elke `/v1`-aanroep vereist `Authorization: Bearer <projecttoken>`.
 
@@ -107,6 +108,24 @@ record zonder opnieuw te schrijven, andere gegevens `409 request_id_reused`, teg
 mag opnieuw. **Verwijderen haalt alleen een record weg dat van die medewerker is én met de herkenning begint**: een vakantiedag van het
 bedrijf, een record dat iemand met de hand maakte of het record van een ander geeft `404 unavailability_not_found` en er wordt niets
 verwijderd; een record dat er niet meer is, is `200` met `alreadyGone`. Nog niet tegen een echte Odoo geprobeerd.
+
+**`post_document`** (aparte instelling `postDocument`, **uit tenzij je haar aanzet**, met alleen `maxPerHour`; standaard 60 per uur voor het hele
+project) zet **één** getekend PDF op de klant van een afspraak: een `ir.attachment` (`res_model: res.partner`, `res_id: <klant>`) en daarna een
+interne notitie (`res.partner.message_post` met `subtype_xmlid: mail.mt_note`, zonder ontvangers, dus **geen mail**) die naar de bijlage wijst.
+Het verzoek kent alleen `requestId`, `reference` (`{model: "planning.slot" | "svs.tech.visit", id}`), `filename` (letters, cijfers, punt, streep,
+eindigend op `.pdf`), `summary` (één regel van 1 tot 300 tekens, de tekst van de notitie, zonder opmaak) en `pdf` (base64, hoogstens 8 MB, begint
+met `%PDF-` en eindigt met `%%EOF`); alles anders is `400 unknown_parameter`. **De klant staat niet in het verzoek**: de gateway leest `partner_id`
+van het genoemde record, gefilterd op het bedrijf van het project (`404 reference_not_found`; een record zonder klant is `409
+reference_has_no_customer`), en zet het bestand daar. Eerst lezen, pas daarna schrijven: gaat het lezen mis, dan is er niets geschreven en mag de
+aanvraag opnieuw (`502 odoo_error`). Herhalen werkt als bij `create_employee`: dezelfde `requestId` met hetzelfde document geeft hetzelfde
+antwoord met `replayed: true` zonder opnieuw te schrijven, een ander document met dat id `409 request_id_reused`, tegelijk lopend `409
+in_progress`, geen bruikbaar antwoord `504`/`409 outcome_unknown` (het bestand kan er staan: niet opnieuw proberen, kijk bij de klant), en
+alleen een echte weigering van Odoo (`502 odoo_rejected`) mag opnieuw. Lukt het bestand maar de notitie niet, dan is het antwoord `200` met
+`noted: false`. Alleen voor deze route is de bodygrens 12 MB (de andere routes houden 64 KB): een verzoek dat meer aankondigt wordt geweigerd
+(`413`) voordat de body gelezen wordt, en een project zonder de actie krijgt `403` vóór de body. In het toegangslog staan alleen het
+aanvraag-id, de status en de duur; nooit de bestandsnaam, de samenvatting, het bestand, de klant of het token. De Odoo-gebruiker achter
+`ODOO_API_KEY` moet bijlagen mogen aanmaken en notities op klanten mogen plaatsen. Nog niet tegen een echte Odoo geprobeerd (de aanroepen zijn uit de
+documentatie van Odoo 20 opgesteld en tegen de demo-Odoo geprobeerd); zie `docs/documenten.md`.
 
 Geef de actie aan een **eigen project en token** voor het live dashboard, nooit aan het project van een preview of
 de agent: elke code die dat token heeft, kan er medewerkers mee aanmaken. De voorbeeldconfig heeft geen acties en

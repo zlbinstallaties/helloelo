@@ -83,6 +83,7 @@ staan in `docs/verification.md`.
 - `docs/accounts.md`: accounts, inloggen en monteurs toevoegen (ook in Odoo, zonder Odoo-account)
 - `docs/planning-weigeren.md`: een kleine Odoo-module die in Planning vraagt "monteur is niet beschikbaar, toch inplannen?" (alleen lokaal)
 - `docs/beschikbaarheid.md`: monteurs geven door wanneer ze niet beschikbaar zijn (dashboard, en als één record per periode in Odoo)
+- `docs/documenten.md`: schouw- en opleverdocumenten invullen op de telefoon, de klant tekent op het scherm, het getekende PDF komt bij de klant in Odoo (geen mail)
 - `docs/proefrun-resultaten.md`: wat de agent op het dashboard deed en wat ik daarvan overnam
 - `RULES.md`: de projectregels die de agent bij elke opdracht leest
 

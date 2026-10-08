@@ -1,6 +1,7 @@
 import { OdooWriteError, type OdooClient } from '../../src/lib/odoo-client.ts'
 import { GatewayError } from './errors.ts'
 import type { Project } from './projects.ts'
+import { createHash } from 'node:crypto'
 import { dayRangeInUtc, isTimeZone } from './zoned.ts'
 
 /*
@@ -26,6 +27,20 @@ import { dayRangeInUtc, isTimeZone } from './zoned.ts'
  * and belongs to the resource of the employee that is named, so it cannot remove a holiday, a record made by hand in
  * Odoo, or the record of someone else.
  */
+
+/** The records a document can be tied to; the customer is read from the record, never given by the caller. */
+const DOCUMENT_REFERENCES = ['planning.slot', 'svs.tech.visit'] as const
+/** A PDF is at most 8 MiB; as base64 that is a little under 11.2 million characters. */
+export const MAX_PDF_BYTES = 8 * 1024 * 1024
+const FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.pdf$/
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+
+type DocumentEntry = {
+  same: string
+  state: 'pending' | 'done' | 'unknown'
+  result?: { id: number; noted: boolean; customer: string | null }
+  expires: number
+}
 
 /** What every record made by the dashboard starts with; it is what removing recognises its own records by. */
 export const UNAVAILABILITY_MARKER = '[Dashboard] Niet beschikbaar'
@@ -138,6 +153,7 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
   const { odoo, now } = options
   const entries = new Map<string, Entry>()
   const unavailabilityEntries = new Map<string, UnavailabilityEntry>()
+  const documentEntries = new Map<string, DocumentEntry>()
   const attempts = new Map<string, number[]>()
 
   function remember(key: string, entry: Entry) {
@@ -329,6 +345,84 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
         throw new GatewayError(504, 'outcome_unknown', 'it is not known whether the record was removed; repeat the request (removing it again is harmless)')
       }
       return { leaveId, removed: true }
+    },
+
+    /**
+     * Puts ONE signed PDF on the customer of an appointment: an attachment and an internal note without recipients (so no mail).
+     * The customer is read from the planning.slot or svs.tech.visit that is named; the caller can not name a customer.
+     */
+    async postDocument(project: Project, body: Record<string, unknown>, ctx: ActionContext) {
+      const policy = project.actions.postDocument
+      if (!policy) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: postDocument')
+      const extra = Object.keys(body).filter((key) => !['requestId', 'reference', 'filename', 'summary', 'pdf'].includes(key))
+      if (extra.length > 0) throw new GatewayError(400, 'unknown_parameter', `unknown parameter: ${extra[0]}`)
+      const requestId = validateRequestId(body.requestId)
+      ctx.requestId = requestId
+
+      const reference = body.reference as Record<string, unknown> | null | undefined
+      if (
+        !reference || typeof reference !== 'object' || Array.isArray(reference) || Object.keys(reference).some((key) => key !== 'model' && key !== 'id') ||
+        !(DOCUMENT_REFERENCES as readonly unknown[]).includes(reference.model) || typeof reference.id !== 'number' || !Number.isInteger(reference.id) || reference.id <= 0 || reference.id > 2_147_483_647
+      ) {
+        throw new GatewayError(400, 'invalid_reference', 'reference must be {model: planning.slot or svs.tech.visit, id}')
+      }
+      const model = reference.model as string
+      const id = reference.id
+      if (typeof body.filename !== 'string' || !FILENAME.test(body.filename)) throw new GatewayError(400, 'invalid_filename', 'filename must be letters, digits, dot, dash or underscore and end in .pdf')
+      const filename = body.filename
+      const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
+      if (summary.length < 1 || summary.length > 300 || [...summary].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+        throw new GatewayError(400, 'invalid_summary', 'summary must be one line of 1 to 300 characters')
+      }
+      const pdf = body.pdf
+      if (typeof pdf !== 'string' || pdf.length < 8 || pdf.length % 4 !== 0 || !BASE64.test(pdf)) throw new GatewayError(400, 'invalid_pdf', 'pdf must be base64')
+      const bytes = (pdf.length / 4) * 3 - (pdf.endsWith('==') ? 2 : pdf.endsWith('=') ? 1 : 0)
+      if (bytes > MAX_PDF_BYTES) throw new GatewayError(413, 'pdf_too_large', `a pdf is at most ${MAX_PDF_BYTES} bytes`)
+      if (!Buffer.from(pdf.slice(0, 8), 'base64').toString('latin1').startsWith('%PDF-') || !Buffer.from(pdf.slice(-2048), 'base64').toString('latin1').includes('%%EOF')) {
+        throw new GatewayError(400, 'invalid_pdf', 'the file is not a PDF')
+      }
+      const same = JSON.stringify([model, id, filename, summary, createHash('sha256').update(pdf).digest('hex')])
+
+      const key = `${project.id}:doc:${requestId}`
+      const known = documentEntries.get(key)
+      if (known && known.expires > now()) {
+        if (known.same !== same) throw new GatewayError(409, 'request_id_reused', 'this requestId was used for another document')
+        if (known.state === 'pending') throw new GatewayError(409, 'in_progress', 'this request is still running')
+        if (known.state === 'unknown') throw new GatewayError(409, 'outcome_unknown', 'it is not known whether the document was posted; look at the customer in Odoo')
+        return { ...known.result, replayed: true }
+      }
+
+      const entry: DocumentEntry = { same, state: 'pending', expires: now() + ENTRY_TTL_MS }
+      documentEntries.set(key, entry)
+      let attempted = false
+      try {
+        const partner = await odoo.readReferencePartner({ model, id, companyId: project.companyId })
+        if (!partner) throw new GatewayError(404, 'reference_not_found', 'no such record in the company of the project')
+        if (partner.partnerId === null) throw new GatewayError(409, 'reference_has_no_customer', 'the record has no customer')
+
+        const bucket = `${project.id}:docs`
+        if (limitReached(bucket, policy.maxPerHour)) throw new GatewayError(429, 'rate_limited', `at most ${policy.maxPerHour} documents per hour`)
+        attempts.set(bucket, [...(attempts.get(bucket) ?? []), now()])
+
+        attempted = true
+        let posted: { attachmentId: number; noted: boolean }
+        try {
+          posted = await odoo.postDocument({ partnerId: partner.partnerId, companyId: project.companyId, filename, pdfBase64: pdf, note: summary })
+        } catch (error) {
+          if (error instanceof OdooWriteError && error.outcome === 'rejected') {
+            documentEntries.delete(key)
+            throw new GatewayError(502, 'odoo_rejected', error.odooName ?? `upstream status ${error.status}`)
+          }
+          entry.state = 'unknown'
+          throw new GatewayError(504, 'outcome_unknown', 'it is not known whether the document was posted; look at the customer in Odoo')
+        }
+        entry.state = 'done'
+        entry.result = { id: posted.attachmentId, noted: posted.noted, customer: partner.partnerName }
+        return entry.result
+      } catch (error) {
+        if (!attempted) documentEntries.delete(key)
+        throw error
+      }
     },
 
     async createEmployee(project: Project, body: Record<string, unknown>, ctx: ActionContext) {

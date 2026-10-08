@@ -4,6 +4,9 @@ import { buildAppointments, filterByTechnician, inScope } from './appointments.t
 import type { Auth } from './auth.ts'
 import type { AvailabilityStore } from './availability.ts'
 import { createAvailabilityHandlers } from './availability-handlers.ts'
+import { createDocumentHandlers } from './document-handlers.ts'
+import type { DocumentJournal } from './document-journal.ts'
+import type { DocumentReference, PostDocumentOutcome } from './gateway-document.ts'
 import { canManageAccounts, canRefresh, technicianChoicesFor, visibleAppointments } from './authorization.ts'
 import type { User } from './authorization.ts'
 import type { DashboardData, DashboardResponse } from './dashboard-types.ts'
@@ -33,6 +36,10 @@ export interface HandlerDeps {
   journal: Journal | null
   /** The periods technicians are not available, as they filled them in; null together with `auth`. */
   availability: AvailabilityStore | null
+  /** The journal of documents put on customers; null together with `auth`. */
+  documents: DocumentJournal | null
+  /** The clock of the documents (their time stamp and file name); the real time unless a test says otherwise. */
+  now?: () => Date
   secureCookies: boolean
   clientAddress: (request: Request) => string
   loadData: (refresh: boolean) => Promise<DashboardData>
@@ -49,6 +56,11 @@ export interface HandlerDeps {
   addUnavailability: (input: { requestId: string; employeeId: number; from: string; to: string; note: string }) => Promise<AddUnavailabilityOutcome>
   /** Removes the record the dashboard made for such a period. */
   removeUnavailability: (input: { employeeId: number; leaveId: number }) => Promise<RemoveUnavailabilityOutcome>
+  /**
+   * Asks the gateway to put one signed PDF on the customer of an appointment. Only a request id, the reference to the
+   * appointment, a file name, a one-line summary and the file go out; the customer is read by the gateway from Odoo.
+   */
+  postDocument: (input: { requestId: string; reference: DocumentReference; filename: string; summary: string; pdf: Uint8Array }) => Promise<PostDocumentOutcome>
   generatePassword: () => string
 }
 
@@ -132,6 +144,7 @@ export function createHandlers(deps: HandlerDeps) {
     ctx,
     ...createAdminHandlers(ctx),
     ...createAvailabilityHandlers(ctx),
+    ...createDocumentHandlers(ctx),
 
     async login(request: Request): Promise<Response> {
       if (deps.authMode === 'off') return fail(404, 'Inloggen staat uit.')

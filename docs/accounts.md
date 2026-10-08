@@ -128,7 +128,7 @@ uitkomst nooit opnieuw verstuurt. Twee verschillende mensen met dezelfde naam zi
 | Variabele | Doel |
 |---|---|
 | `DIG_SESSION_SECRET` | minstens 32 bytes; ondertekent de sessies. **Zonder deze variabele weigert het dashboard alles** (het valt nooit terug op open) |
-| `DIG_DATA_DIR` | map voor `accounts.json` en `employee-requests.json` (standaard `./data`, schrijfbaar en bewaard; staat in `.gitignore`) |
+| `DIG_DATA_DIR` | map voor `accounts.json`, `employee-requests.json`, `availability.json` en `document-requests.json` (standaard `./data`, schrijfbaar en bewaard; staat in `.gitignore`) |
 | `DIG_ADMIN_USERNAME`, `DIG_ADMIN_PASSWORD_HASH` | het noodaccount (standaard `admin`); de hash maak je met `bun run preview:password '<wachtwoord>'` |
 | `DIG_AUTH=off` | zet inloggen uit (previews, ontwikkeling, de probe van de agent): het dashboard is dan open en alleen-lezen, zonder accountbeheer en zonder Odoo-schrijfactie |
 | `DIG_SECURE_COOKIES` | `false` voor gewoon http (standaard: veilig in productie) |

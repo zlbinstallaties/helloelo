@@ -21,7 +21,9 @@
  *
  * The other writes are just as narrow and each takes a fixed set of values: `setEmployeePlanningRoles` (the planning
  * roles of one employee), `createUnavailability` and `removeUnavailability` (one `resource.calendar.leaves` record that
- * says one employee is not available: it is no shift and no planning).
+ * says one employee is not available: it is no shift and no planning), and `postDocument` (one PDF as an attachment
+ * of one customer, with an internal note that sends no mail). The customer of a document is read from a planning.slot
+ * or svs.tech.visit (`readReferencePartner`); it is never a value the caller can choose.
  */
 
 export interface OdooClientConfig {
@@ -132,6 +134,31 @@ export interface CreateUnavailabilityParams {
   dateTo: string
 }
 
+export interface ReferencePartner {
+  partnerId: number | null
+  partnerName: string | null
+}
+
+export interface PostDocumentParams {
+  /** The customer (`res.partner`) the file goes on; read from the reference record, never from a caller. */
+  partnerId: number
+  companyId: number
+  /** `schouw-familie-20261008.pdf`: letters, digits, dot, dash and underscore. */
+  filename: string
+  pdfBase64: string
+  /** One line for the internal note. */
+  note: string
+}
+
+export interface PostDocumentResult {
+  attachmentId: number
+  /** False when the file is on the customer but the note could not be added. */
+  noted: boolean
+}
+
+/** The only records a document can be tied to; both hold the customer in `partner_id`. */
+const REFERENCE_MODELS = ['planning.slot', 'svs.tech.visit'] as const
+
 export interface OdooClient {
   searchRead<T = Record<string, unknown>>(params: SearchReadParams): Promise<T[]>
   searchCount(params: SearchCountParams): Promise<number>
@@ -154,6 +181,10 @@ export interface OdooClient {
   readUnavailability(params: { id: number; companyId: number }): Promise<UnavailabilityRecord | null>
   /** Removes one `resource.calendar.leaves` record. Throws `OdooWriteError`. */
   removeUnavailability(params: { id: number; companyId: number }): Promise<void>
+  /** The customer of a planning.slot or svs.tech.visit in the company, or null when there is no such record. */
+  readReferencePartner(params: { model: string; id: number; companyId: number }): Promise<ReferencePartner | null>
+  /** Puts a PDF on a customer: an attachment and an internal note without recipients. Throws `OdooWriteError` (see there). */
+  postDocument(params: PostDocumentParams): Promise<PostDocumentResult>
 }
 
 export class OdooError extends Error {
@@ -226,7 +257,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  async function call(model: string, method: string, body: Record<string, unknown>, verb = 'read'): Promise<unknown> {
+  async function call(model: string, method: string, body: Record<string, unknown>, verb = 'read', callTimeoutMs = timeoutMs): Promise<unknown> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json; charset=utf-8',
       Authorization: `bearer ${config.apiKey}`,
@@ -234,7 +265,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (config.database) headers['X-Odoo-Database'] = config.database
 
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs)
     let response: Response
     try {
       response = await doFetch(`${baseUrl}/json/2/${model}/${method}`, {
@@ -593,8 +624,86 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (payload !== true) throw new OdooWriteError('Odoo resource.calendar.leaves returned an unexpected response', 200, 'unknown')
   }
 
+  async function readReferencePartner(params: { model: string; id: number; companyId: number }): Promise<ReferencePartner | null> {
+    if (!(REFERENCE_MODELS as readonly string[]).includes(params?.model)) throw new OdooError('model is not a reference of a document', 0)
+    if (!isId(params.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call(params.model, 'search_read', {
+      domain: [['id', '=', params.id], ['company_id', '=', params.companyId]],
+      fields: ['id', 'partner_id'],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError(`Odoo ${params.model} returned an unexpected response`, 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    const partnerId = relatedId(row.partner_id)
+    const name = Array.isArray(row.partner_id) && typeof row.partner_id[1] === 'string' ? row.partner_id[1].slice(0, 120) : null
+    return { partnerId, partnerName: partnerId === null ? null : name }
+  }
+
+  const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+  const MAX_PDF_BASE64 = 12_000_000
+  const DOCUMENT_TIMEOUT_MS = 60_000
+
+  /** The note is plain text: markup characters are not sent, so that a name can never be taken as HTML. */
+  const plainNote = (text: string) => text.replace(/[<>&]/g, ' ').replace(/ {2,}/g, ' ').trim()
+
+  async function postDocument(params: PostDocumentParams): Promise<PostDocumentResult> {
+    // Only these five values are read from `params`; the customer is the one the caller got from `readReferencePartner`.
+    if (!isId(params?.partnerId)) throw new OdooWriteError('partnerId is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (typeof params.filename !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.pdf$/.test(params.filename)) throw new OdooWriteError('Invalid filename', 0, 'rejected')
+    const data = params.pdfBase64
+    if (typeof data !== 'string' || data.length < 8 || data.length > MAX_PDF_BASE64 || data.length % 4 !== 0 || !BASE64.test(data)) throw new OdooWriteError('Invalid file', 0, 'rejected')
+    const head = Buffer.from(data.slice(0, 8), 'base64').toString('latin1')
+    const tail = Buffer.from(data.slice(-2048), 'base64').toString('latin1')
+    if (!head.startsWith('%PDF-') || !tail.includes('%%EOF')) throw new OdooWriteError('The file is not a PDF', 0, 'rejected')
+    const note = typeof params.note === 'string' ? plainNote(params.note) : ''
+    if (note.length < 1 || params.note.length > 500 || hasControlCharacter(params.note)) throw new OdooWriteError('Invalid note', 0, 'rejected')
+
+    let created: unknown
+    try {
+      created = await call(
+        'ir.attachment',
+        'create',
+        {
+          vals_list: [{ name: params.filename, type: 'binary', datas: data, mimetype: 'application/pdf', res_model: 'res.partner', res_id: params.partnerId }],
+          context: { allowed_company_ids: [params.companyId] },
+        },
+        'write',
+        DOCUMENT_TIMEOUT_MS,
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const attachmentId = Array.isArray(created) && created.length === 1 ? created[0] : null
+    if (!isId(attachmentId)) throw new OdooWriteError('Odoo ir.attachment returned an unexpected response', 200, 'unknown')
+
+    // The file is on the customer now. The note only makes it show up in the chatter; if it fails the document is still there.
+    try {
+      await call(
+        'res.partner',
+        'message_post',
+        {
+          ids: [params.partnerId],
+          body: note,
+          message_type: 'comment',
+          // An internal note, with no recipients: it sends no mail.
+          subtype_xmlid: 'mail.mt_note',
+          attachment_ids: [attachmentId],
+          context: { allowed_company_ids: [params.companyId], mail_post_autofollow: false, mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true, mail_notrack: true },
+        },
+        'write',
+      )
+    } catch {
+      return { attachmentId, noted: false }
+    }
+    return { attachmentId, noted: true }
+  }
+
   return {
     searchRead, searchCount, fieldsGet, createEmployee, setEmployeePlanningRoles, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee,
-    createUnavailability, readUnavailability, removeUnavailability,
+    createUnavailability, readUnavailability, removeUnavailability, readReferencePartner, postDocument,
   }
 }

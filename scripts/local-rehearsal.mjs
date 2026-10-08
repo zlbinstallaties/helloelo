@@ -157,7 +157,7 @@ async function start() {
   let password = null
   if (!foreign && !existsSync(path.join(LOCAL, 'dashboard.env'))) {
     const setup = spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', 'scripts/local-setup.ts',
-      '--odoo-url', DEMO_URL, '--company-id', '2', '--responsible-id', '2'], { cwd: ROOT, encoding: 'utf8' })
+      '--odoo-url', DEMO_URL, '--company-id', '2', '--responsible-id', '2', '--documents'], { cwd: ROOT, encoding: 'utf8' })
     if (setup.status !== 0) {
       out(`De setup is mislukt:\n${setup.stderr || setup.stdout}`)
       process.exit(1)

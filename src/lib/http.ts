@@ -16,13 +16,18 @@ export const fail = (status: number, error: string) => json({ error }, status)
 
 export const accountFileProblem = () => fail(500, 'Het accountbestand is ongeldig; neem contact op met de beheerder.')
 
-/** The body as a JSON object, or the answer to send back instead. */
-export async function readJsonBody(request: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: Response }> {
+/**
+ * The body as a JSON object, or the answer to send back instead. `limit` is in characters; a request that says it is
+ * bigger is refused before its body is read.
+ */
+export async function readJsonBody(request: Request, limit = MAX_BODY_CHARS): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: Response }> {
   if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
     return { ok: false, response: fail(415, 'Het verzoek moet JSON zijn.') }
   }
+  const declared = Number(request.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > limit) return { ok: false, response: fail(413, 'Het verzoek is te groot.') }
   const text = await request.text()
-  if (text.length > MAX_BODY_CHARS) return { ok: false, response: fail(413, 'Het verzoek is te groot.') }
+  if (text.length > limit) return { ok: false, response: fail(413, 'Het verzoek is te groot.') }
   let parsed: unknown
   try {
     parsed = JSON.parse(text)

@@ -26,12 +26,15 @@ bun run local:rehearsal reset     # stopt en verwijdert .local (alleen als het b
 ```
 
 Open `http://127.0.0.1:3000`, log in met `admin` en het getoonde wachtwoord, kies **Beheer** en voeg een monteur toe.
-Dan staat er in `logs` precies één `CREATE hr.employee` met `user_id: false`. Is een poort bezet (18069, 8070 of
+Dan staat er in `logs` precies één `CREATE hr.employee` met `user_id: false`. Ook het versturen van schouw- en opleverdocumenten staat in
+de demo aan: hang een monteuraccount aan een medewerker van de demo-planning (Beheer, Accounts; bijvoorbeeld *Jan de Vries*), log in als die
+monteur, kies bij *Familie Jansen* **Details** en dan **Schouw invullen**. Na het versturen staan in `logs` de regels `ATTACH ir.attachment ...`
+en `NOTE res.partner ... no mail, no recipients`. Is een poort bezet (18069, 8070 of
 3000), dan zegt het commando welke en wat je kunt doen. `.local` is voor één Odoo tegelijk: doe `reset` voordat je
 `local:setup` voor de echte proef draait. `start` en `reset` raken een `.local` die niet bij de demo hoort nooit aan.
 
 Wat dit commando doet, als je het met de hand wilt: `bun run local:setup --odoo-url http://127.0.0.1:18069
---company-id 2 --responsible-id 2`, in `.local/gateway.env` `ODOO_API_KEY=demo` invullen, en dan in drie terminals
+--company-id 2 --responsible-id 2 --documents`, in `.local/gateway.env` `ODOO_API_KEY=demo` invullen, en dan in drie terminals
 `bun run local:demo-odoo`, `bun run local:gateway` en `bun run build && bun run local:dashboard`.
 
 ## 1. Odoo 20 lokaal starten
@@ -120,7 +123,9 @@ sed -i '' "s|^ODOO_API_KEY=.*|ODOO_API_KEY=$(pbpaste)|" .local/gateway.env
 ```
 
 Kopieer niets anders voordat je dit doet. Draai `local:setup` opnieuw met `--force` voor een nieuw token en
-wachtwoord. Het script weigert `*.odoo.sh` en `*.odoo.com`, net als de gateway. Zonder `--responsible-id` staat
+wachtwoord. Het script weigert `*.odoo.sh` en `*.odoo.com`, net als de gateway. Met `--documents` staat ook het versturen van
+getekende schouw- en opleverdocumenten aan (een PDF als bijlage en een interne notitie op de klant van de afspraak, zonder mail;
+`docs/documenten.md`); zonder die schakelaar blijft het uit. Zonder `--responsible-id` staat
 "Monteur toevoegen" uit (en ook het wijzigen van planningsrollen). De planningsrollen kies je per monteur in het
 dashboard uit de rollen die in Odoo staan (Planning, Configuratie, Rollen), bij het toevoegen en later via de knop
 *Planningsrollen* bij Accounts: zonder rol kun je een monteur niet aan een dienst met een rol toewijzen.
@@ -162,6 +167,13 @@ afspraken niet tonen, maar "Monteur toevoegen" werkt wel. Open `http://127.0.0.1
    label wordt **In Odoo**. Controleer in Odoo bij **Planning, Planning, Onbeschikbaarheid van resource** dat er één record staat met de naam
    `[Dashboard] Niet beschikbaar: <opmerking>` voor die medewerker, van 00:00 tot 23:59 jouw tijd (zo gezien op een lokale Odoo 20), en bij
    **Inplannen, Per medewerker** (het Gantt-overzicht) dat Planning de dagen als niet beschikbaar toont. Verwijder de periode in het dashboard: het record verdwijnt in Odoo. Zie `docs/beschikbaarheid.md`.
+   **Schouw en oplevering** (alleen met `--documents`, en alleen op een Odoo waar `planning.slot` of `svs.tech.visit` een klant heeft, dus
+   met de DIG-modules; op de kale lokale Odoo 20 kan de afspraken-pagina niet eens laden): hang een monteuraccount (Beheer, Accounts) aan een
+   medewerker die in de planning staat, log in als die monteur op een telefoon (of een smal venster), kies bij een afspraak *Details*, dan
+   *Schouw invullen*, vul het formulier in met een foto en een handtekening en kies *Versturen naar Odoo*. Controleer bij die klant in Odoo dat er
+   **één** bijlage (PDF) en **één** interne notitie staat, en dat er geen mail is verstuurd. Verstuur hetzelfde document nog eens (herlaad de
+   bevestiging niet): er mag geen tweede bijlage komen. Zie je een foutmelding, stuur die dan: dit is het deel dat nog niet tegen een echte Odoo 20
+   is gezien.
 4. Klik in het scherm nog eens op toevoegen met dezelfde gegevens (herhaling): er mag geen tweede medewerker komen.
 5. Log in als de nieuwe monteur: hij ziet alleen zijn eigen afspraken en geen Beheer. Hij staat pas in de lijst van de
    planning zodra hij is ingepland.

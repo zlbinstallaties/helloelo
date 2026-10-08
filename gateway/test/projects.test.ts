@@ -133,3 +133,17 @@ test('the action that marks an employee as not available: off by default, may be
     assert.throws(() => parseProjects(create(value)), /employeeUnavailability/, JSON.stringify(value))
   }
 })
+
+test('the action that posts a document: off by default, may be empty, has its own cap, and gives no other right', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.postDocument, undefined)
+  const [plain] = parseProjects(config({ actions: { postDocument: {} } }))
+  assert.deepEqual(plain.actions.postDocument, { maxPerHour: 60 })
+  for (const other of ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability'] as const) assert.equal(plain.actions[other], undefined, other)
+  const [capped] = parseProjects(config({ actions: { postDocument: { maxPerHour: 5 } } }))
+  assert.deepEqual(capped.actions.postDocument, { maxPerHour: 5 })
+  const create = (value: unknown) => config({ actions: { postDocument: value } })
+  for (const value of [null, 'ja', [], { partnerId: 5 }, { maxBytes: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }]) {
+    assert.throws(() => parseProjects(create(value)), /postDocument/, JSON.stringify(value))
+  }
+})

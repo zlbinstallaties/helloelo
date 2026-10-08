@@ -56,6 +56,9 @@ const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
 const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
 /** What may be logged of an error of Odoo: a class name like odoo.exceptions.AccessDenied, or `upstream status 401`. */
 const PLAIN_UPSTREAM = /^(?:[A-Za-z_][\w.]{0,80}|upstream status \d{1,3})$/
+/** A document is a PDF of up to 8 MiB, as base64 in JSON; the other routes stay at the small limit. */
+const POST_DOCUMENT_ROUTE = '/v1/actions/post_document'
+const DOCUMENT_BODY_BYTES = 12 * 1024 * 1024
 const ADD_UNAVAILABILITY_ROUTE = '/v1/actions/add_employee_unavailability'
 const REMOVE_UNAVAILABILITY_ROUTE = '/v1/actions/remove_employee_unavailability'
 const EMPLOYEE_ROLES_ROUTE = /^\/v1\/employees\/([0-9]+)\/planning-roles$/
@@ -82,16 +85,19 @@ function send(res: ServerResponse, status: number, payload: unknown) {
   res.end(body)
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
   const type = req.headers['content-type'] ?? ''
   if (!type.toLowerCase().startsWith('application/json')) {
     throw new GatewayError(415, 'unsupported_media_type', 'content-type must be application/json')
   }
+  // A body that says it is too big is refused before a single byte of it is read.
+  const declared = Number(req.headers['content-length'])
+  if (Number.isFinite(declared) && declared > limit) throw new GatewayError(413, 'body_too_large')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > MAX_BODY_BYTES) throw new GatewayError(413, 'body_too_large')
+    if (size > limit) throw new GatewayError(413, 'body_too_large')
     chunks.push(chunk as Buffer)
   }
   if (size === 0) return {}
@@ -245,6 +251,15 @@ export function createGateway(options: GatewayOptions) {
       if (!ctx.project.actions.employeeUnavailability) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
       const body = await readJson(req)
       return url.pathname === ADD_UNAVAILABILITY_ROUTE ? actions.addEmployeeUnavailability(ctx.project, body, ctx) : actions.removeEmployeeUnavailability(ctx.project, body, ctx)
+    }
+
+    if (url.pathname === POST_DOCUMENT_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'res.partner'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body (up to 12 MB) is even read.
+      if (!ctx.project.actions.postDocument) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: postDocument')
+      return actions.postDocument(ctx.project, await readJson(req, DOCUMENT_BODY_BYTES), ctx)
     }
 
     if (url.pathname === CREATE_EMPLOYEE_ROUTE) {

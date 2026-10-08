@@ -65,6 +65,12 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
     async removeUnavailability() {
       throw new Error('removeUnavailability is not used in these tests')
     },
+    async readReferencePartner() {
+      throw new Error('readReferencePartner is not used in these tests')
+    },
+    async postDocument() {
+      throw new Error('postDocument is not used in these tests')
+    },
     async checkResponsible() {
       throw new Error('checkResponsible is not used in these tests')
     },

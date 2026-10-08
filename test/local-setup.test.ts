@@ -41,6 +41,19 @@ test('adding technicians, changing their planning roles and marking them as not 
   assert.equal(parseProjects(off.projects)[0].actions.employeeUnavailability, undefined)
 })
 
+test('posting documents is a separate switch: off by default, and on it adds only that action, with or without a responsible', () => {
+  assert.equal(DEFAULTS.documents, false)
+  assert.equal('postDocument' in build().projects.projects[0].actions, false, 'a responsible alone does not switch it on')
+  const both = build({ documents: true })
+  assert.deepEqual(both.projects.projects[0].actions, { createEmployee: { responsibleUserId: 7 }, setEmployeePlanningRoles: {}, employeeUnavailability: {}, postDocument: {} })
+  assert.equal(parseProjects(both.projects)[0].actions.postDocument?.maxPerHour, 60)
+  const only = build({ responsibleId: null, documents: true })
+  assert.deepEqual(only.projects.projects[0].actions, { postDocument: {} })
+  assert.equal(parseProjects(only.projects)[0].actions.createEmployee, undefined)
+  assert.equal(resolveOptions({}).documents, false)
+  assert.equal(resolveOptions({ documents: true }).documents, true)
+})
+
 test('dashboard.env: login is on, the secret is long enough, the hash fits the printed password, no password on disk', () => {
   const { secrets, files } = build()
   const env = parseEnv(files['dashboard.env'])

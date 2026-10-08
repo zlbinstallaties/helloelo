@@ -13,12 +13,15 @@ import { generatePassword, hashPassword } from '../src/lib/password.ts'
  * the Odoo API key is NOT asked for or written: fill it in yourself in `.local/gateway.env`.
  *
  *   node --experimental-strip-types scripts/local-setup.ts [--odoo-url ...] [--database ...] [--company-id 1]
- *        [--responsible-id <Odoo user id>] [--force]
+ *        [--responsible-id <Odoo user id>] [--documents] [--force]
  *
  * Without --responsible-id the dashboard cannot create employees in Odoo (the action stays off). The planning roles of
  * a technician are chosen by the admin in the dashboard, from the roles that exist in Odoo: when a technician is
  * added, and later per technician. With --responsible-id both actions are switched on, and so is marking a technician as not available (his availability
  * goes to Odoo as one record per period); nothing else is.
+ *
+ * `--documents` switches on, separately, the one action that puts a signed schouw or oplever PDF on the customer of an
+ * appointment (docs/documenten.md). It needs an Odoo user who may create attachments and post notes on customers.
  */
 
 export interface LocalSetupOptions {
@@ -27,6 +30,8 @@ export interface LocalSetupOptions {
   companyId: number
   /** The Odoo user who becomes hr_responsible_id; null leaves "add technician" switched off. */
   responsibleId: number | null
+  /** Switches the action that puts a signed document on the customer on; off by default. */
+  documents: boolean
   adminUsername: string
   gatewayPort: number
   dashboardPort: number
@@ -48,6 +53,7 @@ export const DEFAULTS: LocalSetupOptions = {
   database: '',
   companyId: 1,
   responsibleId: null,
+  documents: false,
   adminUsername: 'admin',
   gatewayPort: 8070,
   dashboardPort: 3000,
@@ -91,6 +97,7 @@ export function resolveOptions(values: Record<string, string | boolean | undefin
     database: text('database') ? singleLine(text('database') as string, '--database') : DEFAULTS.database,
     companyId: positiveInteger(text('company-id'), '--company-id', DEFAULTS.companyId) as number,
     responsibleId,
+    documents: values.documents === true,
     adminUsername: singleLine(text('admin-username') ?? DEFAULTS.adminUsername, '--admin-username'),
     gatewayPort: positiveInteger(text('gateway-port'), '--gateway-port', DEFAULTS.gatewayPort) as number,
     dashboardPort: positiveInteger(text('dashboard-port'), '--dashboard-port', DEFAULTS.dashboardPort) as number,
@@ -119,7 +126,10 @@ export function buildLocalSetup(options: LocalSetupOptions, secrets: LocalSetupS
     tokenSha256: sha256Hex(secrets.gatewayToken),
     companyId: options.companyId,
   }
-  if (options.responsibleId !== null) project.actions = { createEmployee: { responsibleUserId: options.responsibleId }, setEmployeePlanningRoles: {}, employeeUnavailability: {} }
+  const actions: Record<string, unknown> = {}
+  if (options.responsibleId !== null) Object.assign(actions, { createEmployee: { responsibleUserId: options.responsibleId }, setEmployeePlanningRoles: {}, employeeUnavailability: {} })
+  if (options.documents) actions.postDocument = {}
+  if (Object.keys(actions).length > 0) project.actions = actions
   else delete project.actions
   const projects = { projects: [project] }
   parseProjects(projects) // throws when the gateway would refuse this file
@@ -177,6 +187,7 @@ function main() {
       database: { type: 'string' },
       'company-id': { type: 'string' },
       'responsible-id': { type: 'string' },
+      documents: { type: 'boolean' },
       'admin-username': { type: 'string' },
       'gateway-port': { type: 'string' },
       'dashboard-port': { type: 'string' },
@@ -210,6 +221,13 @@ function main() {
     out(`Monteur toevoegen in Odoo staat AAN met Odoo-gebruiker ${options.responsibleId} als verantwoordelijke (bedrijf ${options.companyId}).`)
     out('De planningsrollen van een monteur kies je in het dashboard (bij het toevoegen, en later bij Accounts), uit de rollen die in Odoo (Planning, Configuratie, Rollen) staan.')
     out('De beschikbaarheid die een monteur doorgeeft, komt ook in Odoo (een niet-beschikbaar-record per periode; geen dienst of planning).')
+  }
+  out()
+  if (options.documents) {
+    out('Schouw- en opleverdocumenten naar de klant in Odoo staan AAN (--documents): een getekende PDF komt als bijlage en interne notitie op de klant van de afspraak.')
+    out('De Odoo-gebruiker van de API-sleutel moet bijlagen mogen aanmaken en notities op klanten mogen plaatsen.')
+  } else {
+    out('Schouw- en opleverdocumenten naar Odoo staan UIT: geef --documents mee om ze aan te zetten.')
   }
 }
 

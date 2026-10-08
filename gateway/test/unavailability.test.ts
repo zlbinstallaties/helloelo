@@ -40,7 +40,7 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}, employees: Record<number,
   const odoo: OdooClient = {
     searchRead: unexpected('searchRead'), searchCount: unexpected('searchCount'), fieldsGet: unexpected('fieldsGet'), createEmployee: unexpected('createEmployee'),
     setEmployeePlanningRoles: unexpected('setEmployeePlanningRoles'), checkResponsible: unexpected('checkResponsible'), checkPlanningRoles: unexpected('checkPlanningRoles'),
-    listPlanningRoles: unexpected('listPlanningRoles'),
+    listPlanningRoles: unexpected('listPlanningRoles'), readReferencePartner: unexpected('readReferencePartner'), postDocument: unexpected('postDocument'),
     async readEmployee(params) {
       calls.push({ method: 'readEmployee', params })
       return known[params.id] ?? null

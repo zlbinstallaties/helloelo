@@ -6,13 +6,22 @@
 - Odoo wordt gelezen via `src/lib/gateway.server.ts` (`searchRead`, `searchReadAll`). Geen directe Odoo-aanroepen.
   De gateway staat alleen de velden toe die `odoo_schema` laat zien; een nieuw veld voeg je toe aan de lijst in
   `src/lib/cache.ts` en aan de types in `src/lib/dashboard-types.ts`.
-- Er is **één** schrijfactie, en die is van een mens: een planner voegt een monteur toe als medewerker in Odoo, zonder
-  Odoo-account (`src/lib/employee-service.ts`, `gateway-employee.ts`, `admin-handlers.ts`, in de gateway
-  `gateway/src/actions.ts`; `docs/accounts.md`). Voeg geen andere schrijfacties toe, en wijzig, kopieer of verbreed
-  deze niet: wat er naar Odoo gaat (alleen `requestId` en naam), wie het mag, het journaal en de volgorde zijn met
-  opzet vast. Dat hoort bij een opdracht die daar expliciet over gaat en door een mens wordt beoordeeld.
+- Er zijn **vier** schrijfacties naar Odoo. Elk is een vaste, smalle gateway-actie die standaard uit staat en alleen
+  aangaat als het projectconfig van de gateway erom vraagt:
+  1. een planner voegt een monteur toe als medewerker in Odoo, zonder Odoo-account (`src/lib/employee-service.ts`,
+     `gateway-employee.ts`, `admin-handlers.ts`, in de gateway `gateway/src/actions.ts`; `docs/accounts.md`);
+  2. een planner wijzigt achteraf de planningsrollen van zo'n monteur (zelfde bestanden; `docs/planning-weigeren.md` en
+     `docs/accounts.md`);
+  3. een monteur geeft door dat hij niet beschikbaar is: één record per periode, geen dienst of planning
+     (`src/lib/availability-handlers.ts`, `gateway-employee.ts`; `docs/beschikbaarheid.md`);
+  4. een monteur of planner verstuurt een getekend schouw- of opleverdocument: één PDF als bijlage plus een interne
+     notitie zonder ontvangers op de klant van de afspraak (`src/lib/document-handlers.ts`, `gateway-document.ts`,
+     `document-journal.ts`; `docs/documenten.md`).
+  Voeg geen andere schrijfacties toe, en wijzig, kopieer of verbreed deze niet: wat er naar Odoo gaat, wie het mag, het
+  journaal en de volgorde zijn met opzet vast. Een nieuwe schrijfactie hoort bij een opdracht die daar expliciet over
+  gaat en door een mens wordt beoordeeld.
 - Inloggen en rechten (`src/lib/accounts.ts`, `auth.ts`, `authorization.ts`, `sessions.ts`, `password.ts`,
-  `handlers.ts`, `admin-handlers.ts`) wijzig je alleen als de opdracht daarover gaat. Elke route gaat via de handlers
+  `handlers.ts`, `admin-handlers.ts`, `availability-handlers.ts`, `document-handlers.ts`) wijzig je alleen als de opdracht daarover gaat. Elke route gaat via de handlers
   in `src/lib/handlers.ts`; maak geen route die daar omheen gaat, en laat een monteur nooit meer zien dan zijn eigen
   afspraken. `DIG_AUTH=off` is alleen voor previews en ontwikkeling.
 - Geen geheimen, tokens of sleutels in bestanden. Servercode leest ze uit `process.env`. Bestanden die

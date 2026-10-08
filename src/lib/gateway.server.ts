@@ -1,5 +1,7 @@
 import '@tanstack/react-start/server-only'
 import { GatewayError } from '#/lib/gateway-error'
+import { postDocumentViaGateway } from '#/lib/gateway-document'
+import type { DocumentReference, PostDocumentOutcome } from '#/lib/gateway-document'
 import { addUnavailabilityViaGateway, createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, removeUnavailabilityViaGateway, setEmployeeRolesViaGateway } from '#/lib/gateway-employee'
 import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from '#/lib/gateway-employee'
 import { PAGE_SIZE, readAllPages } from '#/lib/paging'
@@ -106,4 +108,14 @@ export async function removeUnavailability(input: { employeeId: number; leaveId:
   if (!gatewayConfigured()) return AWAY_OFF
   const { url, token } = config()
   return removeUnavailabilityViaGateway({ url, token, ...input })
+}
+
+/**
+ * Puts one signed PDF on the customer of an appointment (see src/lib/gateway-document.ts). Without a gateway nothing
+ * is sent. The customer is never named here: the gateway reads it from the appointment in Odoo.
+ */
+export async function postDocument(input: { requestId: string; reference: DocumentReference; filename: string; summary: string; pdf: Uint8Array }): Promise<PostDocumentOutcome> {
+  if (!gatewayConfigured()) return { ok: false, kind: 'not_enabled', message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+  const { url, token } = config()
+  return postDocumentViaGateway({ url, token, ...input })
 }

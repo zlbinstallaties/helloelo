@@ -27,7 +27,7 @@
 | Datatypen | `src/lib/dashboard-types.ts` | interne TypeScript-vormen |
 | Gezondheid | `src/routes/api/health.ts` | `GET /api/health`: `ok` of `degraded` (503) als de gateway of het inloggen (`DIG_SESSION_SECRET`) niet is ingesteld; roept Odoo niet aan |
 | Verzoeklogica | `src/lib/handlers.ts`, `admin-handlers.ts`, `http.ts` | gewone functies van `Request` naar `Response` met alle afhankelijkheden meegegeven: inloggen, sessiecontrole, dashboard, accountbeheer, monteur toevoegen (getest met mocks, zonder server) |
-| Verbinding met de omgeving | `src/lib/wiring.server.ts` | leest de serveromgeving en de bestanden (`accounts.json`, `employee-requests.json`) en bouwt de handlers; de routebestanden onder `src/routes/api/` zijn dun |
+| Verbinding met de omgeving | `src/lib/wiring.server.ts` | leest de serveromgeving en de bestanden (`accounts.json`, `employee-requests.json`, `availability.json`, `document-requests.json`) en bouwt de handlers; de routebestanden onder `src/routes/api/` zijn dun |
 | Accounts en rechten | `src/lib/accounts.ts`, `auth.ts`, `authorization.ts`, `sessions.ts`, `password.ts` | zie `docs/accounts.md` |
 | Monteur toevoegen | `src/lib/employee-service.ts`, `employee-journal.ts`, `gateway-employee.ts`; in de gateway `gateway/src/actions.ts` | de enige schrijfactie: een medewerker in Odoo zonder Odoo-gebruiker, daarna een portaalaccount; zie `docs/accounts.md` en `docs/odoo-gateway.md` |
 | Browserhulp | `src/lib/api-client.ts`, `dashboard-client.ts`, `session.ts`, `request-id.ts`, `username.ts` | `X-Dig-Dashboard: 1` bij elke wijziging, foutafhandeling, wie is ingelogd, aanvraag-id, gebruikersnaamvoorstel |

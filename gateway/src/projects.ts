@@ -57,10 +57,20 @@ export interface EmployeeUnavailabilityPolicy {
   maxPerHour: number
 }
 
+/**
+ * Putting a signed PDF (a survey or handover document) on the customer of an appointment in Odoo: one attachment and an
+ * internal note that sends no mail. Off unless the project asks for it.
+ */
+export interface PostDocumentPolicy {
+  /** The most documents that may be posted per hour, per project. */
+  maxPerHour: number
+}
+
 export interface ProjectActions {
   createEmployee?: CreateEmployeePolicy
   setEmployeePlanningRoles?: SetPlanningRolesPolicy
   employeeUnavailability?: EmployeeUnavailabilityPolicy
+  postDocument?: PostDocumentPolicy
 }
 
 export interface Project {
@@ -72,11 +82,13 @@ export interface Project {
   tokenSha256: Buffer
 }
 
-export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability'] as const
+export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability', 'postDocument'] as const
 const DEFAULT_MAX_PER_HOUR = 20
 const HARD_MAX_PER_HOUR = 200
 /** All technicians of a company share one cap, and many fill in their holidays at the same moment. */
 const DEFAULT_UNAVAILABILITY_PER_HOUR = 100
+/** Technicians post a survey or handover document after most jobs; the whole company shares this cap. */
+const DEFAULT_DOCUMENTS_PER_HOUR = 60
 const MAX_ALLOWED_ROLES = 50
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
@@ -185,6 +197,17 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
       if (key !== 'maxPerHour') fail(`${projectId}: employeeUnavailability has an unknown setting ${key}`)
     }
     result.employeeUnavailability = { maxPerHour: parseMaxPerHour(projectId, 'employeeUnavailability', entry.maxPerHour, DEFAULT_UNAVAILABILITY_PER_HOUR) }
+  }
+
+  if (actions.postDocument !== undefined) {
+    const entry = actions.postDocument as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: postDocument must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (key !== 'maxPerHour') fail(`${projectId}: postDocument has an unknown setting ${key}`)
+    }
+    result.postDocument = { maxPerHour: parseMaxPerHour(projectId, 'postDocument', entry.maxPerHour, DEFAULT_DOCUMENTS_PER_HOUR) }
   }
   return result
 }

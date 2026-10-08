@@ -215,3 +215,73 @@ test('resource.calendar.leaves is as strict as Odoo: unknown fields, unknown res
     assert.equal(demo.leaves.length, 0, 'nothing was created')
   })
 })
+
+const PDF = Buffer.from('%PDF-1.4\nvoorbeeld\n%%EOF\n').toString('base64')
+const attachment = { name: 'schouw-jansen-20261008.pdf', type: 'binary', datas: PDF, mimetype: 'application/pdf', res_model: 'res.partner', res_id: 101 }
+
+test('planning.slot and svs.tech.visit can be read by id (customer included); an id without a record gives nothing', async () => {
+  await withDemo(async ({ call }) => {
+    const slot = await call('planning.slot', 'search_read', { domain: [['id', '=', 1], ['company_id', '=', 2]], fields: ['id', 'partner_id'], limit: 1, context })
+    assert.deepEqual(slot.body, [{ id: 1, partner_id: [101, 'Familie Jansen'] }])
+    const visit = await call('svs.tech.visit', 'search_read', { domain: [['id', '=', 106]], fields: ['id', 'partner_id'], limit: 1 })
+    assert.deepEqual(visit.body, [{ id: 106, partner_id: false }], 'a visit without a customer')
+    assert.deepEqual((await call('planning.slot', 'search_read', { domain: [['id', '=', 999]], fields: ['id'] })).body, [])
+    assert.ok((await call('planning.slot', 'search_read', { domain: [], fields: ['id'] })).body.length > 1, 'without an id filter it still lists everything')
+  })
+})
+
+test('ir.attachment/create then res.partner/message_post: the file is on the customer, the note is internal and sends nothing', async () => {
+  await withDemo(async ({ call, demo, lines }) => {
+    const created = await call('ir.attachment', 'create', { vals_list: [attachment], context })
+    assert.deepEqual([created.status, created.body], [200, [8000]])
+    assert.equal(demo.attachments.length, 1)
+    assert.equal(demo.attachments[0].bytes.subarray(0, 5).toString('latin1'), '%PDF-')
+    const noted = await call('res.partner', 'message_post', {
+      ids: [101], body: 'Schouwdocument - Familie Jansen', message_type: 'comment', subtype_xmlid: 'mail.mt_note', attachment_ids: [8000],
+      context: { ...context, mail_post_autofollow: false },
+    })
+    assert.deepEqual([noted.status, noted.body], [200, 9000])
+    assert.deepEqual(demo.notes, [{ id: 9000, partnerId: 101, body: 'Schouwdocument - Familie Jansen', attachmentIds: [8000] }])
+    const text = lines.join('\n')
+    assert.match(text, /ATTACH ir\.attachment 8000 "schouw-jansen-20261008\.pdf" \(\d+ bytes\) on res\.partner 101 \(Familie Jansen\)/)
+    assert.match(text, /NOTE res\.partner 101 \(Familie Jansen\) internal note 9000 .* no mail, no recipients/)
+  })
+})
+
+test('ir.attachment/create is as strict as Odoo: unknown fields, other models, unknown customers, no context and bad data are errors', async () => {
+  await withDemo(async ({ call, demo }) => {
+    const fails = async (body, status) => {
+      const answer = await call('ir.attachment', 'create', body)
+      assert.equal(answer.status, status, JSON.stringify(body).slice(0, 80))
+    }
+    await fails({ vals_list: [{ ...attachment, public: true }], context }, 500)
+    await fails({ vals_list: [{ ...attachment, res_model: 'res.users' }], context }, 500)
+    await fails({ vals_list: [{ ...attachment, res_id: 5 }], context }, 500)
+    await fails({ vals_list: [{ ...attachment, name: ' ' }], context }, 500)
+    await fails({ vals_list: [{ ...attachment, datas: 'not base64!' }], context }, 500)
+    await fails({ vals_list: [attachment] }, 500)
+    await fails({ vals: attachment, context }, 422)
+    assert.equal(demo.attachments.length, 0, 'nothing was created')
+  })
+})
+
+test('res.partner/message_post is as strict as Odoo: only an internal note with an attachment of that customer; unknown arguments are errors', async () => {
+  await withDemo(async ({ call, demo }) => {
+    await call('ir.attachment', 'create', { vals_list: [attachment], context })
+    const good = { ids: [101], body: 'x', message_type: 'comment', subtype_xmlid: 'mail.mt_note', attachment_ids: [8000], context }
+    const fails = async (extra, status) => {
+      const answer = await call('res.partner', 'message_post', { ...good, ...extra })
+      assert.equal(answer.status, status, JSON.stringify(extra))
+    }
+    await fails({ partner_ids: [101] }, 422)
+    await fails({ subtype_xmlid: 'mail.mt_comment' }, 500)
+    await fails({ message_type: 'email' }, 500)
+    await fails({ ids: [999] }, 404)
+    await fails({ ids: [101, 102] }, 404)
+    await fails({ attachment_ids: [8001] }, 404)
+    await fails({ ids: [102] }, 404)
+    await fails({ body: ' ' }, 500)
+    await fails({ context: undefined }, 500)
+    assert.equal(demo.notes.length, 0, 'no note was posted')
+  })
+})

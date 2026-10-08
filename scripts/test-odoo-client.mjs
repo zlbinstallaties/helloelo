@@ -522,3 +522,111 @@ test('unavailability removal: one unlink of one record, nothing else; the outcom
   const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
   await assert.rejects(down.removeUnavailability({ id: 901, companyId: 2 }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
 })
+
+// ---- documents: a PDF for a customer (ir.attachment + a note on res.partner) ----
+
+const pdfB64 = Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64')
+
+test('reference partner: one fixed read of planning.slot or svs.tech.visit by id, answering the customer as an id', async () => {
+  for (const model of ['planning.slot', 'svs.tech.visit']) {
+    const calls = []
+    const client = createOdooClient({ ...base, allowedModels: [], fetch: mockFetch(200, [{ id: 12, partner_id: [77, 'Familie Van den Berg'] }], calls) })
+    assert.deepEqual(await client.readReferencePartner({ model, id: 12, companyId: 2 }), { partnerId: 77, partnerName: 'Familie Van den Berg' })
+    assert.equal(calls[0].url, `https://odoo.example.com/json/2/${model}/search_read`)
+    const body = JSON.parse(calls[0].init.body)
+    assert.deepEqual(body.domain, [['id', '=', 12], ['company_id', '=', 2]], 'in the company of the project')
+    assert.deepEqual(body.fields, ['id', 'partner_id'])
+    assert.equal(body.limit, 1)
+    assert.deepEqual(body.context, { allowed_company_ids: [2] })
+  }
+  const none = (rows) => createOdooClient({ ...base, fetch: mockFetch(200, rows) }).readReferencePartner({ model: 'planning.slot', id: 12, companyId: 2 })
+  assert.equal(await none([]), null, 'no such record in this company')
+  assert.deepEqual(await none([{ id: 12, partner_id: false }]), { partnerId: null, partnerName: null }, 'a record without a customer')
+  assert.deepEqual(await none([{ id: 12, partner_id: [77, 'x'.repeat(300)] }]), { partnerId: 77, partnerName: 'x'.repeat(120) })
+  assert.equal(await none([{ id: 99, partner_id: [5, 'Een ander'] }]), null, 'an answer about another record is not taken')
+  assert.deepEqual(await none([{ id: 99, partner_id: [5, 'Een ander'] }, { id: 12, partner_id: [77, 'Goed'] }]), { partnerId: 77, partnerName: 'Goed' }, 'the right record among others')
+  assert.deepEqual(await none([{ id: 12, partner_id: [0, 'Naam'] }]), { partnerId: null, partnerName: null }, 'a name without a real customer is no customer')
+})
+
+test('reference partner: no other model, no odd id, no other company', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [], calls) })
+  for (const params of [{ model: 'res.partner' }, { model: 'hr.employee' }, { model: 'planning.slot/x' }, { model: 'sale.order' }, { id: 0 }, { id: '12' }, { id: -1 }, { companyId: 0 }]) {
+    await assert.rejects(client.readReferencePartner({ model: 'planning.slot', id: 12, companyId: 2, ...params }), OdooError, JSON.stringify(params))
+  }
+  assert.equal(calls.length, 0)
+})
+
+const doc = { partnerId: 77, companyId: 2, filename: 'schouw-familie-20261008.pdf', pdfBase64: pdfB64, note: 'Schouwdocument - Familie - 8 okt 2026' }
+
+test('posting a document: first the attachment on the customer, then an internal note that has it, with no recipients', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify(calls.length === 1 ? [501] : 9001), { status: 200 }) } })
+  const result = await client.postDocument({ ...doc, ids: [1], res_model: 'res.users', author_id: 3, partner_ids: [9] })
+  assert.deepEqual(result, { attachmentId: 501, noted: true })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/ir.attachment/create')
+  const attachment = JSON.parse(calls[0].init.body)
+  assert.deepEqual(attachment.vals_list, [{ name: doc.filename, type: 'binary', datas: pdfB64, mimetype: 'application/pdf', res_model: 'res.partner', res_id: 77 }], 'nothing else is written')
+  assert.deepEqual(attachment.context.allowed_company_ids, [2])
+  assert.equal(calls[1].url, 'https://odoo.example.com/json/2/res.partner/message_post')
+  const note = JSON.parse(calls[1].init.body)
+  assert.deepEqual(note.ids, [77])
+  assert.equal(note.subtype_xmlid, 'mail.mt_note', 'an internal note, not a mail')
+  assert.equal(note.message_type, 'comment')
+  assert.deepEqual(note.attachment_ids, [501])
+  assert.ok(!('partner_ids' in note), 'no recipients')
+  assert.equal(note.body, doc.note)
+  assert.equal(note.context.mail_post_autofollow, false)
+  assert.equal(calls.length, 2)
+})
+
+test('posting a document: odd values are refused before anything is sent', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [501], calls) })
+  const bad = [
+    { partnerId: 0 }, { partnerId: '77' }, { partnerId: null }, { companyId: 0 }, { filename: '' }, { filename: 'a/b.pdf' }, { filename: '../x.pdf' }, { filename: 'x.exe' }, { filename: 'a'.repeat(120) + '.pdf' },
+    { pdfBase64: pdfB64 + 'A' }, { pdfBase64: Buffer.from('zonder kop\n%%EOF\n').toString('base64') },
+    { pdfBase64: Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(9_000_100, 0x20), Buffer.from('\n%%EOF\n')]).toString('base64') },
+    { pdfBase64: '' }, { pdfBase64: 'geen base64!' }, { pdfBase64: Buffer.from('geen pdf').toString('base64') }, { pdfBase64: Buffer.from('%PDF-1.4 zonder einde').toString('base64') },
+    { note: '' }, { note: 'x'.repeat(501) }, { note: 'twee\nregels' }, { note: 5 },
+  ]
+  for (const extra of bad) {
+    await assert.rejects(client.postDocument({ ...doc, ...extra }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected', JSON.stringify(extra).slice(0, 80))
+  }
+  assert.equal(calls.length, 0)
+})
+
+test('posting a document: characters that would be taken as markup are not sent in the note', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify(calls.length === 1 ? [501] : 9001), { status: 200 }) } })
+  await client.postDocument({ ...doc, note: 'Schouw <b>Jan & Els</b>' })
+  assert.equal(JSON.parse(calls[1].init.body).body, 'Schouw b Jan Els /b')
+})
+
+test('posting a document: if the attachment fails nothing was made or the outcome is open; if only the note fails the document is still there', async () => {
+  const refused = createOdooClient({ ...base, fetch: mockFetch(403, { name: 'odoo.exceptions.AccessError', message: 'no' }) })
+  await assert.rejects(refused.postDocument(doc), (error) => error instanceof OdooWriteError && error.outcome === 'rejected')
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, true) })
+  await assert.rejects(odd.postDocument(doc), (error) => error instanceof OdooWriteError && error.outcome === 'unknown', 'no id: the attachment may exist')
+  const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
+  await assert.rejects(down.postDocument(doc), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
+  const several = createOdooClient({ ...base, fetch: mockFetch(200, [501, 502]) })
+  await assert.rejects(several.postDocument(doc), (error) => error instanceof OdooWriteError && error.outcome === 'unknown', 'two ids for one file is not an answer to trust')
+  let call = 0
+  const noteFails = createOdooClient({ ...base, fetch: async () => (++call === 1 ? new Response(JSON.stringify([501]), { status: 200 }) : new Response(JSON.stringify({ name: 'x', message: 'no' }), { status: 500 })) })
+  assert.deepEqual(await noteFails.postDocument(doc), { attachmentId: 501, noted: false }, 'the file is on the customer; only the note is missing')
+  call = 0
+  const noteSilent = createOdooClient({ ...base, fetch: async () => { if (++call === 1) return new Response(JSON.stringify([501]), { status: 200 }); throw new TypeError('connection reset') } })
+  assert.deepEqual(await noteSilent.postDocument(doc), { attachmentId: 501, noted: false })
+})
+
+test('posting a document is given more time than a normal call, and a call can be given its own time', async () => {
+  // A slow Odoo that honours the time-out of the request.
+  const slow = (init) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(new Response(JSON.stringify([501]), { status: 200 })), 60)
+    init.signal.addEventListener('abort', () => { clearTimeout(timer); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })) })
+  })
+  const client = createOdooClient({ ...base, timeoutMs: 15, fetch: (url, init) => slow(init) })
+  await assert.rejects(client.searchRead({ model: 'planning.slot', fields: ['id'], companyId: 2 }), OdooError, 'a normal call times out at 15 ms')
+  assert.deepEqual((await client.postDocument(doc)).attachmentId, 501, 'but a document may take longer')
+})

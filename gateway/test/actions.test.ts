@@ -107,6 +107,12 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
     async removeUnavailability() {
       throw new Error('unexpected call: removeUnavailability')
     },
+    async readReferencePartner() {
+      throw new Error('unexpected call: readReferencePartner')
+    },
+    async postDocument() {
+      throw new Error('unexpected call: postDocument')
+    },
     ...overrides,
   }
   const count = (method: string) => calls.filter((call) => call.method === method).length

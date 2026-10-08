@@ -6,6 +6,9 @@
 //
 // `hr.employee/write` understands only the two planning-role fields (all the dashboard ever changes); anything else is an error.
 // `resource.calendar.leaves` (a period in which one employee is not available) can be created, read by id and removed.
+// `ir.attachment/create` and `res.partner/message_post` take a signed document: the file goes on a customer (the `partner_id` of a
+// planning.slot or svs.tech.visit of the sample data) and an internal note without recipients points at it. Both are logged as
+// ATTACH and NOTE. `planning.slot` and `svs.tech.visit` can be read by id.
 //
 // The employee part follows what the Odoo 20.0 source says: `create` takes `vals_list` and answers with the
 // new ids, a many2one comes back as [id, name] or false, a many2many as a list of ids, and an unknown field
@@ -36,6 +39,9 @@ const ROLES = [
   { id: 3, name: 'Oud', active: false },
 ]
 
+const ATTACHMENT_FIELDS = ['name', 'type', 'datas', 'mimetype', 'res_model', 'res_id']
+const NOTE_ARGUMENTS = ['ids', 'body', 'message_type', 'subtype_xmlid', 'attachment_ids', 'context']
+
 const odooError = (name, message) => ({ name, message, arguments: [message], context: {}, debug: '' })
 const idFilter = (domain) => (Array.isArray(domain) && domain.length >= 1 && Array.isArray(domain[0]) && domain[0][0] === 'id' && domain[0][1] === '=' ? domain[0][2] : null)
 const pick = (row, wanted) => Object.fromEntries(wanted.filter((field) => field in row).map((field) => [field, row[field]]))
@@ -45,8 +51,17 @@ export function createDemoOdoo({ log = () => {} } = {}) {
   const data = demoData()
   const employees = []
   const leaves = []
+  const attachments = []
+  const notes = []
   let nextEmployeeId = 900
   let nextLeaveId = 7000
+  let nextAttachmentId = 8000
+  let nextNoteId = 9000
+  // The customers (res.partner) of the sample data: the many2one `partner_id` of the slots and visits.
+  const partners = new Map()
+  for (const rows of Object.values(data)) {
+    for (const row of rows) if (Array.isArray(row.partner_id)) partners.set(row.partner_id[0], row.partner_id[1])
+  }
 
   function employeeRow(employee) {
     return {
@@ -205,12 +220,53 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       }
       return [404, odooError('odoo.exceptions.MissingError', 'unknown method')]
     }
+    if (model === 'ir.attachment' && method === 'create') {
+      if (!Array.isArray(body.vals_list)) return [422, odooError('builtins.TypeError', "create() missing 1 required positional argument: 'vals_list'")]
+      const allowedCompanies = body.context?.allowed_company_ids
+      if (!Array.isArray(allowedCompanies) || allowedCompanies.length === 0) return [500, odooError('builtins.ValueError', 'the rehearsal needs allowed_company_ids in the context')]
+      const created = []
+      for (const vals of body.vals_list) {
+        for (const field of Object.keys(vals)) {
+          if (!ATTACHMENT_FIELDS.includes(field)) return [500, odooError('builtins.ValueError', `Invalid field '${field}' in 'ir.attachment'`)]
+        }
+        if (vals.res_model !== 'res.partner' || !partners.has(vals.res_id)) return [500, odooError('odoo.exceptions.MissingError', 'the rehearsal attaches files to a customer of the sample data only')]
+        if (typeof vals.name !== 'string' || !vals.name.trim()) return [500, odooError('odoo.exceptions.ValidationError', 'name is required')]
+        if (typeof vals.datas !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(vals.datas)) return [500, odooError('builtins.ValueError', 'datas must be base64')]
+        const bytes = Buffer.from(vals.datas, 'base64')
+        const attachment = { id: nextAttachmentId++, name: vals.name, type: vals.type ?? 'binary', mimetype: vals.mimetype ?? null, resModel: vals.res_model, resId: vals.res_id, bytes }
+        attachments.push(attachment)
+        created.push(attachment.id)
+        log(`ATTACH ir.attachment ${attachment.id} "${attachment.name}" (${bytes.length} bytes) on res.partner ${attachment.resId} (${partners.get(attachment.resId)}) starts with ${JSON.stringify(bytes.subarray(0, 5).toString('latin1'))}`)
+      }
+      return [200, created]
+    }
+    if (model === 'res.partner' && method === 'message_post') {
+      for (const argument of Object.keys(body)) {
+        if (!NOTE_ARGUMENTS.includes(argument)) return [422, odooError('builtins.TypeError', `message_post() got an unexpected keyword argument '${argument}'`)]
+      }
+      const allowedCompanies = body.context?.allowed_company_ids
+      if (!Array.isArray(allowedCompanies) || allowedCompanies.length === 0) return [500, odooError('builtins.ValueError', 'the rehearsal needs allowed_company_ids in the context')]
+      if (!Array.isArray(body.ids) || body.ids.length !== 1 || !partners.has(body.ids[0])) return [404, odooError('odoo.exceptions.MissingError', 'Record does not exist or has been deleted.')]
+      if (typeof body.body !== 'string' || !body.body.trim()) return [500, odooError('odoo.exceptions.ValidationError', 'body is required')]
+      // Odoo would send this to the followers and recipients; only an internal note is silent, and the rehearsal accepts nothing else.
+      if (body.subtype_xmlid !== 'mail.mt_note') return [500, odooError('builtins.ValueError', 'the rehearsal accepts only the internal note subtype, mail.mt_note')]
+      if (body.message_type !== 'comment') return [500, odooError('builtins.ValueError', "the rehearsal accepts only message_type 'comment'")]
+      const attached = Array.isArray(body.attachment_ids) ? body.attachment_ids : []
+      if (attached.some((id) => !attachments.some((attachment) => attachment.id === id && attachment.resId === body.ids[0]))) return [404, odooError('odoo.exceptions.MissingError', 'an attachment does not exist or belongs to another record')]
+      const note = { id: nextNoteId++, partnerId: body.ids[0], body: body.body, attachmentIds: attached }
+      notes.push(note)
+      log(`NOTE res.partner ${note.partnerId} (${partners.get(note.partnerId)}) internal note ${note.id} "${note.body}" attachments ${JSON.stringify(attached)} -> no mail, no recipients`)
+      return [200, note.id]
+    }
     if (!data[model]) return [404, odooError('odoo.exceptions.MissingError', 'unknown model')]
     if (method === 'fields_get') return [200, demoFields[model]]
     if (method === 'search_count') return [200, data[model].length]
     if (method === 'search_read') {
       const wanted = Array.isArray(body.fields) && body.fields.length ? body.fields : Object.keys(demoFields[model])
-      const rows = data[model].slice(body.offset ?? 0, (body.offset ?? 0) + (body.limit ?? 80))
+      // A domain that starts with an id is a read of one record, as the gateway does before it posts a document.
+      const id = idFilter(body.domain)
+      const all = id === null ? data[model] : data[model].filter((row) => row.id === id)
+      const rows = all.slice(body.offset ?? 0, (body.offset ?? 0) + (body.limit ?? 80))
       return [200, rows.map((row) => pick(row, wanted))]
     }
     return [404, odooError('odoo.exceptions.MissingError', 'unknown method')]
@@ -234,7 +290,7 @@ export function createDemoOdoo({ log = () => {} } = {}) {
     return send(...handle(model, method, body))
   })
 
-  return { server, employees, leaves }
+  return { server, employees, leaves, attachments, notes }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

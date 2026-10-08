@@ -15,6 +15,7 @@ import { Route as BeheerRouteImport } from './routes/beheer'
 import { Route as BeschikbaarheidRouteImport } from './routes/beschikbaarheid'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiDashboardRouteImport } from './routes/api/dashboard'
+import { Route as ApiDocumentsRouteImport } from './routes/api/documents'
 import { Route as ApiEmployeesRouteImport } from './routes/api/employees'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiPlanningRolesRouteImport } from './routes/api/planning-roles'
@@ -26,6 +27,7 @@ import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
 import { Route as ApiAuthPasswordRouteImport } from './routes/api/auth/password'
 import { Route as ApiAvailabilityIndexRouteImport } from './routes/api/availability/index'
 import { Route as ApiAvailabilityIdRouteImport } from './routes/api/availability/$id'
+import { Route as DocumentTypeAppointmentIdRouteImport } from './routes/document.$type.$appointmentId'
 import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
 import { Route as ApiAccountsIdPlanningRolesRouteImport } from './routes/api/accounts/$id.planning-roles'
 import { Route as ApiAvailabilityIdRetryRouteImport } from './routes/api/availability/$id.retry'
@@ -58,6 +60,11 @@ const LoginRoute = LoginRouteImport.update({
 const ApiDashboardRoute = ApiDashboardRouteImport.update({
   id: '/api/dashboard',
   path: '/api/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
+  id: '/api/documents',
+  path: '/api/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEmployeesRoute = ApiEmployeesRouteImport.update({
@@ -115,6 +122,12 @@ const ApiAvailabilityIdRoute = ApiAvailabilityIdRouteImport.update({
   path: '/api/availability/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocumentTypeAppointmentIdRoute =
+  DocumentTypeAppointmentIdRouteImport.update({
+    id: '/document/$type/$appointmentId',
+    path: '/document/$type/$appointmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAccountsIdPasswordRoute = ApiAccountsIdPasswordRouteImport.update({
   id: '/password',
   path: '/password',
@@ -139,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/planning-roles': typeof ApiPlanningRolesRoute
@@ -148,6 +162,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
@@ -161,6 +176,7 @@ export interface FileRoutesByTo {
   '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/planning-roles': typeof ApiPlanningRolesRoute
@@ -170,6 +186,7 @@ export interface FileRoutesByTo {
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
   '/api/accounts': typeof ApiAccountsIndexRoute
   '/api/availability': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
@@ -184,6 +201,7 @@ export interface FileRoutesById {
   '/beschikbaarheid': typeof BeschikbaarheidRoute
   '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
   '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/planning-roles': typeof ApiPlanningRolesRoute
@@ -193,6 +211,7 @@ export interface FileRoutesById {
   '/api/auth/me': typeof ApiAuthMeRoute
   '/api/auth/password': typeof ApiAuthPasswordRoute
   '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
   '/api/accounts/': typeof ApiAccountsIndexRoute
   '/api/availability/': typeof ApiAvailabilityIndexRoute
   '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
@@ -208,6 +227,7 @@ export interface FileRouteTypes {
     | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
+    | '/api/documents'
     | '/api/employees'
     | '/api/health'
     | '/api/planning-roles'
@@ -217,6 +237,7 @@ export interface FileRouteTypes {
     | '/api/auth/me'
     | '/api/auth/password'
     | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
     | '/api/accounts/'
     | '/api/availability/'
     | '/api/accounts/$id/password'
@@ -230,6 +251,7 @@ export interface FileRouteTypes {
     | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
+    | '/api/documents'
     | '/api/employees'
     | '/api/health'
     | '/api/planning-roles'
@@ -239,6 +261,7 @@ export interface FileRouteTypes {
     | '/api/auth/me'
     | '/api/auth/password'
     | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
     | '/api/accounts'
     | '/api/availability'
     | '/api/accounts/$id/password'
@@ -252,6 +275,7 @@ export interface FileRouteTypes {
     | '/beschikbaarheid'
     | '/login'
     | '/api/dashboard'
+    | '/api/documents'
     | '/api/employees'
     | '/api/health'
     | '/api/planning-roles'
@@ -261,6 +285,7 @@ export interface FileRouteTypes {
     | '/api/auth/me'
     | '/api/auth/password'
     | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
     | '/api/accounts/'
     | '/api/availability/'
     | '/api/accounts/$id/password'
@@ -275,6 +300,7 @@ export interface RootRouteChildren {
   BeschikbaarheidRoute: typeof BeschikbaarheidRoute
   LoginRoute: typeof LoginRoute
   ApiDashboardRoute: typeof ApiDashboardRoute
+  ApiDocumentsRoute: typeof ApiDocumentsRoute
   ApiEmployeesRoute: typeof ApiEmployeesRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiPlanningRolesRoute: typeof ApiPlanningRolesRoute
@@ -284,6 +310,7 @@ export interface RootRouteChildren {
   ApiAuthMeRoute: typeof ApiAuthMeRoute
   ApiAuthPasswordRoute: typeof ApiAuthPasswordRoute
   ApiAvailabilityIdRoute: typeof ApiAvailabilityIdRouteWithChildren
+  DocumentTypeAppointmentIdRoute: typeof DocumentTypeAppointmentIdRoute
   ApiAccountsIndexRoute: typeof ApiAccountsIndexRoute
   ApiAvailabilityIndexRoute: typeof ApiAvailabilityIndexRoute
 }
@@ -330,6 +357,13 @@ declare module '@tanstack/react-router' {
       path: '/api/dashboard'
       fullPath: '/api/dashboard'
       preLoaderRoute: typeof ApiDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/documents': {
+      id: '/api/documents'
+      path: '/api/documents'
+      fullPath: '/api/documents'
+      preLoaderRoute: typeof ApiDocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/employees': {
@@ -409,6 +443,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAvailabilityIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/document/$type/$appointmentId': {
+      id: '/document/$type/$appointmentId'
+      path: '/document/$type/$appointmentId'
+      fullPath: '/document/$type/$appointmentId'
+      preLoaderRoute: typeof DocumentTypeAppointmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/accounts/$id/password': {
       id: '/api/accounts/$id/password'
       path: '/password'
@@ -465,6 +506,7 @@ const rootRouteChildren: RootRouteChildren = {
   BeschikbaarheidRoute: BeschikbaarheidRoute,
   LoginRoute: LoginRoute,
   ApiDashboardRoute: ApiDashboardRoute,
+  ApiDocumentsRoute: ApiDocumentsRoute,
   ApiEmployeesRoute: ApiEmployeesRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiPlanningRolesRoute: ApiPlanningRolesRoute,
@@ -474,6 +516,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthMeRoute: ApiAuthMeRoute,
   ApiAuthPasswordRoute: ApiAuthPasswordRoute,
   ApiAvailabilityIdRoute: ApiAvailabilityIdRouteWithChildren,
+  DocumentTypeAppointmentIdRoute: DocumentTypeAppointmentIdRoute,
   ApiAccountsIndexRoute: ApiAccountsIndexRoute,
   ApiAvailabilityIndexRoute: ApiAvailabilityIndexRoute,
 }

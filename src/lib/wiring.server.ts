@@ -6,9 +6,10 @@ import type { AccountIo } from '#/lib/accounts'
 import { createAuth } from '#/lib/auth'
 import { AvailabilityFileError, createAvailabilityStore } from '#/lib/availability'
 import { getDigDashboardData } from '#/lib/cache'
+import { createDocumentJournal, DocumentJournalFileError } from '#/lib/document-journal'
 import { createJournal } from '#/lib/employee-journal'
 import { JournalFileError } from '#/lib/employee-journal'
-import { addUnavailability, createEmployee, getEmployeeRoles, listPlanningRoles, removeUnavailability, setEmployeeRoles } from '#/lib/gateway.server'
+import { addUnavailability, createEmployee, getEmployeeRoles, listPlanningRoles, postDocument, removeUnavailability, setEmployeeRoles } from '#/lib/gateway.server'
 import { createHandlers } from '#/lib/handlers'
 import type { Handlers } from '#/lib/handlers'
 import { generatePassword, isPasswordHash } from '#/lib/password'
@@ -30,7 +31,8 @@ import { createLoginLimiter, createSessions } from '#/lib/sessions'
  *
  * Besides accounts.json the data directory holds employee-requests.json: the journal of "add a technician"
  * requests (no passwords), which is what recognises a repeated request, and availability.json: the periods in which
- * technicians gave that they are not available.
+ * technicians gave that they are not available, and document-requests.json: the journal of schouw and oplever
+ * documents put on customers (which appointment, what kind, who, when and the result; never the document itself).
  */
 
 export const DEFAULT_ODOO_PUBLIC_URL = 'https://odoo20.srv1938209.hstgr.cloud'
@@ -86,6 +88,7 @@ export function getHandlers(): Handlers {
   let accounts = null
   let journal = null
   let availability = null
+  let documents = null
   if (mode === 'on') {
     if (!sessionSecretConfigured()) {
       console.error('DIG_SESSION_SECRET is missing or shorter than 32 bytes: every request is refused until it is set (or DIG_AUTH=off).')
@@ -99,6 +102,7 @@ export function getHandlers(): Handlers {
       })
       journal = createJournal({ io: fileIo(path.join(dataDir(), 'employee-requests.json'), () => new JournalFileError('het bestand kan niet worden gelezen.')) })
       availability = createAvailabilityStore({ io: fileIo(path.join(dataDir(), 'availability.json'), () => new AvailabilityFileError('het bestand kan niet worden gelezen.')) })
+      documents = createDocumentJournal({ io: fileIo(path.join(dataDir(), 'document-requests.json'), () => new DocumentJournalFileError('het bestand kan niet worden gelezen.')) })
       auth = createAuth({
         accounts,
         sessions: createSessions({ secret: process.env.DIG_SESSION_SECRET as string }),
@@ -113,6 +117,7 @@ export function getHandlers(): Handlers {
     accounts,
     journal,
     availability,
+    documents,
     secureCookies: secure,
     clientAddress,
     loadData: (refresh) => (refresh ? getDigDashboardData.refresh() : getDigDashboardData()),
@@ -123,6 +128,7 @@ export function getHandlers(): Handlers {
     setEmployeeRoles,
     addUnavailability,
     removeUnavailability,
+    postDocument,
     generatePassword,
   })
   return cached
