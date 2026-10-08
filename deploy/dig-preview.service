@@ -12,7 +12,7 @@ Group=docker
 WorkingDirectory=/srv/dig-builder/app
 EnvironmentFile=/etc/dig-builder/preview.env
 # Listen on the docker bridge address so only containers (the TLS front) can reach it.
-Environment=PREVIEW_HOST=172.17.0.1 PREVIEW_PORT=8090
+Environment=PREVIEW_HOST=172.17.0.1 PREVIEW_PORT=8090 PREVIEW_TRUST_PROXY=true
 ExecStart=/usr/bin/node --experimental-strip-types --no-warnings sandbox/src/main.ts
 Restart=always
 RestartSec=3

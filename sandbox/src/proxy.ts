@@ -35,6 +35,8 @@ export interface ProxyOptions {
   /** Published versions; without it the -live hostnames do not exist. */
   live?: Pick<LiveResolver, 'exists' | 'resolve'>
   secureCookies: boolean
+  /** Take the client address and protocol from X-Forwarded-* (only behind a trusted TLS proxy). */
+  trustProxy?: boolean
   log?: (entry: Record<string, unknown>) => void
 }
 
@@ -78,7 +80,15 @@ function hostname(req: IncomingMessage) {
   return (req.headers.host ?? '').toLowerCase().replace(/:\d+$/, '')
 }
 
-function clientAddress(req: IncomingMessage) {
+/**
+ * Behind a TLS proxy every connection comes from the proxy itself; with trustProxy the first
+ * X-Forwarded-For entry (set by that proxy, never by the visitor) is the real client.
+ */
+function clientAddress(req: IncomingMessage, trustProxy = false) {
+  if (trustProxy) {
+    const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()
+    if (forwarded) return forwarded
+  }
   return req.socket.remoteAddress ?? 'unknown'
 }
 
@@ -104,7 +114,7 @@ function sameOrigin(req: IncomingMessage) {
   }
 }
 
-function upstreamHeaders(req: IncomingMessage, target: URL) {
+function upstreamHeaders(req: IncomingMessage, target: URL, trustProxy = false) {
   const headers: Record<string, string | string[]> = {}
   for (const [key, value] of Object.entries(req.headers)) {
     if (value === undefined || HOP_BY_HOP.has(key) || key === 'host' || key === 'cookie') continue
@@ -116,8 +126,9 @@ function upstreamHeaders(req: IncomingMessage, target: URL) {
   // Dev servers compare Origin with Host; a same-origin request keeps passing that check.
   if (req.headers.origin && sameOrigin(req)) headers.origin = `http://localhost:${target.port}`
   headers['x-forwarded-host'] = req.headers.host ?? ''
-  headers['x-forwarded-proto'] = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http'
-  headers['x-forwarded-for'] = clientAddress(req)
+  const forwardedProto = trustProxy ? String(req.headers['x-forwarded-proto'] ?? '') : ''
+  headers['x-forwarded-proto'] = forwardedProto === 'https' || (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http'
+  headers['x-forwarded-for'] = clientAddress(req, trustProxy)
   return headers
 }
 
@@ -170,7 +181,7 @@ export function createPreviewProxy(options: ProxyOptions) {
   async function login(req: IncomingMessage, res: ServerResponse, url: URL) {
     if (req.method === 'GET') return loginPage(res, safeNext(url.searchParams.get('next')))
     if (req.method !== 'POST') return page(res, 405, 'Niet toegestaan', '<p>Methode niet toegestaan.</p>')
-    const client = clientAddress(req)
+    const client = clientAddress(req, options.trustProxy)
     if (limiter.blocked(client)) return loginPage(res, '/', 'Te veel pogingen. Probeer het later opnieuw.', 429)
     const form = await readForm(req)
     const next = safeNext(form?.get('next'))
@@ -226,7 +237,7 @@ export function createPreviewProxy(options: ProxyOptions) {
       }
       const target = new URL(state.target)
       const upstream = httpRequest(
-        { host: target.hostname, port: target.port, method: req.method, path: url.pathname + url.search, headers: upstreamHeaders(req, target) },
+        { host: target.hostname, port: target.port, method: req.method, path: url.pathname + url.search, headers: upstreamHeaders(req, target, options.trustProxy) },
         (up) => {
           const headers: Record<string, string | string[]> = {}
           for (const [key, value] of Object.entries(up.headers)) {
@@ -262,7 +273,7 @@ export function createPreviewProxy(options: ProxyOptions) {
       const state = await upstreamOf(route)
       if (state.state !== 'ready') return reject('503 Service Unavailable')
       const target = new URL(state.target)
-      const headers = upstreamHeaders(req, target)
+      const headers = upstreamHeaders(req, target, options.trustProxy)
       headers.connection = 'Upgrade'
       headers.upgrade = req.headers.upgrade ?? 'websocket'
       const upstream = connect({ host: target.hostname, port: Number(target.port) }, () => {

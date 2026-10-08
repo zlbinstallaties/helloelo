@@ -92,6 +92,8 @@ staan in `docs/verification.md`.
 - `docs/odoo-direct-client.md`: de Odoo-client onder de gateway (lezen, plus één vaste aanmaakactie)
 - `docs/dig-builder-agent.md`: agent-loop die een app aanpast en het resultaat als branch en diff oplevert (fase 2)
 - `docs/dig-builder-sandbox.md`: sandbox-containers, previews achter login en publiceren (fase 3)
+- `docs/dig-builder-install.md`: het installatiescript voor de Hostinger-VPS (naast een bestaande Caddy)
+- `docs/dig-builder-deploy.md`: handmatige installatie (gateway, previews, TLS) voor een server zonder webserver
 - `docs/builder-app.md`: het scherm om opdrachten te geven en wijzigingen goed te keuren (fase 4)
 - `docs/dig-builder-deploy.md`: installatie op de Hostinger-VPS (gateway, previews, TLS)
 - `docs/proefrun.md`: een echte run van de agent op het dashboard (`scripts/proefrun.sh`)

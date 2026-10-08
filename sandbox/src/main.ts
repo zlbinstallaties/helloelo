@@ -20,6 +20,7 @@ import { createLiveResolver } from './release.ts'
  *   PREVIEW_HOST            address to listen on, default 0.0.0.0 (on a server: the docker
  *                           bridge address, so only the TLS proxy container can reach it)
  *   PREVIEW_SECURE_COOKIES  "false" only for local http testing
+ *   PREVIEW_TRUST_PROXY     "true" behind a TLS proxy (Caddy) that sets X-Forwarded-For/-Proto
  *   PREVIEW_IDLE_MINUTES    default 30
  *
  * Needs access to the Docker daemon. Put TLS (a reverse proxy with a
@@ -62,6 +63,7 @@ const proxy = createPreviewProxy({
   projects,
   live: releasesDir ? createLiveResolver({ cli, releasesDir, network }) : undefined,
   secureCookies: process.env.PREVIEW_SECURE_COOKIES !== 'false',
+  trustProxy: process.env.PREVIEW_TRUST_PROXY === 'true',
 })
 
 await previews.ensureNetwork()
