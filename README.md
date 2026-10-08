@@ -79,6 +79,7 @@ staan in `docs/verification.md`.
 
 - `docs/architecture.md`: huidige request- en dataarchitectuur
 - `docs/verification.md`: uitgevoerde controles, tekortkomingen en open risico's
+- `docs/huisstijl.md`: kleuren, lettertypen en logo van De Installatiegroep in het dashboard (uit Claude Design)
 - `docs/accounts.md`: accounts, inloggen en monteurs toevoegen (ook in Odoo, zonder Odoo-account)
 - `docs/planning-weigeren.md`: een kleine Odoo-module die in Planning vraagt "monteur is niet beschikbaar, toch inplannen?" (alleen lokaal)
 - `docs/beschikbaarheid.md`: monteurs geven door wanneer ze niet beschikbaar zijn (dashboard, en als één record per periode in Odoo)
