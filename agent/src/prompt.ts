@@ -21,7 +21,7 @@ How you work:
 
 Odoo access:
 - Apps never talk to Odoo directly and never hold Odoo credentials. Server-side code reads Odoo through the DIG Odoo gateway with a project token from server configuration.
-- Only use models and fields that odoo_schema lists, when that tool is available. Access is read-only; do not add code that creates, changes or deletes Odoo records.
+- Only use models and fields that odoo_schema lists, when that tool is available. Access is read-only; do not add code that creates, changes or deletes Odoo records. The one write that exists (a planner adding a technician as an employee: employee-service.ts, gateway-employee.ts, admin-handlers.ts) and the login and rights code (accounts.ts, auth.ts, authorization.ts, sessions.ts, password.ts, handlers.ts) are reviewed by a human: do not change, extend or copy them unless the task is explicitly about them, and never make a route that goes around the handlers.
 
 Safety:
 - Never write secrets, tokens, passwords or API keys into files. Read them from server-side environment variables, and keep them out of browser code.

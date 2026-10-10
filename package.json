@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "test:app": "node --experimental-strip-types --no-warnings --test-reporter=spec --test test/*.test.ts",
-    "test:odoo": "node --experimental-strip-types scripts/test-odoo-client.mjs",
+    "test:odoo": "node --experimental-strip-types scripts/test-odoo-client.mjs && node --experimental-strip-types --no-warnings scripts/test-demo-odoo.mjs",
     "test:gateway": "node --experimental-strip-types --test gateway/test/*.test.ts",
     "typecheck:gateway": "tsc -p gateway",
     "gateway:token": "node --experimental-strip-types gateway/src/token.ts",
@@ -31,9 +31,17 @@
     "typecheck:deploy": "tsc -p deploy",
     "install:server": "node --experimental-strip-types --no-warnings deploy/install/main.ts",
     "builder:start": "node --experimental-strip-types --no-warnings builder-app/src/main.ts",
-    "preview:password": "node --experimental-strip-types --no-warnings sandbox/src/hash-password.ts"
+    "preview:password": "node --experimental-strip-types --no-warnings sandbox/src/hash-password.ts",
+    "local:setup": "node --experimental-strip-types --no-warnings scripts/local-setup.ts",
+    "local:gateway": "node --env-file=.local/gateway.env --experimental-strip-types --no-warnings gateway/src/main.ts",
+    "local:dashboard": "node --env-file=.local/dashboard.env scripts/serve.mjs",
+    "local:demo-odoo": "node scripts/demo-odoo.mjs",
+    "local:rehearsal": "node scripts/local-rehearsal.mjs",
+    "test:odoo-addon": "python3 odoo_addon/dig_planning_unavailability/stub_tests/test_guard.py"
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
     "@hookform/resolvers": "5.9.1",
     "@radix-ui/react-accordion": "1.2.20",
     "@radix-ui/react-alert-dialog": "1.1.23",

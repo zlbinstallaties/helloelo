@@ -18,6 +18,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
+      { name: 'theme-color', content: '#16283C' },
       { title: 'DIG Monteursdashboard | De Installatiegroep B.V. [TEST]' },
       { name: 'description', content: 'Nederlandstalig leesgericht DIG-monteursdashboard voor De Installatiegroep B.V. [TEST], gevoed door Odoo 20 planning.slot en svs.tech.visit.' },
       { property: 'og:title', content: 'dig-monteursdashboard' },
@@ -26,16 +27,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
-      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-      {
-        rel: 'preconnect',
-        href: 'https://fonts.gstatic.com',
-        crossOrigin: 'anonymous',
-      },
-      {
-        rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap',
-      },
+      // The fonts (Inter, Fraunces) come with the app (src/styles.css): no request to a font service.
+      { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
     ],
   }),
   component: RootComponent,

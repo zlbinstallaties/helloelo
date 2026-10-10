@@ -10,12 +10,51 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccountRouteImport } from './routes/account'
+import { Route as BeheerRouteImport } from './routes/beheer'
+import { Route as BeschikbaarheidRouteImport } from './routes/beschikbaarheid'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiDashboardRouteImport } from './routes/api/dashboard'
+import { Route as ApiDocumentsRouteImport } from './routes/api/documents'
+import { Route as ApiEmployeesRouteImport } from './routes/api/employees'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiPlanningRolesRouteImport } from './routes/api/planning-roles'
+import { Route as ApiAccountsIndexRouteImport } from './routes/api/accounts/index'
+import { Route as ApiAccountsIdRouteImport } from './routes/api/accounts/$id'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
+import { Route as ApiAuthPasswordRouteImport } from './routes/api/auth/password'
+import { Route as ApiAvailabilityIndexRouteImport } from './routes/api/availability/index'
+import { Route as ApiAvailabilityIdRouteImport } from './routes/api/availability/$id'
+import { Route as DocumentTypeAppointmentIdRouteImport } from './routes/document.$type.$appointmentId'
+import { Route as ApiAccountsIdPasswordRouteImport } from './routes/api/accounts/$id.password'
+import { Route as ApiAccountsIdPlanningRolesRouteImport } from './routes/api/accounts/$id.planning-roles'
+import { Route as ApiAvailabilityIdRetryRouteImport } from './routes/api/availability/$id.retry'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountRoute = AccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BeheerRoute = BeheerRouteImport.update({
+  id: '/beheer',
+  path: '/beheer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BeschikbaarheidRoute = BeschikbaarheidRouteImport.update({
+  id: '/beschikbaarheid',
+  path: '/beschikbaarheid',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDashboardRoute = ApiDashboardRouteImport.update({
@@ -23,40 +62,257 @@ const ApiDashboardRoute = ApiDashboardRouteImport.update({
   path: '/api/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
+  id: '/api/documents',
+  path: '/api/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmployeesRoute = ApiEmployeesRouteImport.update({
+  id: '/api/employees',
+  path: '/api/employees',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPlanningRolesRoute = ApiPlanningRolesRouteImport.update({
+  id: '/api/planning-roles',
+  path: '/api/planning-roles',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountsIndexRoute = ApiAccountsIndexRouteImport.update({
+  id: '/api/accounts/',
+  path: '/api/accounts/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAccountsIdRoute = ApiAccountsIdRouteImport.update({
+  id: '/api/accounts/$id',
+  path: '/api/accounts/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthMeRoute = ApiAuthMeRouteImport.update({
+  id: '/api/auth/me',
+  path: '/api/auth/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthPasswordRoute = ApiAuthPasswordRouteImport.update({
+  id: '/api/auth/password',
+  path: '/api/auth/password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAvailabilityIndexRoute = ApiAvailabilityIndexRouteImport.update({
+  id: '/api/availability/',
+  path: '/api/availability/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAvailabilityIdRoute = ApiAvailabilityIdRouteImport.update({
+  id: '/api/availability/$id',
+  path: '/api/availability/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentTypeAppointmentIdRoute =
+  DocumentTypeAppointmentIdRouteImport.update({
+    id: '/document/$type/$appointmentId',
+    path: '/document/$type/$appointmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAccountsIdPasswordRoute = ApiAccountsIdPasswordRouteImport.update({
+  id: '/password',
+  path: '/password',
+  getParentRoute: () => ApiAccountsIdRoute,
+} as any)
+const ApiAccountsIdPlanningRolesRoute =
+  ApiAccountsIdPlanningRolesRouteImport.update({
+    id: '/planning-roles',
+    path: '/planning-roles',
+    getParentRoute: () => ApiAccountsIdRoute,
+  } as any)
+const ApiAvailabilityIdRetryRoute = ApiAvailabilityIdRetryRouteImport.update({
+  id: '/retry',
+  path: '/retry',
+  getParentRoute: () => ApiAvailabilityIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
+  '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/availability/': typeof ApiAvailabilityIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
+  '/api/accounts': typeof ApiAccountsIndexRoute
+  '/api/availability': typeof ApiAvailabilityIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/beheer': typeof BeheerRoute
+  '/beschikbaarheid': typeof BeschikbaarheidRoute
+  '/login': typeof LoginRoute
   '/api/dashboard': typeof ApiDashboardRoute
+  '/api/documents': typeof ApiDocumentsRoute
+  '/api/employees': typeof ApiEmployeesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/planning-roles': typeof ApiPlanningRolesRoute
+  '/api/accounts/$id': typeof ApiAccountsIdRouteWithChildren
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/auth/password': typeof ApiAuthPasswordRoute
+  '/api/availability/$id': typeof ApiAvailabilityIdRouteWithChildren
+  '/document/$type/$appointmentId': typeof DocumentTypeAppointmentIdRoute
+  '/api/accounts/': typeof ApiAccountsIndexRoute
+  '/api/availability/': typeof ApiAvailabilityIndexRoute
+  '/api/accounts/$id/password': typeof ApiAccountsIdPasswordRoute
+  '/api/accounts/$id/planning-roles': typeof ApiAccountsIdPlanningRolesRoute
+  '/api/availability/$id/retry': typeof ApiAvailabilityIdRetryRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/dashboard' | '/api/health'
+  fullPaths:
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/beschikbaarheid'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/documents'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/planning-roles'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
+    | '/api/accounts/'
+    | '/api/availability/'
+    | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/dashboard' | '/api/health'
-  id: '__root__' | '/' | '/api/dashboard' | '/api/health'
+  to:
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/beschikbaarheid'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/documents'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/planning-roles'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
+    | '/api/accounts'
+    | '/api/availability'
+    | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
+  id:
+    | '__root__'
+    | '/'
+    | '/account'
+    | '/beheer'
+    | '/beschikbaarheid'
+    | '/login'
+    | '/api/dashboard'
+    | '/api/documents'
+    | '/api/employees'
+    | '/api/health'
+    | '/api/planning-roles'
+    | '/api/accounts/$id'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/auth/password'
+    | '/api/availability/$id'
+    | '/document/$type/$appointmentId'
+    | '/api/accounts/'
+    | '/api/availability/'
+    | '/api/accounts/$id/password'
+    | '/api/accounts/$id/planning-roles'
+    | '/api/availability/$id/retry'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountRoute: typeof AccountRoute
+  BeheerRoute: typeof BeheerRoute
+  BeschikbaarheidRoute: typeof BeschikbaarheidRoute
+  LoginRoute: typeof LoginRoute
   ApiDashboardRoute: typeof ApiDashboardRoute
+  ApiDocumentsRoute: typeof ApiDocumentsRoute
+  ApiEmployeesRoute: typeof ApiEmployeesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiPlanningRolesRoute: typeof ApiPlanningRolesRoute
+  ApiAccountsIdRoute: typeof ApiAccountsIdRouteWithChildren
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthMeRoute: typeof ApiAuthMeRoute
+  ApiAuthPasswordRoute: typeof ApiAuthPasswordRoute
+  ApiAvailabilityIdRoute: typeof ApiAvailabilityIdRouteWithChildren
+  DocumentTypeAppointmentIdRoute: typeof DocumentTypeAppointmentIdRoute
+  ApiAccountsIndexRoute: typeof ApiAccountsIndexRoute
+  ApiAvailabilityIndexRoute: typeof ApiAvailabilityIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +324,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/account': {
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/beheer': {
+      id: '/beheer'
+      path: '/beheer'
+      fullPath: '/beheer'
+      preLoaderRoute: typeof BeheerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/beschikbaarheid': {
+      id: '/beschikbaarheid'
+      path: '/beschikbaarheid'
+      fullPath: '/beschikbaarheid'
+      preLoaderRoute: typeof BeschikbaarheidRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/dashboard': {
       id: '/api/dashboard'
       path: '/api/dashboard'
       fullPath: '/api/dashboard'
       preLoaderRoute: typeof ApiDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/documents': {
+      id: '/api/documents'
+      path: '/api/documents'
+      fullPath: '/api/documents'
+      preLoaderRoute: typeof ApiDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/employees': {
+      id: '/api/employees'
+      path: '/api/employees'
+      fullPath: '/api/employees'
+      preLoaderRoute: typeof ApiEmployeesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -82,13 +380,145 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/planning-roles': {
+      id: '/api/planning-roles'
+      path: '/api/planning-roles'
+      fullPath: '/api/planning-roles'
+      preLoaderRoute: typeof ApiPlanningRolesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/accounts/': {
+      id: '/api/accounts/'
+      path: '/api/accounts'
+      fullPath: '/api/accounts/'
+      preLoaderRoute: typeof ApiAccountsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/accounts/$id': {
+      id: '/api/accounts/$id'
+      path: '/api/accounts/$id'
+      fullPath: '/api/accounts/$id'
+      preLoaderRoute: typeof ApiAccountsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/me': {
+      id: '/api/auth/me'
+      path: '/api/auth/me'
+      fullPath: '/api/auth/me'
+      preLoaderRoute: typeof ApiAuthMeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/password': {
+      id: '/api/auth/password'
+      path: '/api/auth/password'
+      fullPath: '/api/auth/password'
+      preLoaderRoute: typeof ApiAuthPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/availability/': {
+      id: '/api/availability/'
+      path: '/api/availability'
+      fullPath: '/api/availability/'
+      preLoaderRoute: typeof ApiAvailabilityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/availability/$id': {
+      id: '/api/availability/$id'
+      path: '/api/availability/$id'
+      fullPath: '/api/availability/$id'
+      preLoaderRoute: typeof ApiAvailabilityIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/document/$type/$appointmentId': {
+      id: '/document/$type/$appointmentId'
+      path: '/document/$type/$appointmentId'
+      fullPath: '/document/$type/$appointmentId'
+      preLoaderRoute: typeof DocumentTypeAppointmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/accounts/$id/password': {
+      id: '/api/accounts/$id/password'
+      path: '/password'
+      fullPath: '/api/accounts/$id/password'
+      preLoaderRoute: typeof ApiAccountsIdPasswordRouteImport
+      parentRoute: typeof ApiAccountsIdRoute
+    }
+    '/api/accounts/$id/planning-roles': {
+      id: '/api/accounts/$id/planning-roles'
+      path: '/planning-roles'
+      fullPath: '/api/accounts/$id/planning-roles'
+      preLoaderRoute: typeof ApiAccountsIdPlanningRolesRouteImport
+      parentRoute: typeof ApiAccountsIdRoute
+    }
+    '/api/availability/$id/retry': {
+      id: '/api/availability/$id/retry'
+      path: '/retry'
+      fullPath: '/api/availability/$id/retry'
+      preLoaderRoute: typeof ApiAvailabilityIdRetryRouteImport
+      parentRoute: typeof ApiAvailabilityIdRoute
+    }
   }
 }
 
+interface ApiAccountsIdRouteChildren {
+  ApiAccountsIdPasswordRoute: typeof ApiAccountsIdPasswordRoute
+  ApiAccountsIdPlanningRolesRoute: typeof ApiAccountsIdPlanningRolesRoute
+}
+
+const ApiAccountsIdRouteChildren: ApiAccountsIdRouteChildren = {
+  ApiAccountsIdPasswordRoute: ApiAccountsIdPasswordRoute,
+  ApiAccountsIdPlanningRolesRoute: ApiAccountsIdPlanningRolesRoute,
+}
+
+const ApiAccountsIdRouteWithChildren = ApiAccountsIdRoute._addFileChildren(
+  ApiAccountsIdRouteChildren,
+)
+
+interface ApiAvailabilityIdRouteChildren {
+  ApiAvailabilityIdRetryRoute: typeof ApiAvailabilityIdRetryRoute
+}
+
+const ApiAvailabilityIdRouteChildren: ApiAvailabilityIdRouteChildren = {
+  ApiAvailabilityIdRetryRoute: ApiAvailabilityIdRetryRoute,
+}
+
+const ApiAvailabilityIdRouteWithChildren =
+  ApiAvailabilityIdRoute._addFileChildren(ApiAvailabilityIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccountRoute: AccountRoute,
+  BeheerRoute: BeheerRoute,
+  BeschikbaarheidRoute: BeschikbaarheidRoute,
+  LoginRoute: LoginRoute,
   ApiDashboardRoute: ApiDashboardRoute,
+  ApiDocumentsRoute: ApiDocumentsRoute,
+  ApiEmployeesRoute: ApiEmployeesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiPlanningRolesRoute: ApiPlanningRolesRoute,
+  ApiAccountsIdRoute: ApiAccountsIdRouteWithChildren,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthMeRoute: ApiAuthMeRoute,
+  ApiAuthPasswordRoute: ApiAuthPasswordRoute,
+  ApiAvailabilityIdRoute: ApiAvailabilityIdRouteWithChildren,
+  DocumentTypeAppointmentIdRoute: DocumentTypeAppointmentIdRoute,
+  ApiAccountsIndexRoute: ApiAccountsIndexRoute,
+  ApiAvailabilityIndexRoute: ApiAvailabilityIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

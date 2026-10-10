@@ -44,6 +44,8 @@ export type DashboardData = {
   company: { id: number; name: string }
   slots: DashboardSlot[]
   visits: DashboardVisit[]
+  /** True when the maximum number of records was read and Odoo has more (see src/lib/paging.ts). */
+  truncated: boolean
   loadedAt: string
 }
 
@@ -59,7 +61,22 @@ export type DashboardAppointmentVisit = {
   missingRequired: number
   missingInputs: number
   photoCount: number
-  odooUrl: string
+  /** Left out (null) for people without an Odoo account. */
+  odooUrl: string | null
+}
+
+/**
+ * Someone assigned to an appointment. `id` is stable and unique: `employee:<hr.employee id>`,
+ * `user:<res.users id>` or, only when Odoo sent no id at all, `name:<name>`. `name` is for display.
+ */
+export type DashboardPerson = {
+  id: string
+  name: string
+  /**
+   * Other ids this person is known under, e.g. `user:5` for `employee:7`. A link made with one of those keeps
+   * working when the planning later lists the person under another id. Left out when there are none.
+   */
+  alsoIds?: string[]
 }
 
 export type DashboardAppointment = {
@@ -77,7 +94,7 @@ export type DashboardAppointment = {
   customer: string
   address: string
   role: string
-  people: string[]
+  people: DashboardPerson[]
   state: string
   /** Totals over all visits of the appointment; null when it has no visits. */
   missingRequired: number | null
@@ -97,5 +114,7 @@ export type DashboardResponse = {
   technicians: Array<{ value: string; label: string }>
   scope: 'day' | 'upcoming' | 'all'
   date: string
+  /** The data is incomplete: the maximum number of records was read and Odoo has more. */
+  truncated: boolean
   loadedAt: string
 }

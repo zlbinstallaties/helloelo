@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { amsterdamDate, appointmentState, buildAppointments, filterByTechnician, inScope } from '../src/lib/appointments.ts'
+import {
+  amsterdamDate,
+  appointmentState,
+  buildAppointments,
+  filterByTechnician,
+  inScope,
+  personHasId,
+  technicianOptions,
+} from '../src/lib/appointments.ts'
 import type { DashboardData, DashboardSlot, DashboardVisit } from '../src/lib/dashboard-types.ts'
 
 const BASE = 'https://odoo.example'
@@ -52,7 +60,7 @@ function visit(id: number, overrides: Partial<DashboardVisit> = {}): DashboardVi
 }
 
 function data(slots: DashboardSlot[], visits: DashboardVisit[]): DashboardData {
-  return { company: { id: 2, name: 'Test' }, slots, visits, loadedAt: '2026-10-05T00:00:00Z' }
+  return { company: { id: 2, name: 'Test' }, slots, visits, truncated: false, loadedAt: '2026-10-05T00:00:00Z' }
 }
 
 test('a visit linked through slot_id fills the summary fields of its appointment', () => {
@@ -78,7 +86,7 @@ test('a visit without a slot is listed as an unscheduled appointment', () => {
   assert.equal(list[0].scheduled, false)
   assert.equal(list[0].slotId, null)
   assert.equal(list[0].role, 'Niet gepland')
-  assert.equal(list[0].people[0], 'Jan')
+  assert.deepEqual(list[0].people, [{ id: 'user:5', name: 'Jan' }])
 })
 
 test('a visit that points at a slot that was not loaded still shows up as unscheduled', () => {
@@ -158,12 +166,15 @@ test('an appointment without visits has an empty visit list and no totals', () =
   assert.equal(appointment.missingInputs, null)
 })
 
-test('people are the unique names of employees and users', () => {
+test('an employee and a user with the same name in one slot are one person', () => {
   const [appointment] = buildAppointments(
     data([slot(1, { employee_ids: [[7, 'Jan'], [8, 'Sanne']], user_ids: [[5, 'Jan']] })], []),
     BASE,
   )
-  assert.deepEqual(appointment.people, ['Jan', 'Sanne'])
+  assert.deepEqual(appointment.people, [
+    { id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] },
+    { id: 'employee:8', name: 'Sanne' },
+  ])
   assert.equal(appointment.assigned, true)
   assert.equal(buildAppointments(data([slot(2)], []), BASE)[0].assigned, false)
 })
@@ -200,13 +211,184 @@ test('period filters: day, upcoming and all', () => {
   assert.deepEqual(ids('all'), ['slot-1', 'slot-2', 'slot-3', 'visit-100'])
 })
 
-test('the technician filter keeps appointments of that person only', () => {
+test('period filters use the Amsterdam date, also for appointments just after midnight', () => {
+  const list = buildAppointments(
+    data(
+      [
+        // 2026-10-05 22:30 UTC = 6 October 00:30 in Amsterdam (summer time)
+        slot(1, { start_datetime: '2026-10-05 22:30:00' }),
+        // 2026-10-05 20:00 UTC = 5 October 22:00 in Amsterdam: still the day before
+        slot(2, { start_datetime: '2026-10-05 20:00:00' }),
+        // 2026-12-05 23:30 UTC = 6 December 00:30 in Amsterdam (winter time)
+        slot(3, { start_datetime: '2026-12-05 23:30:00' }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  const ids = (date: string, scope: 'day' | 'upcoming' | 'all') =>
+    list.filter((a) => inScope(a, date, scope)).map((a) => a.id)
+  assert.deepEqual(ids('2026-10-06', 'day'), ['slot-1'])
+  assert.deepEqual(ids('2026-10-06', 'upcoming'), ['slot-1', 'slot-3'])
+  assert.deepEqual(ids('2026-12-06', 'day'), ['slot-3'])
+  assert.deepEqual(ids('2026-12-06', 'upcoming'), ['slot-3'])
+})
+
+test('whatever appears under "day" also appears under "upcoming" for the same date', () => {
+  const slots: DashboardSlot[] = []
+  // Every half hour around two days in summer time and two in winter time (including the clock changes).
+  for (const day of ['2026-03-28', '2026-03-29', '2026-07-14', '2026-10-24', '2026-10-25', '2026-12-05']) {
+    for (let minutes = 0; minutes < 48 * 60; minutes += 30) {
+      const start = new Date(`${day}T00:00:00Z`).getTime() + minutes * 60_000
+      slots.push(slot(slots.length + 1, { start_datetime: new Date(start).toISOString().slice(0, 19).replace('T', ' ') }))
+    }
+  }
+  const list = buildAppointments(data(slots, []), BASE)
+  const dates = new Set(list.map((a) => a.visitDate))
+  for (const date of dates) {
+    const day = new Set(list.filter((a) => inScope(a, date, 'day')).map((a) => a.id))
+    const upcoming = new Set(list.filter((a) => inScope(a, date, 'upcoming')).map((a) => a.id))
+    assert.ok(day.size > 0)
+    for (const id of day) assert.ok(upcoming.has(id), `${id} is in "day" but not in "upcoming" for ${date}`)
+    for (const a of list) assert.equal(upcoming.has(a.id), a.visitDate >= date, `${a.id} on ${date}`)
+  }
+})
+
+test('the technician filter keeps appointments of that person only, selected by id', () => {
   const list = buildAppointments(
     data([slot(1, { employee_ids: [[7, 'Jan']] }), slot(2, { employee_ids: [[8, 'Sanne']] })], []),
     BASE,
   )
-  assert.deepEqual(filterByTechnician(list, 'Sanne').map((a) => a.id), ['slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'employee:8').map((a) => a.id), ['slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'Sanne'), [], 'a name is no longer a valid selection')
   assert.equal(filterByTechnician(list, '').length, 2)
+})
+
+test('two different people with the same name stay separate: separate choices, separate results', () => {
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [[7, 'Piet Smit']], user_ids: [[21, 'Piet Smit']] }),
+        slot(2, { employee_ids: [[9, 'Piet Smit']], user_ids: [[22, 'Piet Smit']] }),
+        slot(3, { employee_ids: [[8, 'Sanne Bakker']] }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  assert.deepEqual(technicianOptions(list), [
+    { value: 'employee:7', label: 'Piet Smit (medewerker 7)' },
+    { value: 'employee:9', label: 'Piet Smit (medewerker 9)' },
+    { value: 'employee:8', label: 'Sanne Bakker' },
+  ])
+  assert.deepEqual(filterByTechnician(list, 'employee:7').map((a) => a.id), ['slot-1'])
+  assert.deepEqual(filterByTechnician(list, 'employee:9').map((a) => a.id), ['slot-2'])
+})
+
+test('technician options: unique, sorted by name, a suffix only where names collide', () => {
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [[8, 'Sanne']] }),
+        slot(2, { employee_ids: [[8, 'Sanne'], [7, 'Jan']] }),
+        slot(3, { employee_ids: [], user_ids: [[3, 'Jan']] }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  // Jan the employee and Jan the user were never seen together, so they cannot be proven to be one person.
+  assert.deepEqual(technicianOptions(list), [
+    { value: 'user:3', label: 'Jan (gebruiker 3)' },
+    { value: 'employee:7', label: 'Jan (medewerker 7)' },
+    { value: 'employee:8', label: 'Sanne' },
+  ])
+})
+
+test('a user seen together with an employee elsewhere is the same person everywhere, also as technician of a visit', () => {
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [[7, 'Jan']], user_ids: [[5, 'Jan']] }),
+        slot(2, { employee_ids: [], user_ids: [[5, 'Jan']] }),
+      ],
+      [visit(100, { technician_id: [5, 'Jan'] })],
+    ),
+    BASE,
+  )
+  assert.deepEqual(list.map((a) => a.people), [
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
+    [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }],
+  ])
+  assert.deepEqual(technicianOptions(list), [{ value: 'employee:7', label: 'Jan' }])
+  assert.equal(filterByTechnician(list, 'employee:7').length, 3)
+})
+
+test('a person keeps the ids they were known under, so a link made with an older id keeps working', () => {
+  // Someone who was only a user in the planning gets linked to an account as user:5. Later the planning lists
+  // them as employee too: their id becomes employee:7, but user:5 must still find them.
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [], user_ids: [[5, 'Jan']] }),
+        slot(2, { employee_ids: [[7, 'Jan']], user_ids: [[5, 'Jan']] }),
+        slot(3, { employee_ids: [[8, 'Sanne']] }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  assert.deepEqual(list[0].people, [{ id: 'employee:7', name: 'Jan', alsoIds: ['user:5'] }])
+  assert.deepEqual(filterByTechnician(list, 'user:5').map((a) => a.id), ['slot-1', 'slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'employee:7').map((a) => a.id), ['slot-1', 'slot-2'])
+  assert.deepEqual(filterByTechnician(list, 'employee:8').map((a) => a.id), ['slot-3'])
+  assert.equal(personHasId(list[0].people[0], 'user:5'), true)
+  assert.equal(personHasId(list[0].people[0], 'user:6'), false)
+  assert.equal(personHasId({ id: 'employee:8', name: 'Sanne' }, 'employee:8'), true)
+  assert.equal(personHasId({ id: 'employee:8', name: 'Sanne' }, 'user:8'), false)
+})
+
+test('an ambiguous name match does not link a user to an employee', () => {
+  // Two employees called Jan and one user called Jan in the same slot: there is no telling which is which.
+  const [slotAppointment] = buildAppointments(
+    data([slot(1, { employee_ids: [[7, 'Jan'], [9, 'Jan']], user_ids: [[5, 'Jan']] })], []),
+    BASE,
+  )
+  assert.deepEqual(slotAppointment.people.map((p) => p.id), ['employee:7', 'employee:9', 'user:5'])
+  // The same user matching two different employees in two slots is ambiguous as well.
+  const list = buildAppointments(
+    data(
+      [
+        slot(1, { employee_ids: [[7, 'Jan']], user_ids: [[5, 'Jan']] }),
+        slot(2, { employee_ids: [[9, 'Jan']], user_ids: [[5, 'Jan']] }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  assert.deepEqual(list.map((a) => a.people.map((p) => p.id)), [['employee:7', 'user:5'], ['employee:9', 'user:5']])
+})
+
+test('assignees without a name or with a plain id still get a stable id', () => {
+  const [appointment] = buildAppointments(
+    data(
+      [
+        slot(1, {
+          // Odoo can send a many2many as a list of plain ids, or as records.
+          employee_ids: [4, { id: 6, display_name: 'Els' }] as unknown as DashboardSlot['employee_ids'],
+          user_ids: [] as DashboardSlot['user_ids'],
+        }),
+      ],
+      [],
+    ),
+    BASE,
+  )
+  assert.deepEqual(appointment.people, [
+    { id: 'employee:4', name: 'Medewerker 4' },
+    { id: 'employee:6', name: 'Els' },
+  ])
+  assert.equal(appointment.assigned, true)
 })
 
 test('the status of an appointment is that of its first unfinished visit, done only when all are done', () => {

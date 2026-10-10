@@ -5,8 +5,14 @@ import { GatewayError } from './errors.ts'
  * Per-project allowlist. A project is one generated app; it gets its own
  * gateway token and never sees the Odoo API key.
  *
- * Phase 1 is read-only: only the methods in READ_METHODS can be configured.
+ * Models are read-only: only the methods in READ_METHODS can be configured.
  * Write methods are refused when the config is loaded, not at request time.
+ *
+ * The only thing a project can do besides reading is a named, fixed action from
+ * ACTIONS (see `actions` below). There is no generic create / write / unlink.
+ * A project has no actions unless its config lists them, so every action is off
+ * by default. Give actions to a dedicated project (and token) only, never to the
+ * project of a preview or an agent.
  */
 
 export const READ_METHODS = ['search_read', 'search_count'] as const
@@ -17,13 +23,73 @@ export interface ModelPolicy {
   methods: readonly ReadMethod[]
 }
 
+/**
+ * Creating a technician as an Odoo employee without an Odoo user. The Odoo user who is responsible for the
+ * employee is fixed here; a request can never choose it.
+ */
+export interface CreateEmployeePolicy {
+  responsibleUserId: number
+  /**
+   * The `planning.role` ids the planner may give a new employee, when the project wants to limit them. null: every
+   * existing, active role. A shift with a role can only go to someone who has that role.
+   */
+  allowedPlanningRoleIds: readonly number[] | null
+  /** At most this many creations per hour for the project, as a brake on a runaway client. */
+  maxPerHour: number
+}
+
+/**
+ * Changing the planning roles of an existing employee (and nothing else about him), so that a technician made before the
+ * roles existed can get them later. Off unless the project asks for it.
+ */
+export interface SetPlanningRolesPolicy {
+  maxPerHour: number
+  /** The roles that may be set; null: every existing, active role. */
+  allowedPlanningRoleIds: readonly number[] | null
+}
+
+/**
+ * Marking that ONE employee is not available in a period (a `resource.calendar.leaves`: no shift, no planning), and removing
+ * what the dashboard marked itself. Off unless the project asks for it.
+ */
+export interface EmployeeUnavailabilityPolicy {
+  /** The most periods that may be added per hour, per project. */
+  maxPerHour: number
+}
+
+/**
+ * Putting a signed PDF (a survey or handover document) on the customer of an appointment in Odoo: one attachment and an
+ * internal note that sends no mail. Off unless the project asks for it.
+ */
+export interface PostDocumentPolicy {
+  /** The most documents that may be posted per hour, per project. */
+  maxPerHour: number
+}
+
+export interface ProjectActions {
+  createEmployee?: CreateEmployeePolicy
+  setEmployeePlanningRoles?: SetPlanningRolesPolicy
+  employeeUnavailability?: EmployeeUnavailabilityPolicy
+  postDocument?: PostDocumentPolicy
+}
+
 export interface Project {
   id: string
   companyId: number
   maxLimit: number
   models: Readonly<Record<string, ModelPolicy>>
+  actions: Readonly<ProjectActions>
   tokenSha256: Buffer
 }
+
+export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability', 'postDocument'] as const
+const DEFAULT_MAX_PER_HOUR = 20
+const HARD_MAX_PER_HOUR = 200
+/** All technicians of a company share one cap, and many fill in their holidays at the same moment. */
+const DEFAULT_UNAVAILABILITY_PER_HOUR = 100
+/** Technicians post a survey or handover document after most jobs; the whole company shares this cap. */
+const DEFAULT_DOCUMENTS_PER_HOUR = 60
+const MAX_ALLOWED_ROLES = 50
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
 const MODEL_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/
@@ -58,6 +124,92 @@ function parseModel(projectId: string, model: string, raw: unknown): ModelPolicy
   }
   const fields = [...new Set(['id', ...(policy.fields as string[])])]
   return { fields, methods: [...new Set(policy.methods as ReadMethod[])] }
+}
+
+function parseAllowedRoles(projectId: string, action: string, value: unknown): number[] | null {
+  const allowed = value ?? null
+  if (
+    allowed !== null &&
+    (!Array.isArray(allowed) || allowed.length < 1 || allowed.length > MAX_ALLOWED_ROLES || allowed.some((id) => !Number.isInteger(id) || id <= 0) || new Set(allowed).size !== allowed.length)
+  ) {
+    fail(`${projectId}: ${action}.allowedPlanningRoleIds must be a list of 1 to ${MAX_ALLOWED_ROLES} different positive integers`)
+  }
+  return allowed as number[] | null
+}
+
+function parseMaxPerHour(projectId: string, action: string, value: unknown, fallback = DEFAULT_MAX_PER_HOUR): number {
+  const maxPerHour = value ?? fallback
+  if (!Number.isInteger(maxPerHour) || (maxPerHour as number) < 1 || (maxPerHour as number) > HARD_MAX_PER_HOUR) {
+    fail(`${projectId}: ${action}.maxPerHour must be between 1 and ${HARD_MAX_PER_HOUR}`)
+  }
+  return maxPerHour as number
+}
+
+function parseActions(projectId: string, raw: unknown): ProjectActions {
+  if (raw === undefined) return {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail(`${projectId}: actions must be an object`)
+  const actions = raw as Record<string, unknown>
+  for (const name of Object.keys(actions)) {
+    if (!(ACTIONS as readonly string[]).includes(name)) fail(`${projectId}: action ${name} is not allowed`)
+  }
+  const result: ProjectActions = {}
+
+  if (actions.createEmployee !== undefined) {
+    const entry = actions.createEmployee as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: createEmployee must be an object with responsibleUserId`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (!['responsibleUserId', 'maxPerHour', 'allowedPlanningRoleIds'].includes(key)) {
+        fail(`${projectId}: createEmployee has an unknown setting ${key}`)
+      }
+    }
+    if (!Number.isInteger(entry.responsibleUserId) || (entry.responsibleUserId as number) <= 0) {
+      fail(`${projectId}: createEmployee.responsibleUserId must be a positive integer`)
+    }
+    result.createEmployee = {
+      responsibleUserId: entry.responsibleUserId as number,
+      maxPerHour: parseMaxPerHour(projectId, 'createEmployee', entry.maxPerHour),
+      allowedPlanningRoleIds: parseAllowedRoles(projectId, 'createEmployee', entry.allowedPlanningRoleIds),
+    }
+  }
+
+  if (actions.setEmployeePlanningRoles !== undefined) {
+    const entry = actions.setEmployeePlanningRoles as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: setEmployeePlanningRoles must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (!['maxPerHour', 'allowedPlanningRoleIds'].includes(key)) fail(`${projectId}: setEmployeePlanningRoles has an unknown setting ${key}`)
+    }
+    result.setEmployeePlanningRoles = {
+      maxPerHour: parseMaxPerHour(projectId, 'setEmployeePlanningRoles', entry.maxPerHour),
+      allowedPlanningRoleIds: parseAllowedRoles(projectId, 'setEmployeePlanningRoles', entry.allowedPlanningRoleIds),
+    }
+  }
+
+  if (actions.employeeUnavailability !== undefined) {
+    const entry = actions.employeeUnavailability as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: employeeUnavailability must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (key !== 'maxPerHour') fail(`${projectId}: employeeUnavailability has an unknown setting ${key}`)
+    }
+    result.employeeUnavailability = { maxPerHour: parseMaxPerHour(projectId, 'employeeUnavailability', entry.maxPerHour, DEFAULT_UNAVAILABILITY_PER_HOUR) }
+  }
+
+  if (actions.postDocument !== undefined) {
+    const entry = actions.postDocument as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: postDocument must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (key !== 'maxPerHour') fail(`${projectId}: postDocument has an unknown setting ${key}`)
+    }
+    result.postDocument = { maxPerHour: parseMaxPerHour(projectId, 'postDocument', entry.maxPerHour, DEFAULT_DOCUMENTS_PER_HOUR) }
+  }
+  return result
 }
 
 export function parseProjects(raw: unknown): Project[] {
@@ -98,6 +250,7 @@ export function parseProjects(raw: unknown): Project[] {
       companyId: p.companyId as number,
       maxLimit: maxLimit as number,
       models,
+      actions: parseActions(id, p.actions),
       tokenSha256: Buffer.from(p.tokenSha256, 'hex'),
     })
   }

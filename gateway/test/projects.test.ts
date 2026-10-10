@@ -48,3 +48,102 @@ test('findProject matches only the right token', () => {
   assert.equal(findProject(projects, 'token-two'), null)
   assert.equal(findProject(projects, ''), null)
 })
+
+// ---- actions: the one narrow write, off unless a project asks for it ----
+
+test('without an actions block a project can do no action, and the example config has none', () => {
+  const [project] = parseProjects(config())
+  assert.deepEqual(project.actions, {})
+  const example = parseProjects(JSON.parse(readFileSync(new URL('../projects.example.json', import.meta.url), 'utf8')))
+  for (const item of example) assert.deepEqual(item.actions, {}, `${item.id} must not allow actions by default`)
+})
+
+test('createEmployee needs the Odoo user who is responsible, and has a default cap per hour', () => {
+  const [project] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.deepEqual(project.actions, { createEmployee: { responsibleUserId: 9, maxPerHour: 20, allowedPlanningRoleIds: null } })
+  const [capped] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, maxPerHour: 5 } } }))
+  assert.equal(capped.actions.createEmployee?.maxPerHour, 5)
+})
+
+test('an invalid actions block is refused when the config is loaded', () => {
+  const create = (value: unknown) => config({ actions: { createEmployee: value } })
+  for (const value of [null, 'ja', [], {}, { responsibleUserId: 0 }, { responsibleUserId: -1 }, { responsibleUserId: 1.5 }, { responsibleUserId: '9' }]) {
+    assert.throws(() => parseProjects(create(value)), /createEmployee/, JSON.stringify(value))
+  }
+  for (const maxPerHour of [0, -1, 201, 1.5, '5']) {
+    assert.throws(() => parseProjects(create({ responsibleUserId: 9, maxPerHour })), /maxPerHour/, String(maxPerHour))
+  }
+  assert.throws(() => parseProjects(create({ responsibleUserId: 9, userId: 5 })), /unknown/)
+  assert.throws(() => parseProjects(create({ responsibleUserId: 9, companyId: 3 })), /unknown/)
+})
+
+test('only known actions can be configured: no generic create, write or unlink', () => {
+  for (const action of ['create', 'write', 'unlink', 'execute_kw', 'create_user', 'createUser']) {
+    assert.throws(() => parseProjects(config({ actions: { [action]: { responsibleUserId: 9 } } })), /action/, action)
+  }
+  assert.throws(() => parseProjects(config({ actions: [] })), /actions/)
+  assert.throws(() => parseProjects(config({ actions: 'ja' })), /actions/)
+})
+
+test('actions do not widen the models a project can read', () => {
+  const projects = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.deepEqual(allModels(projects), ['planning.slot'])
+  assert.equal(Object.hasOwn(projects[0].models, 'hr.employee'), false)
+})
+
+test('the planning roles a planner may choose: no limit by default, otherwise a list of different positive ids', () => {
+  const [open] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(open.actions.createEmployee?.allowedPlanningRoleIds, null)
+  const [limited] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9, allowedPlanningRoleIds: [3, 4] } } }))
+  assert.deepEqual(limited.actions.createEmployee?.allowedPlanningRoleIds, [3, 4])
+  const create = (settings: Record<string, unknown>) => config({ actions: { createEmployee: { responsibleUserId: 9, ...settings } } })
+  for (const allowedPlanningRoleIds of ['3', 3, [], [0], [-1], [1.5], ['3'], [3, 3], [null], Array.from({ length: 51 }, (_, i) => i + 1)]) {
+    assert.throws(() => parseProjects(create({ allowedPlanningRoleIds })), /allowedPlanningRoleIds/, JSON.stringify(allowedPlanningRoleIds).slice(0, 40))
+  }
+  for (const old of ['planningRoleIds', 'defaultPlanningRoleId']) {
+    assert.throws(() => parseProjects(create({ [old]: [3] })), /unknown/, old)
+  }
+})
+
+test('the action that changes planning roles: off by default, may be empty, and has its own cap and its own limit on the roles', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.setEmployeePlanningRoles, undefined)
+  const [plain] = parseProjects(config({ actions: { setEmployeePlanningRoles: {} } }))
+  assert.deepEqual(plain.actions.setEmployeePlanningRoles, { maxPerHour: 20, allowedPlanningRoleIds: null })
+  assert.equal(plain.actions.createEmployee, undefined, 'it does not give the right to create employees')
+  const [limited] = parseProjects(config({ actions: { setEmployeePlanningRoles: { maxPerHour: 5, allowedPlanningRoleIds: [3, 4] } } }))
+  assert.deepEqual(limited.actions.setEmployeePlanningRoles, { maxPerHour: 5, allowedPlanningRoleIds: [3, 4] })
+  const create = (value: unknown) => config({ actions: { setEmployeePlanningRoles: value } })
+  for (const value of [null, 'ja', [], { responsibleUserId: 9 }, { userId: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }, { allowedPlanningRoleIds: [] }, { allowedPlanningRoleIds: [3, 3] }, { allowedPlanningRoleIds: ['3'] }]) {
+    assert.throws(() => parseProjects(create(value)), /setEmployeePlanningRoles/, JSON.stringify(value))
+  }
+})
+
+test('the action that marks an employee as not available: off by default, may be empty, has its own cap, and gives no other right', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.employeeUnavailability, undefined)
+  const [plain] = parseProjects(config({ actions: { employeeUnavailability: {} } }))
+  assert.deepEqual(plain.actions.employeeUnavailability, { maxPerHour: 100 })
+  assert.equal(plain.actions.createEmployee, undefined)
+  assert.equal(plain.actions.setEmployeePlanningRoles, undefined)
+  const [capped] = parseProjects(config({ actions: { employeeUnavailability: { maxPerHour: 5 } } }))
+  assert.deepEqual(capped.actions.employeeUnavailability, { maxPerHour: 5 })
+  const create = (value: unknown) => config({ actions: { employeeUnavailability: value } })
+  for (const value of [null, 'ja', [], { responsibleUserId: 9 }, { allowedPlanningRoleIds: [3] }, { resourceId: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }]) {
+    assert.throws(() => parseProjects(create(value)), /employeeUnavailability/, JSON.stringify(value))
+  }
+})
+
+test('the action that posts a document: off by default, may be empty, has its own cap, and gives no other right', () => {
+  const [off] = parseProjects(config({ actions: { createEmployee: { responsibleUserId: 9 } } }))
+  assert.equal(off.actions.postDocument, undefined)
+  const [plain] = parseProjects(config({ actions: { postDocument: {} } }))
+  assert.deepEqual(plain.actions.postDocument, { maxPerHour: 60 })
+  for (const other of ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability'] as const) assert.equal(plain.actions[other], undefined, other)
+  const [capped] = parseProjects(config({ actions: { postDocument: { maxPerHour: 5 } } }))
+  assert.deepEqual(capped.actions.postDocument, { maxPerHour: 5 })
+  const create = (value: unknown) => config({ actions: { postDocument: value } })
+  for (const value of [null, 'ja', [], { partnerId: 5 }, { maxBytes: 5 }, { maxPerHour: 0 }, { maxPerHour: 201 }, { maxPerHour: '5' }]) {
+    assert.throws(() => parseProjects(create(value)), /postDocument/, JSON.stringify(value))
+  }
+})

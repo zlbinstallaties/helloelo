@@ -111,7 +111,7 @@ Uitgevoerd in de ontwikkelomgeving met een echte Docker-daemon:
   login, pagina en modules via de proxy, HMR-WebSocket `101 Switching Protocols`.
 - In Chromium (Playwright): inlogscherm, fout wachtwoord, startscherm, preview, en een
   wijziging in de broncode die zonder handmatig verversen in de browser verschijnt.
-- Publiceren (`test/release.test.ts`, 17 tests met een nagebootste Docker en een echte git-repo):
+- Publiceren (`sandbox/test/release.test.ts`, 17 tests met een nagebootste Docker en een echte git-repo):
   alleen vastgelegde inhoud, volgorde installeren-bouwen-starten-controleren-omschakelen,
   mislukte build of gezondheidscheck laat de live versie ongemoeid en ruimt op, terugdraaien,
   herstarten, opschonen van oude versies (ook als de klok achteruit springt), slot per project,
@@ -122,8 +122,10 @@ Uitgevoerd in de ontwikkelomgeving met een echte Docker-daemon:
 - Publiceren met echt Docker (dashboard als gewone gebruiker): installeren 7 s, bouwen 9 s, live in
   17 s; container non-root, alleen-lezen, zonder internet; via de proxy alleen na login;
   tweede versie, terugdraaien en een kapotte versie (build faalt) allemaal doorlopen.
-- Niet uitgevoerd: preview van het monteursdashboard zelf (dat leunt nog op HelloLeo en de
-  Cloudflare-runtime), TLS-proxy ervoor, en een run tegen de echte Claude API.
+- Niet uitgevoerd op het moment van schrijven: preview van het monteursdashboard zelf (dat leunde
+  toen nog op HelloLeo en de Cloudflare-runtime; sindsdien losgekoppeld en met een nagebootste
+  Odoo als preview en publicatie doorlopen, zie `docs/verification.md`), TLS-proxy ervoor, en een run
+  tegen de echte Claude API.
 
 ## Nog niet
 
