@@ -342,7 +342,7 @@ export function DocumentForm({ form, appointment, user }: { form: FormDef; appoi
             )}
             {posted.facts?.state === 'unchanged' && <span data-testid="document-facts">De schouwgegevens van de klant waren al ingevuld; er is niets overschreven.</span>}
             {posted.facts?.state === 'failed' && (
-              <span data-testid="document-facts">Let op: de gegevens voor de offerte zijn niet bij de klant gezet{posted.facts.message ? ` (${posted.facts.message})` : ''}. Het document staat er wel; de gegevens staan ook in het PDF.</span>
+              <span data-testid="document-facts">Let op: de gegevens voor de offerte zijn niet bij de klant gezet.{posted.facts.message ? ` ${posted.facts.message}` : ''} Het document staat er wel; de gegevens staan ook in het PDF.</span>
             )}
           </AlertDescription>
         </Alert>
