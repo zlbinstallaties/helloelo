@@ -19,7 +19,7 @@ import {
   validateDraft,
 } from '#/lib/documents/form-state'
 import type { Draft } from '#/lib/documents/form-state'
-import { YES_NO_LABELS } from '#/lib/documents/forms'
+import { YES_NO_LABELS, visibleSections } from '#/lib/documents/forms'
 import type { FieldDef, FormDef, PhotosField, YesNo, YesNoField } from '#/lib/documents/forms'
 import { PhotoError, shrinkPhoto } from '#/lib/documents/photo-browser'
 import type { SessionUser } from '#/lib/session'
@@ -370,13 +370,13 @@ export function DocumentForm({ form, appointment, user }: { form: FormDef; appoi
         </Alert>
       )}
 
-      {form.sections.map((section) => (
+      {visibleSections(form, draft.answers).map(({ section, fields }) => (
         <Card key={section.id}>
           <CardHeader>
             <CardTitle className="text-xl">{section.title}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-6">
-            {section.fields.map((field) => (
+            {fields.map((field) => (
               <Field key={field.id} field={field} error={errorOf(field.id)}>
                 {(a11y) => {
                   const common = { id: a11y.id, 'aria-invalid': a11y.invalid, 'aria-describedby': a11y.describedBy }

@@ -1,4 +1,4 @@
-import { YES_NO_LABELS } from './forms.ts'
+import { YES_NO_LABELS, visibleSections } from './forms.ts'
 import type { FieldDef, FormDef } from './forms.ts'
 import { dataUrlToBytes, parseJpeg } from './jpeg.ts'
 import { PAGE_HEIGHT, PAGE_WIDTH, PdfBuilder } from './pdf.ts'
@@ -205,6 +205,7 @@ export function renderDocumentPdf(form: FormDef, context: RenderContext, submiss
     ['Monteur(s)', context.people.join(', ')],
     ['Ingevuld door', submission.author],
     ['Opgesteld op', dateTimeFormat.format(context.createdAt)],
+    ['Formulierversie', String(form.version)],
   ]
   const factLines = facts.map(([, value]) => pdf.wrap(value || '—', CONTENT_WIDTH - LABEL_COLUMN - 12, 10))
   const panelHeight = factLines.reduce((sum, list) => sum + list.length * 13 + 4, 0) + 20
@@ -221,13 +222,13 @@ export function renderDocumentPdf(form: FormDef, context: RenderContext, submiss
   })
   y -= panelHeight + 16
 
-  // The sections of the form.
-  for (const section of form.sections) {
-    ensure(36 + (section.fields[0] ? minHeight(section.fields[0]) : 0))
+  // The sections of the form that apply to the choices made (`showWhen`); hidden ones are not printed at all.
+  for (const { section, fields } of visibleSections(form, submission.answers)) {
+    ensure(36 + minHeight(fields[0]))
     y -= 6
     heading(section.title)
 
-    for (const field of section.fields) {
+    for (const field of fields) {
       const answer = submission.answers[field.id]
       const labelLines = pdf.wrap(field.label, CONTENT_WIDTH, 9, 'sans-bold')
 

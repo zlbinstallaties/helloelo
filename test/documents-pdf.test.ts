@@ -11,7 +11,7 @@ import { DocumentRenderError, documentFilename, documentSummary, renderDocumentP
 import type { RenderContext } from '../src/lib/documents/render.ts'
 import { validateSubmission } from '../src/lib/documents/submission.ts'
 import type { CleanSubmission } from '../src/lib/documents/submission.ts'
-import { PHOTO, SIGNATURE } from './documents-fixtures.ts'
+import { OPLEVERING_MONOBLOCK, OPLEVERING_OVERIG, OPLEVERING_SPLIT, PHOTO, SCHOUW_ANSWERS, SIGNATURE } from './documents-fixtures.ts'
 
 const createdAt = new Date('2026-10-08T18:30:00Z') // 20:30 in Amsterdam
 
@@ -40,13 +40,13 @@ function submission(form: typeof FORMS.schouw, answers: Record<string, unknown>)
 }
 
 const schouwAnswers = {
+  ...SCHOUW_ANSWERS,
   parkeren: { value: 'nee', note: 'Alleen betaald parkeren, 2 straten verderop.' },
-  huisdieren: { value: 'nee' },
   werkzaamheden: 'sanitair',
   bouwjaar: '1975',
-  meterkast: { value: 'nvt' },
   asbest: { value: 'ja', note: 'Golfplaten achter de schuur (€ 0 meerwerk).' },
   ruimte: 'Badkamer 2,4 x 1,8 m.\nPlafond 2,3 m (kostprijs “laag”).',
+  trace_lengte: '12,5',
   fotos_situatie: [PHOTO, PHOTO, PHOTO, PHOTO],
 }
 
@@ -123,7 +123,7 @@ test('builder: wrapping honours the width, paragraphs and very long words', () =
 test('a schouw renders to a well-formed PDF with the customer, answers, photos and signature', () => {
   const pdf = renderDocumentPdf(FORMS.schouw, context, submission(FORMS.schouw, schouwAnswers))
   const { text, pages } = assertWellFormed(pdf)
-  assert.equal(pages, 2)
+  assert.ok(pages >= 2, `pages: ${pages}`)
   assert.equal((text.match(/\/Subtype \/Image/g) ?? []).length, 5, 'four photos and the signature')
   assert.ok(text.includes('/Author (Jan de Vries)'))
 
@@ -135,7 +135,9 @@ test('a schouw renders to a well-formed PDF with the customer, answers, photos a
     'Molenweg 4, 3990 AB Houten',
     '9 oktober 2026',
     'Jan de Vries, Piet Bakker',
-    'Sanitair of badkamer',
+    'Sanitair of loodgieterswerk',
+    'Formulierversie',
+    '12,5 m',
     '1975',
     'Niet van toepassing',
     'Alleen betaald parkeren',
@@ -143,17 +145,19 @@ test('a schouw renders to a well-formed PDF with the customer, answers, photos a
     '“laag”',
     'Naam: Mevr. Van den Berg',
     'Getekend op: 8 oktober 2026 om 20:30',
-    'Pagina 1 van 2',
-    'Pagina 2 van 2',
+    `Pagina 1 van ${pages}`,
+    `Pagina ${pages} van ${pages}`,
   ]) {
     assert.ok(plain.includes(expected), `missing "${expected}" in:\n${plain}`)
   }
   assert.ok(plain.includes('Niet ingevuld'), 'an optional field without an answer says so')
-  // The photo heading, its label and its first row stay together: they all move to page 2.
-  const breakAt = plain.indexOf('Pagina 1 van 2')
-  assert.ok(plain.indexOf("Foto's van de situatie") > breakAt, 'the photo label is not left alone at the bottom of page 1')
-  const heading = plain.split('\n').findIndex((line) => line.trim() === "Foto's")
-  assert.ok(heading >= 0 && plain.split('\n').slice(0, heading).join('\n').includes('Pagina 1 van 2'), 'the section heading moved with it')
+  // A label of a photo field is never the last thing on a page: its first row of photos stays with it.
+  for (const [index, page] of plain.split('\f').entries()) {
+    const lines = page.split('\n').map((line) => line.trim()).filter(Boolean)
+    const content = lines.filter((line) => !line.startsWith('De Installatiegroep ·'))
+    const last = content.at(-1) ?? ''
+    assert.ok(!last.startsWith("Foto's van ") && last !== "Foto's", `page ${index + 1} ends with a photo label: ${last}`)
+  }
 })
 
 test('a long document runs over several pages with correct page numbers', () => {
@@ -161,15 +165,7 @@ test('a long document runs over several pages with correct page numbers', () => 
   const pdf = renderDocumentPdf(
     FORMS.oplevering,
     context,
-    submission(FORMS.oplevering, {
-      uitgevoerd: long,
-      volledig: { value: 'ja' },
-      getest: { value: 'ja' },
-      instructie: { value: 'ja' },
-      opgeruimd: { value: 'ja' },
-      opmerkingen_klant: long,
-      fotos_resultaat: Array(8).fill(PHOTO),
-    }),
+    submission(FORMS.oplevering, { ...OPLEVERING_OVERIG, uitgevoerd: long, opmerkingen_klant: long, fotos_resultaat: Array(8).fill(PHOTO) }),
   )
   const { pages } = assertWellFormed(pdf)
   assert.ok(pages >= 3, `pages: ${pages}`)
@@ -202,7 +198,26 @@ test('file name and summary', () => {
   assert.equal(documentFilename(FORMS.schouw, 'Familie Van den Béérg (Müller)', createdAt), 'schouw-familie-van-den-beerg-muller-20261008.pdf')
   assert.equal(documentFilename(FORMS.oplevering, '???', new Date('2026-12-31T23:30:00Z')), 'oplevering-klant-20270101.pdf', 'dated in Amsterdam')
   assert.match(documentFilename(FORMS.schouw, 'x'.repeat(200), createdAt), /^schouw-x{40}-20261008\.pdf$/)
-  assert.equal(documentSummary(FORMS.oplevering, 'Jansen', createdAt), 'Opleverdocument – Jansen – 8 oktober 2026 om 20:30')
+  assert.equal(documentSummary(FORMS.oplevering, 'Jansen', createdAt), 'Opleverdocument en inbedrijfstelling – Jansen – 8 oktober 2026 om 20:30')
   const photo = dataUrlToBytes(PHOTO)
   assert.ok(photo && parseJpeg(photo))
+})
+
+test('the oplevering prints only the part of the installation that was chosen', () => {
+  const kinds = [
+    ['monoblock', OPLEVERING_MONOBLOCK, 'Monoblock: waterzijdig', 'Split-systeem: koudemiddelcircuit', { mb_druk: '1,8', aanvoer_temp: '35' }],
+    ['split', OPLEVERING_SPLIT, 'Split-systeem: koudemiddelcircuit', 'Monoblock: waterzijdig', { sp_koudemiddel: 'R32', sp_lading: '1,2', sp_leidinglengte: '7' }],
+    ['overig', OPLEVERING_OVERIG, null, 'Inbedrijfstelling', {}],
+  ] as const
+  for (const [kind, answers, shown, hidden, extra] of kinds) {
+    const pdf = renderDocumentPdf(FORMS.oplevering, context, submission(FORMS.oplevering, { ...answers, ...extra, ...(kind === 'overig' ? { merk: 'Testmerk' } : {}) }))
+    assertWellFormed(pdf)
+    const plain = pdfToText(pdf)
+    if (plain === null) continue
+    assert.ok(plain.includes('Opleverdocument en inbedrijfstelling'), kind)
+    assert.ok(plain.includes('Formulierversie'), kind)
+    if (shown) assert.ok(plain.includes(shown), `${kind}: ${shown}`)
+    assert.ok(!plain.includes(hidden), `${kind} does not print "${hidden}"`)
+    assert.ok(!plain.includes('Testmerk') || kind !== 'overig', 'an answer to a part that does not apply is not printed')
+  }
 })

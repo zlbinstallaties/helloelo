@@ -1,4 +1,4 @@
-import { allFields } from './forms.ts'
+import { allFields, visibleSections } from './forms.ts'
 import type { DocumentType, FieldDef, FormDef, PhotosField, YesNo, YesNoField } from './forms.ts'
 import { FORM_ERROR, LIMITS, validateSubmission } from './submission.ts'
 
@@ -94,7 +94,8 @@ export const setSignatureImage = (draft: Draft, image: string): Draft => ({ ...d
 /** What the server gets: only fields of this form that were answered. Who fills it in is not sent: the session says. */
 export function toPayload(form: FormDef, draft: Draft, appointmentId: string) {
   const answers: Record<string, unknown> = {}
-  for (const field of allFields(form)) {
+  // Only what applies to the choices made (`showWhen`): an answer to a part that was hidden again is not sent.
+  for (const field of visibleSections(form, draft.answers).flatMap(({ fields }) => fields)) {
     const value = draft.answers[field.id]
     if (typeof value === 'string') {
       if (value.trim()) answers[field.id] = value.trim()

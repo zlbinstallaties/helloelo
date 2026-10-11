@@ -4,7 +4,7 @@ import { cleanCustomer, DOCUMENT_BODY_CHARS } from '../src/lib/document-handlers
 import { requestIdFor } from '../src/lib/document-journal.ts'
 import { DATA, PASSWORD, login, read, read as read_, request, setup, slot } from './api-helpers.ts'
 import type { Api } from './api-helpers.ts'
-import { PHOTO, SIGNATURE } from './documents-fixtures.ts'
+import { PHOTO, SIGNATURE, OPLEVERING_OVERIG, SCHOUW_ANSWERS } from './documents-fixtures.ts'
 
 const jan = async (api: Api) => (await login(api, 'jan')).cookie
 const planner = async (api: Api) => (await login(api, 'planner')).cookie
@@ -16,14 +16,7 @@ const sanne = async (api: Api) => {
 }
 
 const SUBMISSION = 'f3b1c2d4-5e6f-4a7b-8c9d-0123456789ab'
-const schouwAnswers = {
-  parkeren: { value: 'ja' },
-  huisdieren: { value: 'nee' },
-  werkzaamheden: 'sanitair',
-  meterkast: { value: 'nvt' },
-  asbest: { value: 'nee' },
-  fotos_situatie: [PHOTO],
-}
+const schouwAnswers = { ...SCHOUW_ANSWERS, fotos_situatie: [PHOTO] }
 const body = (overrides: Record<string, unknown> = {}) => ({
   type: 'schouw', appointmentId: 'slot-1', submissionId: SUBMISSION, answers: schouwAnswers, signature: { name: 'Mevr. Klant', image: SIGNATURE }, ...overrides,
 })
@@ -53,11 +46,11 @@ test('an oplevering is its own form and file name', async () => {
   const api = setup()
   const answer = await read(await post(api, await jan(api), body({
     type: 'oplevering',
-    answers: { uitgevoerd: 'Radiator vervangen.', volledig: { value: 'ja' }, getest: { value: 'ja' }, instructie: { value: 'nvt' }, opgeruimd: { value: 'ja' } },
+    answers: OPLEVERING_OVERIG,
   })))
   assert.equal(answer.status, 200, answer.text)
   assert.match(api.odoo.docs.posts[0].filename, /^oplevering-klant-1-20261008\.pdf$/)
-  assert.match(api.odoo.docs.posts[0].summary, /^Opleverdocument – /)
+  assert.match(api.odoo.docs.posts[0].summary, /^Opleverdocument en inbedrijfstelling – /)
 })
 
 test('who it is comes from the session: an author in the request is refused, and every other unknown field too', async () => {

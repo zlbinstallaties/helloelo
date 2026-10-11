@@ -1,4 +1,4 @@
-import { allFields } from './forms.ts'
+import { isVisible } from './forms.ts'
 import type { FieldDef, FormDef, YesNo } from './forms.ts'
 
 /*
@@ -120,11 +120,16 @@ export function validateSubmission(form: FormDef, input: unknown): ValidationRes
   const rawAnswers = isRecord(body.answers) ? body.answers : {}
   const answers: Record<string, CleanAnswer> = {}
 
-  // Unknown ids in the input are dropped: only fields of this form are kept.
-  for (const field of allFields(form)) {
-    const result = checkField(field, rawAnswers[field.id])
-    if (result.error) errors[field.id] = result.error
-    else if (result.answer !== undefined) answers[field.id] = result.answer
+  // Unknown ids in the input are dropped: only fields of this form are kept. A section or field that does not apply to the
+  // choices made earlier (`showWhen`) is not checked and not kept, even when the phone sent an answer for it.
+  for (const section of form.sections) {
+    if (!isVisible(section, answers)) continue
+    for (const field of section.fields) {
+      if (!isVisible(field, answers)) continue
+      const result = checkField(field, rawAnswers[field.id])
+      if (result.error) errors[field.id] = result.error
+      else if (result.answer !== undefined) answers[field.id] = result.answer
+    }
   }
 
   const photoCount = Object.values(answers).reduce((sum, answer) => (Array.isArray(answer) ? sum + answer.length : sum), 0)

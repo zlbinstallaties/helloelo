@@ -2,8 +2,20 @@
  * The schouw (survey) and oplever (handover) forms, as data. No I/O and no framework imports, so the same
  * definition drives the form on the phone, the validation on the server and the PDF.
  *
- * The fields below are EXAMPLE FIELDS until the real paper or Word forms are available. Replacing them is a change
- * to this file only: `submission.ts` and `render.ts` work from whatever is listed here.
+ * Status of the content:
+ *  - schouw (version 2): built from the "Schouw MVP" of the DIG masterprompt (section 6): installation type, existing
+ *    situation, placement inside or outside, pipe or cable route and estimated length, electrical supply, hydraulics where
+ *    relevant, work for the client (digging, power, clearing space), photos, points of attention and the judgement
+ *    "complete for work preparation". It is a PROVISIONAL core: it has not been compared with the paper or Word form of
+ *    De Installatiegroep yet. It asks for what was seen or measured and never fills in a technical value.
+ *  - oplevering (version 2): the handover AND the commissioning (inbedrijfstelling, IBS) document, for monoblock heat pumps
+ *    and split systems; the parts that only apply to one of them are shown only for that choice (`showWhen`). Also
+ *    PROVISIONAL: it is no replacement for the commissioning protocol of the manufacturer (the form says so), and it has
+ *    not been compared with the IBS document of De Installatiegroep yet.
+ *
+ * Changing a form is a change to this file only: `submission.ts`, the screen and `render.ts` work from whatever is listed
+ * here. Never change the `id` of a field that has been used; add a new field instead, and raise `version` when the
+ * questions change in a way that matters for a document that was made earlier.
  */
 
 export const DOCUMENT_TYPES = ['schouw', 'oplevering'] as const
@@ -11,7 +23,12 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[number]
 
 export type YesNo = 'ja' | 'nee' | 'nvt'
 
+/** Show a section or a field only when an EARLIER choice field has one of these values. */
+export type ShowWhen = { field: string; in: readonly string[] }
+
 type FieldBase = {
+  /** Show the field only for some answers (see `ShowWhen`). A hidden field is never asked, checked or printed. */
+  showWhen?: ShowWhen
   /** Stable key of the answer. Never change an id of a form that has been used; add a new field instead. */
   id: string
   label: string
@@ -38,11 +55,15 @@ export type FieldDef = TextField | TextAreaField | NumberField | DateField | Cho
 export type SectionDef = {
   id: string
   title: string
+  /** Show the whole section only for some answers (see `ShowWhen`). */
+  showWhen?: ShowWhen
   fields: ReadonlyArray<FieldDef>
 }
 
 export type FormDef = {
   type: DocumentType
+  /** Raised when the questions change; printed on the PDF so that an old document can be read against the right form. */
+  version: number
   /** Title on the screen and on top of the PDF. */
   title: string
   intro: string
@@ -53,20 +74,62 @@ export type FormDef = {
   sections: ReadonlyArray<SectionDef>
 }
 
-const WORK_TYPES = [
-  { value: 'verwarming', label: 'Verwarming (cv)' },
-  { value: 'warmtepomp', label: 'Warmtepomp' },
-  { value: 'elektra', label: 'Elektra' },
-  { value: 'sanitair', label: 'Sanitair of badkamer' },
-  { value: 'ventilatie', label: 'Ventilatie of airco' },
-  { value: 'anders', label: 'Anders' },
+const INSTALLATION_TYPES = [
+  { value: 'warmtepomp_hybride', label: 'Hybride warmtepomp' },
+  { value: 'warmtepomp_all_electric', label: 'All-electric warmtepomp' },
+  { value: 'airco', label: 'Airco' },
+  { value: 'thuisbatterij', label: 'Thuisbatterij' },
+  { value: 'vloerverwarming', label: 'Vloerverwarming' },
+  { value: 'ventilatie', label: 'Ventilatie' },
+  { value: 'sanitair', label: 'Sanitair of loodgieterswerk' },
+  { value: 'anders', label: 'Anders (zie toelichting)' },
 ] as const
+
+const PLACEMENT = [
+  { value: 'binnen', label: 'Binnen' },
+  { value: 'buiten', label: 'Buiten' },
+  { value: 'binnen_buiten', label: 'Binnen en buiten' },
+  { value: 'nog_niet_bepaald', label: 'Nog niet bepaald' },
+] as const
+
+const ELECTRICAL_SUPPLY = [
+  { value: 'enkelfase', label: 'Enkelfase' },
+  { value: 'driefase', label: 'Driefase' },
+  { value: 'onbekend', label: 'Onbekend' },
+] as const
+
+const FREE_GROUP = [
+  { value: 'ja', label: 'Ja' },
+  { value: 'nee', label: 'Nee' },
+  { value: 'onbekend', label: 'Onbekend' },
+  { value: 'nvt', label: 'Niet van toepassing' },
+] as const
+
+const EMISSION = [
+  { value: 'radiatoren', label: 'Radiatoren' },
+  { value: 'vloerverwarming', label: 'Vloerverwarming' },
+  { value: 'gemengd', label: 'Gemengd' },
+  { value: 'onbekend', label: 'Onbekend' },
+  { value: 'nvt', label: 'Niet van toepassing' },
+] as const
+
+const SYSTEM_TYPES = [
+  { value: 'monoblock', label: 'Monoblock warmtepomp' },
+  { value: 'split', label: 'Split-systeem' },
+  { value: 'overig', label: 'Overig (alleen oplevering, geen inbedrijfstelling)' },
+] as const
+
+/** The parts of the commissioning (IBS) apply to a monoblock heat pump and to a split system. */
+const COMMISSIONING = { field: 'systeem', in: ['monoblock', 'split'] } as const
+const MONOBLOCK = { field: 'systeem', in: ['monoblock'] } as const
+const SPLIT = { field: 'systeem', in: ['split'] } as const
 
 export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
   schouw: {
     type: 'schouw',
+    version: 2,
     title: 'Schouwdocument',
-    intro: 'Leg de situatie ter plekke vast. De klant tekent onderaan voor akkoord.',
+    intro: 'Leg de situatie ter plekke vast. Vul alleen in wat is gezien of gemeten; laat een veld leeg of kies Onbekend als iets nog niet te bepalen is. De klant tekent onderaan voor akkoord.',
     filePrefix: 'schouw',
     signatureStatement: 'Ik heb bij de schouw aanwezig kunnen zijn en ga akkoord met de vastgelegde situatie.',
     sections: [
@@ -80,20 +143,68 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         ],
       },
       {
+        id: 'installatie',
+        title: 'Installatie en plaatsing',
+        fields: [
+          { id: 'werkzaamheden', kind: 'choice', label: 'Installatietype', required: true, options: INSTALLATION_TYPES },
+          { id: 'installatie_toelichting', kind: 'textarea', label: 'Toelichting bij het installatietype', help: 'Vul dit in als u Anders kiest, of als het om een combinatie gaat.' },
+          { id: 'plaatsing', kind: 'choice', label: 'Plaatsing', required: true, options: PLACEMENT },
+          { id: 'plaatsing_toelichting', kind: 'textarea', label: 'Waar komt de installatie te staan?' },
+        ],
+      },
+      {
         id: 'situatie',
         title: 'Bestaande situatie',
         fields: [
-          { id: 'werkzaamheden', kind: 'choice', label: 'Soort werkzaamheden', required: true, options: WORK_TYPES },
+          { id: 'bestaand', kind: 'textarea', label: 'Bestaande installatie en afgifte', help: 'Wat staat er nu en in welke staat?' },
           { id: 'bouwjaar', kind: 'number', label: 'Bouwjaar woning' },
-          { id: 'meterkast', kind: 'yesno', label: 'Voldoende ruimte in de meterkast', required: true, allowNa: true, explainWhen: 'nee' },
-          { id: 'asbest', kind: 'yesno', label: 'Vermoeden van asbest', required: true, explainWhen: 'ja' },
           { id: 'ruimte', kind: 'textarea', label: 'Afmetingen en bijzonderheden van de ruimte' },
+          { id: 'asbest', kind: 'yesno', label: 'Vermoeden van asbest', required: true, explainWhen: 'ja' },
+        ],
+      },
+      {
+        id: 'tracé',
+        title: 'Leidingtracé of kabeltracé',
+        fields: [
+          { id: 'trace_nodig', kind: 'yesno', label: 'Leiding- of kabeltracé nodig', allowNa: true },
+          { id: 'trace_lengte', kind: 'number', label: 'Geschatte lengte van het tracé', unit: 'm', help: 'Laat leeg als dit nog niet te schatten is.' },
+          { id: 'trace_toelichting', kind: 'textarea', label: 'Tracé, doorvoeren en obstakels' },
+        ],
+      },
+      {
+        id: 'elektra',
+        title: 'Elektrische voorziening',
+        fields: [
+          { id: 'meterkast', kind: 'yesno', label: 'Voldoende ruimte in de meterkast', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'aansluiting', kind: 'choice', label: 'Aansluiting', options: ELECTRICAL_SUPPLY },
+          { id: 'groep_vrij', kind: 'choice', label: 'Vrije groep beschikbaar in de groepenkast', options: FREE_GROUP },
+          { id: 'elektra_toelichting', kind: 'textarea', label: 'Aandachtspunten elektra' },
+        ],
+      },
+      {
+        id: 'hydrauliek',
+        title: 'Hydraulische aspecten',
+        fields: [
+          { id: 'afgifte', kind: 'choice', label: 'Warmteafgifte', help: 'Alleen invullen als dit voor de installatie speelt.', options: EMISSION },
+          { id: 'hydrauliek_toelichting', kind: 'textarea', label: 'Aandachtspunten hydrauliek' },
+        ],
+      },
+      {
+        id: 'opdrachtgever',
+        title: 'Werkzaamheden voor de opdrachtgever',
+        fields: [
+          { id: 'graafwerk_klant', kind: 'yesno', label: 'Graafwerk door de opdrachtgever nodig', required: true, allowNa: true, explainWhen: 'ja' },
+          { id: 'stroom_klant', kind: 'yesno', label: 'Stroomvoorziening door de opdrachtgever te regelen', required: true, allowNa: true, explainWhen: 'ja' },
+          { id: 'werkruimte_klant', kind: 'yesno', label: 'Werkruimte door de opdrachtgever vrij te maken', required: true, allowNa: true, explainWhen: 'ja' },
         ],
       },
       {
         id: 'fotos',
         title: "Foto's",
-        fields: [{ id: 'fotos_situatie', kind: 'photos', label: "Foto's van de situatie", max: 8 }],
+        fields: [
+          { id: 'fotos_situatie', kind: 'photos', label: "Foto's van de situatie en de plaatsing", max: 8 },
+          { id: 'fotos_meterkast', kind: 'photos', label: "Foto's van de meterkast en groepenkast", max: 4 },
+        ],
       },
       {
         id: 'afronding',
@@ -101,14 +212,16 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         fields: [
           { id: 'aandachtspunten', kind: 'textarea', label: 'Aandachtspunten voor de uitvoering' },
           { id: 'opmerkingen_klant', kind: 'textarea', label: 'Opmerkingen van de klant' },
+          { id: 'beoordeling', kind: 'yesno', label: 'Compleet voor de werkvoorbereiding', help: 'Kies Nee als er nog gegevens ontbreken en zeg welke.', required: true, explainWhen: 'nee' },
         ],
       },
     ],
   },
   oplevering: {
     type: 'oplevering',
-    title: 'Opleverdocument',
-    intro: 'Leg de oplevering vast. De klant tekent onderaan voor ontvangst.',
+    version: 2,
+    title: 'Opleverdocument en inbedrijfstelling',
+    intro: 'Leg de oplevering vast en, bij een warmtepomp, ook de inbedrijfstelling (IBS). Vul alleen in wat is gecontroleerd of gemeten. Dit formulier vervangt het inbedrijfstellingsprotocol van de fabrikant niet. De klant tekent onderaan voor ontvangst.',
     filePrefix: 'oplevering',
     signatureStatement: 'Ik verklaar dat de werkzaamheden zijn opgeleverd zoals hierboven vermeld.',
     sections: [
@@ -122,10 +235,79 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         ],
       },
       {
+        id: 'systeem',
+        title: 'Soort installatie',
+        fields: [{ id: 'systeem', kind: 'choice', label: 'Soort installatie', required: true, options: SYSTEM_TYPES }],
+      },
+      {
+        id: 'apparatuur',
+        title: 'Apparatuur',
+        showWhen: COMMISSIONING,
+        fields: [
+          { id: 'merk', kind: 'text', label: 'Merk', required: true },
+          { id: 'model', kind: 'text', label: 'Type of model', required: true },
+          { id: 'serienummer_buiten', kind: 'text', label: 'Serienummer buitenunit', required: true },
+          { id: 'serienummer_binnen', kind: 'text', label: 'Serienummer binnenunit of hydrobox', help: 'Laat leeg als er geen aparte binnenunit of hydrobox is.' },
+          { id: 'gegevens_gecontroleerd', kind: 'yesno', label: 'Merk, type en serienummers zijn van de typeplaatjes overgenomen', required: true, explainWhen: 'nee' },
+          { id: 'fotos_typeplaatje', kind: 'photos', label: "Foto's van de typeplaatjes", max: 4 },
+        ],
+      },
+      {
+        id: 'ibs',
+        title: 'Inbedrijfstelling',
+        showWhen: COMMISSIONING,
+        fields: [
+          { id: 'ibs_datum', kind: 'date', label: 'Datum inbedrijfstelling', required: true },
+          { id: 'fabrikant_protocol', kind: 'yesno', label: 'Inbedrijfstellingsprotocol van de fabrikant doorlopen', required: true, explainWhen: 'nee' },
+          { id: 'voeding', kind: 'yesno', label: 'Elektrische aansluiting en beveiliging gecontroleerd', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'opstelling', kind: 'yesno', label: 'Opstelling van de buitenunit gecontroleerd', help: 'Stabiel geplaatst, vrije luchtstroom, condensafvoer.', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'storingen', kind: 'yesno', label: 'Storingsmelding of foutcode na de proefrun', required: true, explainWhen: 'ja' },
+        ],
+      },
+      {
+        id: 'metingen',
+        title: 'Meetwaarden',
+        showWhen: COMMISSIONING,
+        fields: [
+          { id: 'buitentemperatuur', kind: 'number', label: 'Buitentemperatuur tijdens de meting', unit: '°C', help: 'Alleen invullen wat is gemeten; laat leeg wat niet is gemeten.' },
+          { id: 'aanvoer_temp', kind: 'number', label: 'Aanvoertemperatuur', unit: '°C' },
+          { id: 'retour_temp', kind: 'number', label: 'Retourtemperatuur', unit: '°C' },
+          { id: 'debiet', kind: 'number', label: 'Debiet', unit: 'l/min' },
+          { id: 'meting_toelichting', kind: 'textarea', label: 'Meetomstandigheden en instellingen', help: 'Bijvoorbeeld de ingestelde stooklijn of temperatuur.' },
+        ],
+      },
+      {
+        id: 'monoblock',
+        title: 'Monoblock: waterzijdig',
+        showWhen: MONOBLOCK,
+        fields: [
+          { id: 'mb_gespoeld', kind: 'yesno', label: 'Installatie gespoeld en ontlucht', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'mb_vorst', kind: 'yesno', label: 'Vorstbescherming van de leidingen buiten geregeld', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'mb_isolatie', kind: 'yesno', label: 'Leidingen en aansluitingen buiten geïsoleerd', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'mb_druk', kind: 'number', label: 'Waterdruk na het vullen', unit: 'bar' },
+        ],
+      },
+      {
+        id: 'split',
+        title: 'Split-systeem: koudemiddelcircuit',
+        showWhen: SPLIT,
+        fields: [
+          { id: 'sp_dichtheid', kind: 'yesno', label: 'Koudemiddelleidingen op dichtheid gecontroleerd', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'sp_vacuum', kind: 'yesno', label: 'Koudemiddelleidingen vacuüm getrokken', required: true, allowNa: true, explainWhen: 'nee' },
+          { id: 'sp_certificaat', kind: 'yesno', label: 'Koudemiddelwerk uitgevoerd door een daarvoor gecertificeerde monteur', required: true, explainWhen: 'nee' },
+          { id: 'sp_certificaatnummer', kind: 'text', label: 'Certificaatnummer van de monteur' },
+          { id: 'sp_koudemiddel', kind: 'text', label: 'Type koudemiddel', help: 'Zoals op het typeplaatje staat.' },
+          { id: 'sp_lading', kind: 'number', label: 'Totale hoeveelheid koudemiddel', unit: 'kg' },
+          { id: 'sp_bijgevuld', kind: 'number', label: 'Extra bijgevuld', unit: 'kg' },
+          { id: 'sp_leidinglengte', kind: 'number', label: 'Lengte van de koudemiddelleidingen', unit: 'm' },
+        ],
+      },
+      {
         id: 'oplevering',
-        title: 'Oplevering',
+        title: 'Oplevering aan de klant',
         fields: [
           { id: 'instructie', kind: 'yesno', label: 'Uitleg gegeven aan de klant', required: true, allowNa: true },
+          { id: 'documenten', kind: 'yesno', label: 'Handleiding en garantiebewijs overhandigd', required: true, allowNa: true },
           { id: 'opgeruimd', kind: 'yesno', label: 'Werkplek opgeruimd en schoongemaakt', required: true, explainWhen: 'nee' },
           { id: 'restpunten', kind: 'textarea', label: 'Restpunten of vervolgafspraken' },
         ],
@@ -150,6 +332,21 @@ export function isDocumentType(value: unknown): value is DocumentType {
 
 export function allFields(form: FormDef): FieldDef[] {
   return form.sections.flatMap((section) => [...section.fields])
+}
+
+/** Whether a section or field applies, given the answers so far (a choice answer is its value as text). */
+export function isVisible(item: { showWhen?: ShowWhen }, answers: Readonly<Record<string, unknown>>): boolean {
+  if (!item.showWhen) return true
+  const answer = answers[item.showWhen.field]
+  return typeof answer === 'string' && item.showWhen.in.includes(answer)
+}
+
+/** The sections that apply to these answers, each with the fields that apply, in the order of the form. */
+export function visibleSections(form: FormDef, answers: Readonly<Record<string, unknown>>): Array<{ section: SectionDef; fields: FieldDef[] }> {
+  return form.sections
+    .filter((section) => isVisible(section, answers))
+    .map((section) => ({ section, fields: section.fields.filter((field) => isVisible(field, answers)) }))
+    .filter(({ fields }) => fields.length > 0)
 }
 
 export const YES_NO_LABELS: Readonly<Record<YesNo, string>> = {

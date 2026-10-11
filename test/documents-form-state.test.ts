@@ -21,6 +21,9 @@ function complete() {
   draft = setText(draft, 'werkzaamheden', 'sanitair')
   draft = setYesNo(draft, field<YesNoField>('meterkast'), 'nvt')
   draft = setYesNo(draft, field<YesNoField>('asbest'), 'nee')
+  draft = setText(draft, 'plaatsing', 'binnen')
+  for (const id of ['graafwerk_klant', 'stroom_klant', 'werkruimte_klant']) draft = setYesNo(draft, field<YesNoField>(id), 'nee')
+  draft = setYesNo(draft, field<YesNoField>('beoordeling'), 'ja')
   draft = setSignatureName(draft, 'Mevr. Klant')
   return setSignatureImage(draft, SIGNATURE)
 }
@@ -33,7 +36,7 @@ test('a new submission number is a long random id the server accepts', () => {
 
 test('an empty draft has every required field wrong, in the order of the screen, and the signature last', () => {
   const errors = validateDraft(schouw, emptyDraft('a-submission-0000001', NOW), 'Jan de Vries')
-  assert.deepEqual(Object.keys(errors), ['parkeren', 'huisdieren', 'werkzaamheden', 'meterkast', 'asbest', 'signature.name', 'signature.image'])
+  assert.deepEqual(Object.keys(errors), ['parkeren', 'huisdieren', 'werkzaamheden', 'plaatsing', 'asbest', 'meterkast', 'graafwerk_klant', 'stroom_klant', 'werkruimte_klant', 'beoordeling', 'signature.name', 'signature.image'])
   assert.equal(firstErrorId(schouw, errors), 'parkeren')
 })
 
