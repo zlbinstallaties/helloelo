@@ -23,10 +23,19 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[number]
 
 export type YesNo = 'ja' | 'nee' | 'nvt'
 
+/**
+ * What an answer is called for other systems, such as the quotation engine (the offerte-assistent): a stable key, like the
+ * `id`. See `facts.ts`. A choice can map its values (a value that maps to null, or that is missing, is left out); without a
+ * map the value is used as it is, except "onbekend" and "nvt", which are never a fact.
+ */
+export type FactDef = { key: string; values?: Readonly<Record<string, string | boolean | null>> }
+
 /** Show a section or a field only when an EARLIER choice field has one of these values. */
 export type ShowWhen = { field: string; in: readonly string[] }
 
 type FieldBase = {
+  /** The name of this answer for other systems (see `FactDef`). Only answers that are useful outside the form have one. */
+  fact?: FactDef
   /** Show the field only for some answers (see `ShowWhen`). A hidden field is never asked, checked or printed. */
   showWhen?: ShowWhen
   /** Stable key of the answer. Never change an id of a form that has been used; add a new field instead. */
@@ -93,8 +102,8 @@ const PLACEMENT = [
 ] as const
 
 const ELECTRICAL_SUPPLY = [
-  { value: 'enkelfase', label: 'Enkelfase' },
-  { value: 'driefase', label: 'Driefase' },
+  { value: '1-fase', label: 'Enkelfase (1-fase)' },
+  { value: '3-fase', label: 'Driefase (3-fase)' },
   { value: 'onbekend', label: 'Onbekend' },
 ] as const
 
@@ -105,12 +114,33 @@ const FREE_GROUP = [
   { value: 'nvt', label: 'Niet van toepassing' },
 ] as const
 
+/** The words of the quotation engine: vloer, radiatoren, lt_radiatoren (low-temperature) and mix. */
 const EMISSION = [
+  { value: 'vloer', label: 'Vloerverwarming' },
   { value: 'radiatoren', label: 'Radiatoren' },
-  { value: 'vloerverwarming', label: 'Vloerverwarming' },
-  { value: 'gemengd', label: 'Gemengd' },
+  { value: 'lt_radiatoren', label: 'Lage-temperatuurradiatoren' },
+  { value: 'mix', label: 'Gemengd (vloer en radiatoren)' },
   { value: 'onbekend', label: 'Onbekend' },
   { value: 'nvt', label: 'Niet van toepassing' },
+] as const
+
+const INSULATION = [
+  { value: 'goed', label: 'Goed' },
+  { value: 'matig', label: 'Matig' },
+  { value: 'slecht', label: 'Slecht' },
+  { value: 'onbekend', label: 'Onbekend' },
+] as const
+
+const SPACE = [
+  { value: 'weinig', label: 'Weinig' },
+  { value: 'voldoende', label: 'Voldoende' },
+  { value: 'onbekend', label: 'Onbekend' },
+] as const
+
+const BOILER = [
+  { value: 'horizontaal', label: 'Horizontaal' },
+  { value: 'staand', label: 'Staand' },
+  { value: 'onbekend', label: 'Onbekend' },
 ] as const
 
 const SYSTEM_TYPES = [
@@ -146,10 +176,12 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         id: 'installatie',
         title: 'Installatie en plaatsing',
         fields: [
-          { id: 'werkzaamheden', kind: 'choice', label: 'Installatietype', required: true, options: INSTALLATION_TYPES },
+          { id: 'werkzaamheden', kind: 'choice', label: 'Installatietype', required: true, options: INSTALLATION_TYPES, fact: { key: 'gewenst_systeem', values: { warmtepomp_hybride: 'hybride', warmtepomp_all_electric: 'all-electric' } } },
           { id: 'installatie_toelichting', kind: 'textarea', label: 'Toelichting bij het installatietype', help: 'Vul dit in als u Anders kiest, of als het om een combinatie gaat.' },
           { id: 'plaatsing', kind: 'choice', label: 'Plaatsing', required: true, options: PLACEMENT },
           { id: 'plaatsing_toelichting', kind: 'textarea', label: 'Waar komt de installatie te staan?' },
+          { id: 'ruimte_installatie', kind: 'choice', label: 'Ruimte voor de installatie', options: SPACE, fact: { key: 'ruimte_installatie' } },
+          { id: 'boiler_opstelling', kind: 'choice', label: 'Opstelling van de boiler of buffer', help: 'Alleen invullen als er een boiler of buffer komt.', options: BOILER, fact: { key: 'boiler_opstelling' } },
         ],
       },
       {
@@ -157,9 +189,12 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         title: 'Bestaande situatie',
         fields: [
           { id: 'bestaand', kind: 'textarea', label: 'Bestaande installatie en afgifte', help: 'Wat staat er nu en in welke staat?' },
-          { id: 'bouwjaar', kind: 'number', label: 'Bouwjaar woning' },
+          { id: 'bouwjaar', kind: 'number', label: 'Bouwjaar woning', fact: { key: 'bouwjaar' } },
+          { id: 'isolatie', kind: 'choice', label: 'Isolatie van de woning', help: 'Uw eigen beoordeling ter plekke.', options: INSULATION, fact: { key: 'isolatie' } },
+          { id: 'personen', kind: 'number', label: 'Aantal personen in de woning', fact: { key: 'aantal_personen' } },
+          { id: 'gasverbruik', kind: 'number', label: 'Jaarverbruik gas', unit: 'm³ per jaar', help: 'Van de jaarafrekening. Laat leeg als dit niet bekend is.', fact: { key: 'gasverbruik_m3_per_jaar' } },
           { id: 'ruimte', kind: 'textarea', label: 'Afmetingen en bijzonderheden van de ruimte' },
-          { id: 'asbest', kind: 'yesno', label: 'Vermoeden van asbest', required: true, explainWhen: 'ja' },
+          { id: 'asbest', kind: 'yesno', label: 'Vermoeden van asbest', required: true, explainWhen: 'ja', fact: { key: 'asbest_vermoed' } },
         ],
       },
       {
@@ -167,17 +202,17 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         title: 'Leidingtracé of kabeltracé',
         fields: [
           { id: 'trace_nodig', kind: 'yesno', label: 'Leiding- of kabeltracé nodig', allowNa: true },
-          { id: 'trace_lengte', kind: 'number', label: 'Geschatte lengte van het tracé', unit: 'm', help: 'Laat leeg als dit nog niet te schatten is.' },
-          { id: 'trace_toelichting', kind: 'textarea', label: 'Tracé, doorvoeren en obstakels' },
+          { id: 'trace_lengte', kind: 'number', label: 'Geschatte lengte van het tracé', unit: 'm', help: 'Laat leeg als dit nog niet te schatten is.', fact: { key: 'leidinglengte_m' } },
+          { id: 'trace_toelichting', kind: 'textarea', label: 'Tracé, doorvoeren en obstakels', fact: { key: 'leidingroute' } },
         ],
       },
       {
         id: 'elektra',
         title: 'Elektrische voorziening',
         fields: [
-          { id: 'meterkast', kind: 'yesno', label: 'Voldoende ruimte in de meterkast', required: true, allowNa: true, explainWhen: 'nee' },
-          { id: 'aansluiting', kind: 'choice', label: 'Aansluiting', options: ELECTRICAL_SUPPLY },
-          { id: 'groep_vrij', kind: 'choice', label: 'Vrije groep beschikbaar in de groepenkast', options: FREE_GROUP },
+          { id: 'meterkast', kind: 'yesno', label: 'Voldoende ruimte in de meterkast', required: true, allowNa: true, explainWhen: 'nee', fact: { key: 'ruimte_meterkast' } },
+          { id: 'aansluiting', kind: 'choice', label: 'Aansluiting', options: ELECTRICAL_SUPPLY, fact: { key: 'aansluiting' } },
+          { id: 'groep_vrij', kind: 'choice', label: 'Vrije groep beschikbaar in de groepenkast', options: FREE_GROUP, fact: { key: 'groep_vrij', values: { ja: true, nee: false } } },
           { id: 'elektra_toelichting', kind: 'textarea', label: 'Aandachtspunten elektra' },
         ],
       },
@@ -185,7 +220,7 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         id: 'hydrauliek',
         title: 'Hydraulische aspecten',
         fields: [
-          { id: 'afgifte', kind: 'choice', label: 'Warmteafgifte', help: 'Alleen invullen als dit voor de installatie speelt.', options: EMISSION },
+          { id: 'afgifte', kind: 'choice', label: 'Warmteafgifte', help: 'Alleen invullen als dit voor de installatie speelt.', options: EMISSION, fact: { key: 'afgiftesysteem' } },
           { id: 'hydrauliek_toelichting', kind: 'textarea', label: 'Aandachtspunten hydrauliek' },
         ],
       },
@@ -193,9 +228,9 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         id: 'opdrachtgever',
         title: 'Werkzaamheden voor de opdrachtgever',
         fields: [
-          { id: 'graafwerk_klant', kind: 'yesno', label: 'Graafwerk door de opdrachtgever nodig', required: true, allowNa: true, explainWhen: 'ja' },
-          { id: 'stroom_klant', kind: 'yesno', label: 'Stroomvoorziening door de opdrachtgever te regelen', required: true, allowNa: true, explainWhen: 'ja' },
-          { id: 'werkruimte_klant', kind: 'yesno', label: 'Werkruimte door de opdrachtgever vrij te maken', required: true, allowNa: true, explainWhen: 'ja' },
+          { id: 'graafwerk_klant', kind: 'yesno', label: 'Graafwerk door de opdrachtgever nodig', required: true, allowNa: true, explainWhen: 'ja', fact: { key: 'graafwerk_door_klant' } },
+          { id: 'stroom_klant', kind: 'yesno', label: 'Stroomvoorziening door de opdrachtgever te regelen', required: true, allowNa: true, explainWhen: 'ja', fact: { key: 'stroom_door_klant' } },
+          { id: 'werkruimte_klant', kind: 'yesno', label: 'Werkruimte door de opdrachtgever vrij te maken', required: true, allowNa: true, explainWhen: 'ja', fact: { key: 'werkruimte_door_klant' } },
         ],
       },
       {
@@ -212,7 +247,7 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         fields: [
           { id: 'aandachtspunten', kind: 'textarea', label: 'Aandachtspunten voor de uitvoering' },
           { id: 'opmerkingen_klant', kind: 'textarea', label: 'Opmerkingen van de klant' },
-          { id: 'beoordeling', kind: 'yesno', label: 'Compleet voor de werkvoorbereiding', help: 'Kies Nee als er nog gegevens ontbreken en zeg welke.', required: true, explainWhen: 'nee' },
+          { id: 'beoordeling', kind: 'yesno', label: 'Compleet voor de werkvoorbereiding', help: 'Kies Nee als er nog gegevens ontbreken en zeg welke.', required: true, explainWhen: 'nee', fact: { key: 'schouw_compleet' } },
         ],
       },
     ],
@@ -237,17 +272,17 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
       {
         id: 'systeem',
         title: 'Soort installatie',
-        fields: [{ id: 'systeem', kind: 'choice', label: 'Soort installatie', required: true, options: SYSTEM_TYPES }],
+        fields: [{ id: 'systeem', kind: 'choice', label: 'Soort installatie', required: true, options: SYSTEM_TYPES, fact: { key: 'systeem_type', values: { monoblock: 'monoblock', split: 'split' } } }],
       },
       {
         id: 'apparatuur',
         title: 'Apparatuur',
         showWhen: COMMISSIONING,
         fields: [
-          { id: 'merk', kind: 'text', label: 'Merk', required: true },
-          { id: 'model', kind: 'text', label: 'Type of model', required: true },
-          { id: 'serienummer_buiten', kind: 'text', label: 'Serienummer buitenunit', required: true },
-          { id: 'serienummer_binnen', kind: 'text', label: 'Serienummer binnenunit of hydrobox', help: 'Laat leeg als er geen aparte binnenunit of hydrobox is.' },
+          { id: 'merk', kind: 'text', label: 'Merk', required: true, fact: { key: 'apparaat_merk' } },
+          { id: 'model', kind: 'text', label: 'Type of model', required: true, fact: { key: 'apparaat_model' } },
+          { id: 'serienummer_buiten', kind: 'text', label: 'Serienummer buitenunit', required: true, fact: { key: 'serienummer_buitenunit' } },
+          { id: 'serienummer_binnen', kind: 'text', label: 'Serienummer binnenunit of hydrobox', help: 'Laat leeg als er geen aparte binnenunit of hydrobox is.', fact: { key: 'serienummer_binnenunit' } },
           { id: 'gegevens_gecontroleerd', kind: 'yesno', label: 'Merk, type en serienummers zijn van de typeplaatjes overgenomen', required: true, explainWhen: 'nee' },
           { id: 'fotos_typeplaatje', kind: 'photos', label: "Foto's van de typeplaatjes", max: 4 },
         ],
@@ -257,7 +292,7 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
         title: 'Inbedrijfstelling',
         showWhen: COMMISSIONING,
         fields: [
-          { id: 'ibs_datum', kind: 'date', label: 'Datum inbedrijfstelling', required: true },
+          { id: 'ibs_datum', kind: 'date', label: 'Datum inbedrijfstelling', required: true, fact: { key: 'inbedrijfstelling_datum' } },
           { id: 'fabrikant_protocol', kind: 'yesno', label: 'Inbedrijfstellingsprotocol van de fabrikant doorlopen', required: true, explainWhen: 'nee' },
           { id: 'voeding', kind: 'yesno', label: 'Elektrische aansluiting en beveiliging gecontroleerd', required: true, allowNa: true, explainWhen: 'nee' },
           { id: 'opstelling', kind: 'yesno', label: 'Opstelling van de buitenunit gecontroleerd', help: 'Stabiel geplaatst, vrije luchtstroom, condensafvoer.', required: true, allowNa: true, explainWhen: 'nee' },
@@ -296,10 +331,10 @@ export const FORMS: Readonly<Record<DocumentType, FormDef>> = {
           { id: 'sp_vacuum', kind: 'yesno', label: 'Koudemiddelleidingen vacuüm getrokken', required: true, allowNa: true, explainWhen: 'nee' },
           { id: 'sp_certificaat', kind: 'yesno', label: 'Koudemiddelwerk uitgevoerd door een daarvoor gecertificeerde monteur', required: true, explainWhen: 'nee' },
           { id: 'sp_certificaatnummer', kind: 'text', label: 'Certificaatnummer van de monteur' },
-          { id: 'sp_koudemiddel', kind: 'text', label: 'Type koudemiddel', help: 'Zoals op het typeplaatje staat.' },
-          { id: 'sp_lading', kind: 'number', label: 'Totale hoeveelheid koudemiddel', unit: 'kg' },
+          { id: 'sp_koudemiddel', kind: 'text', label: 'Type koudemiddel', help: 'Zoals op het typeplaatje staat.', fact: { key: 'koudemiddel_type' } },
+          { id: 'sp_lading', kind: 'number', label: 'Totale hoeveelheid koudemiddel', unit: 'kg', fact: { key: 'koudemiddel_kg' } },
           { id: 'sp_bijgevuld', kind: 'number', label: 'Extra bijgevuld', unit: 'kg' },
-          { id: 'sp_leidinglengte', kind: 'number', label: 'Lengte van de koudemiddelleidingen', unit: 'm' },
+          { id: 'sp_leidinglengte', kind: 'number', label: 'Lengte van de koudemiddelleidingen', unit: 'm', fact: { key: 'koudemiddelleiding_m' } },
         ],
       },
       {
