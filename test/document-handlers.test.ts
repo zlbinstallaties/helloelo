@@ -28,7 +28,7 @@ test('a technician sends the schouw of his own appointment: the PDF goes to the 
   const api = setup()
   const answer = await read(await post(api, await jan(api), body()))
   assert.equal(answer.status, 200)
-  assert.deepEqual(answer.json, { ok: true, state: 'posted', noted: true, customer: 'Klant van Odoo', replayed: false })
+  assert.deepEqual(answer.json, { ok: true, state: 'posted', noted: true, customer: 'Klant van Odoo', replayed: false, facts: { state: 'saved', written: 6, kept: 0 } })
   assert.equal(api.odoo.docs.posts.length, 1)
   const sent = api.odoo.docs.posts[0]
   assert.deepEqual(Object.keys(sent).sort(), ['filename', 'pdf', 'reference', 'requestId', 'summary'], 'nothing but these five go out: no customer, no model to write to')
@@ -157,7 +157,7 @@ test('sending the same document again gives the same answer once: the gateway is
   assert.equal((await read(await post(api, cookie, body()))).status, 200)
   const again = await read(await post(api, cookie, body()))
   assert.equal(again.status, 200)
-  assert.deepEqual(again.json, { ok: true, state: 'posted', noted: true, customer: null, replayed: true })
+  assert.deepEqual(again.json, { ok: true, state: 'posted', noted: true, customer: null, replayed: true, facts: { state: 'saved' } })
   assert.equal(api.odoo.docs.posts.length, 1)
   const other = await read(await post(api, await sanne(api), body({ appointmentId: 'slot-2' })))
   assert.equal(other.status, 409, 'somebody else cannot use the number of this document')
@@ -247,7 +247,7 @@ test('the note missing is not a failure: the file is on the customer and the ans
   const api = setup()
   api.odoo.docs.answer = () => ({ ok: true, noted: false, customer: null, replayed: false })
   const answer = await read(await post(api, await jan(api), body()))
-  assert.deepEqual(answer.json, { ok: true, state: 'posted', noted: false, customer: null, replayed: false })
+  assert.deepEqual(answer.json, { ok: true, state: 'posted', noted: false, customer: null, replayed: false, facts: { state: 'saved', written: 6, kept: 0 } })
   assert.equal(api.documents.get(SUBMISSION)?.noted, false)
 })
 
@@ -293,4 +293,101 @@ test('a request that says it is too big is refused before its body is read', asy
   const answer = await read_(await api.handlers.documentsPost(huge))
   assert.equal(answer.status, 413)
   assert.equal(huge.bodyUsed, false, 'the body was not read')
+})
+
+// ---- the facts of a schouw on the customer
+
+const FACT_KEYS = ['asbest_vermoed', 'graafwerk_door_klant', 'schouw_compleet', 'schouw_datum', 'stroom_door_klant', 'werkruimte_door_klant']
+
+test('a schouw: after the document is on the customer, the facts go to the customer too, with their own request id and only the table\'s keys', async () => {
+  const api = setup()
+  const answer = await read(await post(api, await jan(api), body()))
+  assert.equal(answer.status, 200, answer.text)
+  assert.equal(api.odoo.docs.posts.length, 1)
+  assert.equal(api.odoo.facts.posts.length, 1)
+  const sent = api.odoo.facts.posts[0]
+  assert.deepEqual(sent.reference, { model: 'planning.slot', id: 1 }, 'the same record as the document: the customer is read from it')
+  assert.match(sent.requestId, /^facts-[A-Za-z0-9]{40}$/)
+  assert.notEqual(sent.requestId, api.odoo.docs.posts[0].requestId)
+  assert.deepEqual(Object.keys(sent.facts).sort(), FACT_KEYS, 'only answered facts; unknown and not applicable are left out')
+  assert.deepEqual(sent.facts, { asbest_vermoed: 'nee', graafwerk_door_klant: 'nee', schouw_compleet: 'ja', schouw_datum: '2026-10-08', stroom_door_klant: 'nee', werkruimte_door_klant: 'nee' })
+  assert.deepEqual(answer.json.facts, { state: 'saved', written: 6, kept: 0 })
+  assert.equal(api.documents.list()[0].facts, 'saved')
+  const text = JSON.stringify(sent)
+  for (const forbidden of ['partner', 'res.', 'company', 'dig_schouw']) assert.ok(!text.includes(forbidden), `${forbidden} is not sent`)
+})
+
+test('a request cannot bring its own facts, a customer or a field: those are unknown fields', async () => {
+  const api = setup()
+  for (const extra of [{ facts: { isolatie: 'goed' } }, { customerFacts: {} }, { partnerId: 77 }]) {
+    const answer = await read(await post(api, await jan(api), body(extra)))
+    assert.equal(answer.status, 400, JSON.stringify(extra))
+  }
+  assert.equal(api.odoo.docs.posts.length, 0)
+  assert.equal(api.odoo.facts.posts.length, 0)
+})
+
+test('an oplevering gives no facts for the customer: nothing is asked of the gateway', async () => {
+  const api = setup()
+  const answer = await read(await post(api, await jan(api), body({ type: 'oplevering', answers: OPLEVERING_OVERIG })))
+  assert.equal(answer.status, 200, answer.text)
+  assert.equal(api.odoo.facts.posts.length, 0)
+  assert.equal('facts' in answer.json, false)
+  assert.equal(api.documents.list()[0].facts, undefined)
+})
+
+test('facts that were already on the customer are kept and the answer says so', async () => {
+  const api = setup()
+  api.odoo.facts.answer = (input) => ({ ok: true, written: [], kept: Object.keys(input.facts), customer: 'Klant van Odoo', replayed: false })
+  const answer = await read(await post(api, await jan(api), body()))
+  assert.equal(answer.status, 200)
+  assert.deepEqual(answer.json.facts, { state: 'unchanged', written: 0, kept: 6 })
+  assert.equal(api.documents.list()[0].facts, 'unchanged')
+})
+
+test('the facts being switched off, refused, silent or crashing never take the document back: it is posted, and the answer says what became of the facts', async () => {
+  const outcomes: Array<[string, () => never | Promise<never> | { ok: false; kind: 'rejected' | 'not_enabled' | 'not_installed' | 'unknown'; message: string }, string]> = [
+    ['off', () => ({ ok: false, kind: 'not_enabled', message: 'staat niet aan' }), 'off'],
+    ['not installed', () => ({ ok: false, kind: 'not_installed', message: 'De velden bestaan nog niet' }), 'failed'],
+    ['refused', () => ({ ok: false, kind: 'rejected', message: 'Odoo heeft de gegevens geweigerd' }), 'failed'],
+    ['unknown', () => ({ ok: false, kind: 'unknown', message: 'Niet zeker' }), 'failed'],
+    ['crash', () => { throw new Error('boom: geheim') }, 'failed'],
+  ]
+  for (const [name, answerWith, state] of outcomes) {
+    const api = setup()
+    api.odoo.facts.answer = answerWith as never
+    const answer = await read(await post(api, await jan(api), body()))
+    assert.equal(answer.status, 200, `${name}: ${answer.text}`)
+    assert.equal(answer.json.state, 'posted', name)
+    assert.equal(answer.json.facts.state, state, name)
+    assert.ok(!JSON.stringify(answer.json).includes('geheim'), `${name}: the text of an error is not passed on`)
+    assert.equal(api.documents.list()[0].state, 'posted', name)
+    assert.equal(api.documents.list()[0].facts, state, name)
+  }
+})
+
+test('no facts are sent when the document itself did not arrive', async () => {
+  for (const answerWith of [
+    () => ({ ok: false as const, kind: 'rejected' as const, message: 'geweigerd' }),
+    () => ({ ok: false as const, kind: 'unknown' as const, message: 'onbekend' }),
+    () => ({ ok: false as const, kind: 'not_enabled' as const, message: 'uit' }),
+  ]) {
+    const api = setup()
+    api.odoo.docs.answer = answerWith
+    const answer = await read(await post(api, await jan(api), body()))
+    assert.notEqual(answer.status, 200)
+    assert.equal(api.odoo.facts.posts.length, 0)
+  }
+})
+
+test('sending the same submission again does not put the facts on the customer again, and tells what became of them', async () => {
+  const api = setup()
+  const cookie = await jan(api)
+  assert.equal((await read(await post(api, cookie, body()))).status, 200)
+  const again = await read(await post(api, cookie, body()))
+  assert.equal(again.status, 200)
+  assert.equal(again.json.replayed, true)
+  assert.deepEqual(again.json.facts, { state: 'saved' })
+  assert.equal(api.odoo.docs.posts.length, 1)
+  assert.equal(api.odoo.facts.posts.length, 1)
 })

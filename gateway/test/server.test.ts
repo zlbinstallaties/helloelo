@@ -71,6 +71,12 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
     async postDocument() {
       throw new Error('postDocument is not used in these tests')
     },
+    async readCustomerFacts() {
+      throw new Error('readCustomerFacts is not used in these tests')
+    },
+    async writeCustomerFacts() {
+      throw new Error('writeCustomerFacts is not used in these tests')
+    },
     async checkResponsible() {
       throw new Error('checkResponsible is not used in these tests')
     },

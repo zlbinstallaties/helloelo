@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_partner_form_dig_schouw_facts" model="ir.ui.view">
+        <field name="name">res.partner.form.dig.schouw.facts</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Schouwgegevens" name="dig_schouw_facts">
+                    <group>
+                        <group string="Woning">
+                            <field name="dig_schouw_bouwjaar" options="{'format': false}"/>
+                            <field name="dig_schouw_isolatie"/>
+                            <field name="dig_schouw_aantal_personen"/>
+                            <field name="dig_schouw_gasverbruik"/>
+                        </group>
+                        <group string="Installatie">
+                            <field name="dig_schouw_gewenst_systeem"/>
+                            <field name="dig_schouw_afgiftesysteem"/>
+                            <field name="dig_schouw_ruimte_installatie"/>
+                            <field name="dig_schouw_boiler_opstelling"/>
+                        </group>
+                        <group string="Leidingen en elektra">
+                            <field name="dig_schouw_leidingroute"/>
+                            <field name="dig_schouw_leidinglengte"/>
+                            <field name="dig_schouw_aansluiting"/>
+                            <field name="dig_schouw_ruimte_meterkast"/>
+                            <field name="dig_schouw_groep_vrij"/>
+                        </group>
+                        <group string="Werk voor de klant en beoordeling">
+                            <field name="dig_schouw_asbest_vermoed"/>
+                            <field name="dig_schouw_graafwerk_door_klant"/>
+                            <field name="dig_schouw_stroom_door_klant"/>
+                            <field name="dig_schouw_werkruimte_door_klant"/>
+                            <field name="dig_schouw_compleet"/>
+                            <field name="dig_schouw_datum"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

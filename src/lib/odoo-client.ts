@@ -23,8 +23,13 @@
  * roles of one employee), `createUnavailability` and `removeUnavailability` (one `resource.calendar.leaves` record that
  * says one employee is not available: it is no shift and no planning), and `postDocument` (one PDF as an attachment
  * of one customer, with an internal note that sends no mail). The customer of a document is read from a planning.slot
- * or svs.tech.visit (`readReferencePartner`); it is never a value the caller can choose.
+ * or svs.tech.visit (`readReferencePartner`); it is never a value the caller can choose. The last write is
+ * `writeCustomerFacts`: a few fixed fields of that customer (`CUSTOMER_FACTS`), after `readCustomerFacts` has shown which are
+ * empty. Nothing else of the customer is read or written.
  */
+
+import { CUSTOMER_FACT_FIELDS, checkCustomerFact, customerFactSpecByField } from './documents/customer-facts.ts'
+import type { CustomerFactValue } from './documents/customer-facts.ts'
 
 export interface OdooClientConfig {
   /** e.g. https://mijnbedrijf.odoo.com (no trailing path). */
@@ -156,6 +161,17 @@ export interface PostDocumentResult {
   noted: boolean
 }
 
+export interface CustomerFactsParams {
+  /** The customer (`res.partner`); read from the reference record, never from a caller. */
+  partnerId: number
+  companyId: number
+}
+
+export interface WriteCustomerFactsParams extends CustomerFactsParams {
+  /** Odoo field name (one of `CUSTOMER_FACT_FIELDS`) to the value to set. */
+  values: Record<string, CustomerFactValue>
+}
+
 /** The only records a document can be tied to; both hold the customer in `partner_id`. */
 const REFERENCE_MODELS = ['planning.slot', 'svs.tech.visit'] as const
 
@@ -185,6 +201,13 @@ export interface OdooClient {
   readReferencePartner(params: { model: string; id: number; companyId: number }): Promise<ReferencePartner | null>
   /** Puts a PDF on a customer: an attachment and an internal note without recipients. Throws `OdooWriteError` (see there). */
   postDocument(params: PostDocumentParams): Promise<PostDocumentResult>
+  /**
+   * The current values of the fact fields of a customer (Odoo field name to value; an empty field is false, 0 or ''), or null
+   * when there is no such customer. Throws `CustomerFactsNotInstalledError` when the fields do not exist.
+   */
+  readCustomerFacts(params: CustomerFactsParams): Promise<Record<string, unknown> | null>
+  /** Sets fact fields of a customer: only fields of `CUSTOMER_FACT_FIELDS`, nothing else. Throws `OdooWriteError`. */
+  writeCustomerFacts(params: WriteCustomerFactsParams): Promise<void>
 }
 
 export class OdooError extends Error {
@@ -214,6 +237,14 @@ export class OdooWriteError extends OdooError {
     super(message, status, odooName, outcome === 'rejected')
     this.name = 'OdooWriteError'
     this.outcome = outcome
+  }
+}
+
+/** The fields of the customer facts do not exist in this Odoo: the module `dig_schouw_facts` is not installed. */
+export class CustomerFactsNotInstalledError extends OdooError {
+  constructor(status: number, odooName: string | null) {
+    super('The customer fact fields do not exist in Odoo (module dig_schouw_facts)', status, odooName, true)
+    this.name = 'CustomerFactsNotInstalledError'
   }
 }
 
@@ -702,8 +733,55 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     return { attachmentId, noted: true }
   }
 
+  async function readCustomerFacts(params: CustomerFactsParams): Promise<Record<string, unknown> | null> {
+    if (!isId(params?.partnerId)) throw new OdooError('partnerId is required', 0)
+    checkCompany(params.companyId)
+    let payload: unknown
+    try {
+      payload = await call('res.partner', 'search_read', {
+        domain: [['id', '=', params.partnerId]],
+        fields: ['id', ...CUSTOMER_FACT_FIELDS],
+        limit: 1,
+        context: { allowed_company_ids: [params.companyId] },
+      })
+    } catch (error) {
+      // Odoo answers "Invalid field ..." when the module with the fields is not installed.
+      if (error instanceof OdooError && /Invalid field/i.test(error.message)) throw new CustomerFactsNotInstalledError(error.status, error.odooName)
+      throw error
+    }
+    if (!Array.isArray(payload)) throw new OdooError('Odoo res.partner returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.partnerId)
+    if (!row) return null
+    const values: Record<string, unknown> = {}
+    for (const field of CUSTOMER_FACT_FIELDS) values[field] = row[field]
+    return values
+  }
+
+  async function writeCustomerFacts(params: WriteCustomerFactsParams): Promise<void> {
+    if (!isId(params?.partnerId)) throw new OdooWriteError('partnerId is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    const values = params.values
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new OdooWriteError('values are required', 0, 'rejected')
+    const vals: Record<string, CustomerFactValue> = {}
+    for (const [field, value] of Object.entries(values)) {
+      const spec = customerFactSpecByField(field)
+      if (!spec) throw new OdooWriteError(`Not a customer fact field: ${field.slice(0, 40)}`, 0, 'rejected')
+      const checked = checkCustomerFact(spec, value)
+      if (checked === null) throw new OdooWriteError(`Invalid value for ${field}`, 0, 'rejected')
+      vals[field] = checked
+    }
+    if (Object.keys(vals).length === 0) throw new OdooWriteError('Nothing to write', 0, 'rejected')
+    let payload: unknown
+    try {
+      payload = await call('res.partner', 'write', { ids: [params.partnerId], vals, context: { allowed_company_ids: [params.companyId] } }, 'write')
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    if (payload !== true) throw new OdooWriteError('Odoo res.partner returned an unexpected response', 200, 'unknown')
+  }
+
   return {
     searchRead, searchCount, fieldsGet, createEmployee, setEmployeePlanningRoles, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee,
-    createUnavailability, readUnavailability, removeUnavailability, readReferencePartner, postDocument,
+    createUnavailability, readUnavailability, removeUnavailability, readReferencePartner, postDocument, readCustomerFacts, writeCustomerFacts,
   }
 }

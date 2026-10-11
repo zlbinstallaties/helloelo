@@ -9,7 +9,7 @@ import { getDigDashboardData } from '#/lib/cache'
 import { createDocumentJournal, DocumentJournalFileError } from '#/lib/document-journal'
 import { createJournal } from '#/lib/employee-journal'
 import { JournalFileError } from '#/lib/employee-journal'
-import { addUnavailability, createEmployee, getEmployeeRoles, listPlanningRoles, postDocument, removeUnavailability, setEmployeeRoles } from '#/lib/gateway.server'
+import { addUnavailability, createEmployee, getEmployeeRoles, listPlanningRoles, postDocument, removeUnavailability, setCustomerFacts, setEmployeeRoles } from '#/lib/gateway.server'
 import { createHandlers } from '#/lib/handlers'
 import type { Handlers } from '#/lib/handlers'
 import { generatePassword, isPasswordHash } from '#/lib/password'
@@ -129,6 +129,7 @@ export function getHandlers(): Handlers {
     addUnavailability,
     removeUnavailability,
     postDocument,
+    setCustomerFacts,
     generatePassword,
   })
   return cached

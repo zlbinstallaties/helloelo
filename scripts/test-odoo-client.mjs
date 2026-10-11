@@ -1,7 +1,7 @@
 // Run: node --experimental-strip-types scripts/test-odoo-client.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOdooClient, OdooError } from '../src/lib/odoo-client.ts'
+import { createOdooClient, OdooError, CustomerFactsNotInstalledError } from '../src/lib/odoo-client.ts'
 
 const base = {
   baseUrl: 'https://odoo.example.com',
@@ -629,4 +629,74 @@ test('posting a document is given more time than a normal call, and a call can b
   const client = createOdooClient({ ...base, timeoutMs: 15, fetch: (url, init) => slow(init) })
   await assert.rejects(client.searchRead({ model: 'planning.slot', fields: ['id'], companyId: 2 }), OdooError, 'a normal call times out at 15 ms')
   assert.deepEqual((await client.postDocument(doc)).attachmentId, 501, 'but a document may take longer')
+})
+
+const FACT_FIELDS = ['dig_schouw_datum', 'dig_schouw_gewenst_systeem', 'dig_schouw_afgiftesysteem', 'dig_schouw_isolatie', 'dig_schouw_aantal_personen', 'dig_schouw_ruimte_installatie', 'dig_schouw_boiler_opstelling', 'dig_schouw_bouwjaar', 'dig_schouw_gasverbruik', 'dig_schouw_leidingroute', 'dig_schouw_leidinglengte', 'dig_schouw_aansluiting', 'dig_schouw_ruimte_meterkast', 'dig_schouw_groep_vrij', 'dig_schouw_asbest_vermoed', 'dig_schouw_graafwerk_door_klant', 'dig_schouw_stroom_door_klant', 'dig_schouw_werkruimte_door_klant', 'dig_schouw_compleet']
+
+test('reading the facts of a customer asks for the fact fields of ONE customer and nothing else', async () => {
+  const calls = []
+  const row = { id: 77, name: 'Familie Van den Berg', email: 'x@example.com', dig_schouw_isolatie: 'goed', dig_schouw_aantal_personen: 0, dig_schouw_leidingroute: false }
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, [row], calls) })
+  const values = await client.readCustomerFacts({ partnerId: 77, companyId: 2 })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/res.partner/search_read')
+  const request = JSON.parse(calls[0].init.body)
+  assert.deepEqual(request.domain, [['id', '=', 77]], 'no company filter: a customer of the company is often shared')
+  assert.deepEqual(request.fields, ['id', ...FACT_FIELDS])
+  assert.equal(request.limit, 1)
+  assert.deepEqual(Object.keys(values), FACT_FIELDS, 'the name and the e-mail of the customer are not passed on')
+  assert.equal(values.dig_schouw_isolatie, 'goed')
+  const none = createOdooClient({ ...base, fetch: mockFetch(200, []) })
+  assert.equal(await none.readCustomerFacts({ partnerId: 77, companyId: 2 }), null)
+  const other = createOdooClient({ ...base, fetch: mockFetch(200, [{ id: 5 }]) })
+  assert.equal(await other.readCustomerFacts({ partnerId: 77, companyId: 2 }), null, 'a row of another customer is no answer')
+  for (const params of [{ partnerId: 0, companyId: 2 }, { partnerId: '77', companyId: 2 }, { partnerId: 77, companyId: 0 }]) {
+    await assert.rejects(client.readCustomerFacts(params), OdooError, JSON.stringify(params))
+  }
+  assert.equal(calls.length, 1)
+})
+
+test('reading the facts: fields that do not exist in Odoo are said to be not installed; other errors stay errors', async () => {
+  const missing = createOdooClient({ ...base, fetch: mockFetch(500, { name: 'builtins.ValueError', message: "Invalid field 'dig_schouw_isolatie' on model 'res.partner'" }) })
+  await assert.rejects(missing.readCustomerFacts({ partnerId: 77, companyId: 2 }), (error) => error instanceof CustomerFactsNotInstalledError && error.odooName === 'builtins.ValueError')
+  const denied = createOdooClient({ ...base, fetch: mockFetch(403, { name: 'odoo.exceptions.AccessError', message: 'no' }) })
+  await assert.rejects(denied.readCustomerFacts({ partnerId: 77, companyId: 2 }), (error) => error instanceof OdooError && !(error instanceof CustomerFactsNotInstalledError))
+})
+
+test('writing the facts: ONE customer, only the fact fields, only valid values, nothing else', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, true, calls) })
+  await client.writeCustomerFacts({ partnerId: 77, companyId: 2, values: { dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3, dig_schouw_datum: '2026-10-12' }, ids: [1], vals: { name: 'x' } })
+  assert.equal(calls[0].url, 'https://odoo.example.com/json/2/res.partner/write')
+  const request = JSON.parse(calls[0].init.body)
+  assert.deepEqual(request.ids, [77])
+  assert.deepEqual(request.vals, { dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3, dig_schouw_datum: '2026-10-12' })
+  assert.deepEqual(request.context.allowed_company_ids, [2])
+  assert.deepEqual(Object.keys(request).sort(), ['context', 'ids', 'vals'])
+})
+
+test('writing the facts: any other field of the customer, odd ids and odd values are refused before anything is sent', async () => {
+  const calls = []
+  const client = createOdooClient({ ...base, fetch: mockFetch(200, true, calls) })
+  const ok = { dig_schouw_isolatie: 'goed' }
+  const bad = [
+    { values: { name: 'Nieuwe naam' } }, { values: { email: 'x@example.com' } }, { values: { parent_id: 5 } }, { values: { company_id: 3 } }, { values: { active: false } },
+    { values: { ...ok, name: 'x' } }, { values: {} }, { values: null }, { values: [] },
+    { values: { dig_schouw_isolatie: 'perfect' } }, { values: { dig_schouw_aantal_personen: 99 } }, { values: { dig_schouw_aantal_personen: '3' } }, { values: { dig_schouw_leidingroute: 'x'.repeat(1001) } },
+    { values: { dig_schouw_datum: '2026-02-30' } }, { values: { dig_schouw_bouwjaar: 1985.5 } },
+    { partnerId: 0, values: ok }, { partnerId: '77', values: ok }, { companyId: 0, values: ok },
+  ]
+  for (const extra of bad) {
+    await assert.rejects(client.writeCustomerFacts({ partnerId: 77, companyId: 2, values: ok, ...extra }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected', JSON.stringify(extra).slice(0, 80))
+  }
+  assert.equal(calls.length, 0)
+})
+
+test('writing the facts: a refusal of Odoo is definite; no usable answer is open', async () => {
+  const values = { dig_schouw_isolatie: 'goed' }
+  const refused = createOdooClient({ ...base, fetch: mockFetch(403, { name: 'odoo.exceptions.AccessError', message: 'no' }) })
+  await assert.rejects(refused.writeCustomerFacts({ partnerId: 77, companyId: 2, values }), (error) => error instanceof OdooWriteError && error.outcome === 'rejected')
+  const odd = createOdooClient({ ...base, fetch: mockFetch(200, [1]) })
+  await assert.rejects(odd.writeCustomerFacts({ partnerId: 77, companyId: 2, values }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
+  const down = createOdooClient({ ...base, fetch: async () => { throw new TypeError('connection reset') } })
+  await assert.rejects(down.writeCustomerFacts({ partnerId: 77, companyId: 2, values }), (error) => error instanceof OdooWriteError && error.outcome === 'unknown')
 })

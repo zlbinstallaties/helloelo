@@ -19,6 +19,7 @@ De gateway **leest**. Er is één benoemde actie die schrijft en die voor elk pr
 | `POST` | `/v1/actions/create_employee` | `{requestId, name, planningRoleIds?}` → `{id, name, verified, planningRoles}`; alleen voor projecten met de actie (zie "Acties") |
 | `POST` | `/v1/actions/add_employee_unavailability` | `{requestId, employeeId, from, to, note?}` → `{id, employeeId, from, to, verified}`; alleen voor projecten met `employeeUnavailability` |
 | `POST` | `/v1/actions/remove_employee_unavailability` | `{employeeId, leaveId}` → `{leaveId, removed}`; alleen voor projecten met `employeeUnavailability` |
+| `POST` | `/v1/actions/set_customer_facts` | `{requestId, reference: {model, id}, facts: {...}}` → `{written, kept, customer, replayed}`; alleen voor projecten met `setCustomerFacts` |
 | `POST` | `/v1/actions/post_document` | `{requestId, reference: {model, id}, filename, summary, pdf}` → `{id, noted, customer}`; alleen voor projecten met `postDocument`; body tot 12 MB |
 
 Elke `/v1`-aanroep vereist `Authorization: Bearer <projecttoken>`.
@@ -126,6 +127,22 @@ alleen een echte weigering van Odoo (`502 odoo_rejected`) mag opnieuw. Lukt het 
 aanvraag-id, de status en de duur; nooit de bestandsnaam, de samenvatting, het bestand, de klant of het token. De Odoo-gebruiker achter
 `ODOO_API_KEY` moet bijlagen mogen aanmaken en notities op klanten mogen plaatsen. Nog niet tegen een echte Odoo geprobeerd (de aanroepen zijn uit de
 documentatie van Odoo 20 opgesteld en tegen de demo-Odoo geprobeerd); zie `docs/documenten.md`.
+
+**`set_customer_facts`** (aparte instelling `setCustomerFacts`, **uit tenzij je haar aanzet**, met alleen `maxPerHour`; standaard 60 schrijfacties per uur
+voor het hele project) vult de **schouwgegevens van de klant** in: een vaste lijst velden van `res.partner` (`CUSTOMER_FACTS` in
+`src/lib/documents/customer-facts.ts`, in Odoo `dig_schouw_...`, aangemaakt door de module `odoo_addon/dig_schouw_facts`) en niets anders van de klant. Het
+verzoek kent alleen `requestId`, `reference` (`planning.slot` of `svs.tech.visit`, zoals bij `post_document`) en `facts` (sleutels uit de lijst met
+geldige waarden: een keuze uit de opties, een geheel getal of getal binnen grenzen, een tekst, een datum); een onbekende sleutel, een veldnaam van
+Odoo, een model, een klant of een ongeldige waarde is `400`, en één fout weigert alles. **Er wordt alleen ingevuld wat nog leeg is**: de gateway leest
+eerst de huidige waarden van die velden en schrijft alleen de lege (niet ingesteld, leeg of nul); een veld met een waarde blijft zoals het was. Het
+antwoord zegt welke gegevens zijn ingevuld (`written`) en welke er al stonden (`kept`); is alles al gevuld, dan wordt er niets geschreven. De klant
+komt uit het genoemde record, gefilterd op het bedrijf van het project, net als bij `post_document` (`404 reference_not_found`, `409
+reference_has_no_customer`). Bestaan de velden niet in Odoo (de module is niet geïnstalleerd), dan is het antwoord `409 fields_not_installed` en is er niets
+geschreven. Herhalen kan altijd zonder schade (de tweede keer is niets meer leeg): dezelfde `requestId` met dezelfde gegevens geeft hetzelfde antwoord met
+`replayed: true`, andere gegevens met dat id `409 request_id_reused`, tegelijk lopend `409 in_progress`; na een weigering of een antwoord dat niet kwam
+(`502 odoo_rejected`, `504 outcome_unknown`) mag het gewoon opnieuw. Alleen een aanroep die iets schrijft telt mee voor `maxPerHour`. In het toegangslog
+staan het aanvraag-id, de status en de duur; nooit de gegevens, de klant of het token. De Odoo-gebruiker achter `ODOO_API_KEY` moet contacten mogen
+wijzigen. Nog niet tegen een echte Odoo geprobeerd; zie `docs/formulieren-schouw-oplevering.md`.
 
 Geef de actie aan een **eigen project en token** voor het live dashboard, nooit aan het project van een preview of
 de agent: elke code die dat token heeft, kan er medewerkers mee aanmaken. De voorbeeldconfig heeft geen acties en

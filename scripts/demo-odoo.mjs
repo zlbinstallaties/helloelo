@@ -9,6 +9,9 @@
 // `ir.attachment/create` and `res.partner/message_post` take a signed document: the file goes on a customer (the `partner_id` of a
 // planning.slot or svs.tech.visit of the sample data) and an internal note without recipients points at it. Both are logged as
 // ATTACH and NOTE. `planning.slot` and `svs.tech.visit` can be read by id.
+// `res.partner` can be read (`search_read` by id, the fact fields only) and written (`write`, the fact fields only) for the schouw facts
+// of a customer; a write is logged as FACTS. Those fields exist only when the module `dig_schouw_facts` is installed: with
+// DEMO_ODOO_NO_FACT_FIELDS=1 the demo answers "Invalid field", as a real Odoo does without the module.
 //
 // The employee part follows what the Odoo 20.0 source says: `create` takes `vals_list` and answers with the
 // new ids, a many2one comes back as [id, name] or false, a many2many as a list of ids, and an unknown field
@@ -39,6 +42,15 @@ const ROLES = [
   { id: 3, name: 'Oud', active: false },
 ]
 
+/** The fact fields of the module `dig_schouw_facts` (a test checks that this is the list of src/lib/documents/customer-facts.ts). */
+export const DEMO_FACT_FIELDS = [
+  'dig_schouw_datum', 'dig_schouw_gewenst_systeem', 'dig_schouw_afgiftesysteem', 'dig_schouw_isolatie', 'dig_schouw_aantal_personen', 'dig_schouw_ruimte_installatie',
+  'dig_schouw_boiler_opstelling', 'dig_schouw_bouwjaar', 'dig_schouw_gasverbruik', 'dig_schouw_leidingroute', 'dig_schouw_leidinglengte', 'dig_schouw_aansluiting',
+  'dig_schouw_ruimte_meterkast', 'dig_schouw_groep_vrij', 'dig_schouw_asbest_vermoed', 'dig_schouw_graafwerk_door_klant', 'dig_schouw_stroom_door_klant',
+  'dig_schouw_werkruimte_door_klant', 'dig_schouw_compleet',
+]
+const PARTNER_WRITE_ARGUMENTS = ['ids', 'vals', 'context']
+
 const ATTACHMENT_FIELDS = ['name', 'type', 'datas', 'mimetype', 'res_model', 'res_id']
 const NOTE_ARGUMENTS = ['ids', 'body', 'message_type', 'subtype_xmlid', 'attachment_ids', 'context']
 
@@ -47,12 +59,14 @@ const idFilter = (domain) => (Array.isArray(domain) && domain.length >= 1 && Arr
 const pick = (row, wanted) => Object.fromEntries(wanted.filter((field) => field in row).map((field) => [field, row[field]]))
 
 /** `log` gets one line per write. `employees` is the in-memory hr.employee table, for tests. */
-export function createDemoOdoo({ log = () => {} } = {}) {
+export function createDemoOdoo({ log = () => {}, factFields = true } = {}) {
   const data = demoData()
   const employees = []
   const leaves = []
   const attachments = []
   const notes = []
+  // The fact fields of the customers (res.partner); a field that was never set is false, as in Odoo.
+  const partnerFacts = new Map()
   let nextEmployeeId = 900
   let nextLeaveId = 7000
   let nextAttachmentId = 8000
@@ -258,6 +272,31 @@ export function createDemoOdoo({ log = () => {} } = {}) {
       log(`NOTE res.partner ${note.partnerId} (${partners.get(note.partnerId)}) internal note ${note.id} "${note.body}" attachments ${JSON.stringify(attached)} -> no mail, no recipients`)
       return [200, note.id]
     }
+    if (model === 'res.partner' && method === 'search_read') {
+      const wanted = Array.isArray(body.fields) ? body.fields : []
+      const unknown = wanted.find((field) => field !== 'id' && !DEMO_FACT_FIELDS.includes(field))
+      if (unknown !== undefined || (!factFields && wanted.some((field) => field !== 'id'))) {
+        return [500, odooError('builtins.ValueError', `Invalid field '${unknown ?? wanted.find((field) => field !== 'id')}' on model 'res.partner'`)]
+      }
+      const id = idFilter(body.domain)
+      if (id === null || !partners.has(id)) return [200, []]
+      const stored = partnerFacts.get(id) ?? {}
+      return [200, [Object.fromEntries(wanted.map((field) => [field, field === 'id' ? id : (stored[field] ?? false)]))]]
+    }
+    if (model === 'res.partner' && method === 'write') {
+      for (const argument of Object.keys(body)) {
+        if (!PARTNER_WRITE_ARGUMENTS.includes(argument)) return [422, odooError('builtins.TypeError', `write() got an unexpected keyword argument '${argument}'`)]
+      }
+      if (!Array.isArray(body.ids) || body.ids.length !== 1 || !partners.has(body.ids[0])) return [404, odooError('odoo.exceptions.MissingError', 'the rehearsal writes to one customer of the sample data only')]
+      const vals = body.vals && typeof body.vals === 'object' && !Array.isArray(body.vals) ? body.vals : null
+      if (!vals || Object.keys(vals).length === 0) return [422, odooError('builtins.ValueError', 'nothing to write')]
+      const badField = Object.keys(vals).find((field) => !DEMO_FACT_FIELDS.includes(field))
+      if (badField !== undefined || !factFields) return [500, odooError('builtins.ValueError', `Invalid field '${badField ?? Object.keys(vals)[0]}' on model 'res.partner'`)]
+      const id = body.ids[0]
+      partnerFacts.set(id, { ...partnerFacts.get(id), ...vals })
+      log(`FACTS res.partner ${id} (${partners.get(id)}) set ${JSON.stringify(vals)}`)
+      return [200, true]
+    }
     if (!data[model]) return [404, odooError('odoo.exceptions.MissingError', 'unknown model')]
     if (method === 'fields_get') return [200, demoFields[model]]
     if (method === 'search_count') return [200, data[model].length]
@@ -290,11 +329,11 @@ export function createDemoOdoo({ log = () => {} } = {}) {
     return send(...handle(model, method, body))
   })
 
-  return { server, employees, leaves, attachments, notes }
+  return { server, employees, leaves, attachments, notes, partnerFacts }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.DEMO_ODOO_PORT ?? 18069)
-  const { server } = createDemoOdoo({ log: (line) => console.error(line) })
+  const { server } = createDemoOdoo({ log: (line) => console.error(line), factFields: process.env.DEMO_ODOO_NO_FACT_FIELDS !== '1' })
   server.listen(port, '127.0.0.1', () => console.error('demo odoo on', port))
 }

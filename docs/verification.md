@@ -187,6 +187,28 @@ bijlage met een interne notitie (geen mail) bij de klant van de afspraak.
 | Opzettelijke fouten | 133 in gateway, client, server, journaal, telefoonlogica en opslag; 130 gevangen (veel pas na extra tests), 3 gelijkwaardig: een controle zit er dubbel (het project heeft de actie, in de route én in de actie; een `author` wordt al door de onbekende-velden-controle geweigerd) |
 | Niet gedaan | **tegen een echte Odoo 20**: `ir.attachment/create` met `vals_list`, `res.partner/message_post` met `ids` en `subtype_xmlid`, `partner_id` lezen op `planning.slot` en `svs.tech.visit` (de lokale Odoo mist die velden), de rechten van de gateway-gebruiker (bijlagen maken, notities plaatsen), en of Odoo er echt geen mail bij verstuurt; echte telefoons (camera, iOS en Android, het uit het geheugen halen van de tab) en andere browsers dan Chromium; mail naar de klant is niet gebouwd; de formuliervelden zijn voorbeeldvelden |
 
+
+### Schouwgegevens op de klant (`set_customer_facts`, de module `dig_schouw_facts`)
+
+Gecontroleerd met nagebootste Odoo's, nooit tegen een echte Odoo:
+
+- **Gateway** (`gateway/test/customer-facts.test.ts`): uit tenzij het project de actie heeft; alleen `requestId`, `reference` en `facts`; elke
+  onbekende sleutel, veldnaam, model of klant en elke ongeldige waarde is `400` voordat Odoo iets hoort; de klant komt uit het record; alleen lege
+  velden worden geschreven en een gevuld veld blijft; is alles gevuld, dan is er geen schrijfaanroep; ontbrekende velden geven `fields_not_installed`;
+  herhalen, tegelijk lopen en een ander verzoek met hetzelfde id; weigering en geen antwoord mogen opnieuw; de uurlimiet telt alleen schrijfaanroepen;
+  het log bevat niets van de gegevens.
+- **Odoo-client** (`scripts/test-odoo-client.mjs`): één klant, alleen de vaste velden, geen enkel ander veld van de klant, ongeldige waarden en
+  id's vóór het versturen geweigerd, "Invalid field" wordt "niet geïnstalleerd".
+- **Dashboard** (`test/document-handlers.test.ts`, `test/gateway-customer-facts.test.ts`, `test/customer-facts.test.ts`): de gegevens gaan pas na het
+  document, met een eigen verzoek-id en alleen sleutels van de lijst; een verzoek van een telefoon kan geen gegevens, klant of veld meesturen; een oplevering
+  geeft er niet; uit, geweigerd, geen antwoord of een fout nemen het document nooit terug; geen gegevens als het document zelf niet aankwam; een
+  herhaling schrijft niet opnieuw; de lijst en het schouwformulier komen overeen.
+- **Module** (`test/odoo-addon-facts.test.ts`): namen, typen en keuzes van de velden komen overeen met de lijst van het dashboard; geen eigen tabellen of
+  toegangsregels; de velden worden niet gekopieerd bij een dubbel contact. De Python en de XML zijn alleen op geldigheid gecontroleerd; **de module is niet in
+  Odoo geladen** (ook niet de Odoo-tests in de module).
+- **Niet gecontroleerd:** een echte Odoo 20 (`search_read` en `write` op `res.partner`, het tabblad op het contactformulier, het getal van het bouwjaar zonder
+  duizendtalpunt, de rechten van de Odoo-gebruiker), en dat de offerte-assistent de velden ooit gebruikt.
+
 ## Lokaal testpakket
 
 `docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen

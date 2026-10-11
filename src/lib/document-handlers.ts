@@ -2,11 +2,15 @@ import { buildAppointments } from './appointments.ts'
 import { visibleAppointments } from './authorization.ts'
 import type { User } from './authorization.ts'
 import type { DashboardAppointment } from './dashboard-types.ts'
-import { DocumentJournalError } from './document-journal.ts'
-import type { DocumentEntry, DocumentJournal } from './document-journal.ts'
+import { DocumentJournalError, factsRequestIdFor } from './document-journal.ts'
+import type { DocumentEntry, DocumentJournal, FactsState } from './document-journal.ts'
+import { toCustomerFacts } from './documents/customer-facts.ts'
+import { extractFacts } from './documents/facts.ts'
 import { FORMS, isDocumentType } from './documents/forms.ts'
+import type { FormDef } from './documents/forms.ts'
 import { DocumentRenderError, documentFilename, documentSummary, renderDocumentPdf } from './documents/render.ts'
 import { validateSubmission } from './documents/submission.ts'
+import type { CleanSubmission } from './documents/submission.ts'
 import { accountFileProblem, fail, json, readJsonBody, unknownField } from './http.ts'
 import type { Context } from './handlers.ts'
 import { AccountsFileError } from './accounts.ts'
@@ -23,6 +27,9 @@ import { DocumentJournalFileError } from './document-journal.ts'
  * - the customer is never chosen here: only the appointment is named, and the gateway reads the customer of that
  *   record from Odoo;
  * - the form is checked again with the same rules as on the phone (`validateSubmission`), and the PDF is made here;
+ * - for a schouw, after the document is on the customer, the facts of the schouw that the quotation engine can use are put on the
+ *   customer too, in the empty fields only (`setCustomerFacts`). That never takes the document back: when it fails the document is still
+ *   there and the answer says the facts are not;
  * - the submission number makes a repeat harmless: the same document is never put on the customer twice, and when it is
  *   not known whether it arrived it is NOT sent again unless the person starts a new submission on purpose.
  *
@@ -68,10 +75,39 @@ export function createDocumentHandlers(ctx: Context) {
     return { ok: true, user: guard.user, journal: deps.documents }
   }
 
+  type FactsResult = { state: FactsState; written: number; kept: number; message?: string }
+
+  /** The day of the document in Amsterdam, as YYYY-MM-DD: the date of the schouw. */
+  const dayOf = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(date)
+
+  /**
+   * Puts the facts of a posted schouw on the customer. Never throws and never changes whether the document is posted: what happens
+   * is told in the answer and written in the journal. Only a schouw has facts; no facts, no call.
+   */
+  async function storeFacts(form: FormDef, answers: CleanSubmission['answers'], createdAt: Date, submissionId: string, reference: DocumentReference, journal: DocumentJournal): Promise<FactsResult | null> {
+    if (form.type !== 'schouw') return null
+    const { facts } = toCustomerFacts(extractFacts(form, answers), dayOf(createdAt))
+    if (Object.keys(facts).length === 0) return null
+    let result: FactsResult
+    try {
+      const outcome = await deps.setCustomerFacts({ requestId: factsRequestIdFor(submissionId), reference, facts })
+      if (outcome.ok) result = { state: outcome.written.length > 0 ? 'saved' : 'unchanged', written: outcome.written.length, kept: outcome.kept.length }
+      else result = { state: outcome.kind === 'not_enabled' ? 'off' : 'failed', written: 0, kept: 0, message: outcome.message }
+    } catch {
+      result = { state: 'failed', written: 0, kept: 0, message: 'De gegevens voor de klant konden niet worden doorgegeven.' }
+    }
+    try {
+      journal.markFacts(submissionId, result.state)
+    } catch {
+      // The journal of the document is not the place to fail on: the document is posted and the answer says what happened.
+    }
+    return result
+  }
+
   /** What a submission that was already seen means for this request. `null`: it is new. */
   function replay(entry: DocumentEntry, user: User, type: string, appointmentId: string): Response | null {
     if (entry.by !== user.id || entry.type !== type || entry.appointmentId !== appointmentId) return fail(409, REUSED)
-    if (entry.state === 'posted') return json({ ok: true, state: 'posted', noted: entry.noted === true, customer: null, replayed: true })
+    if (entry.state === 'posted') return json({ ok: true, state: 'posted', noted: entry.noted === true, customer: null, replayed: true, ...(entry.facts && { facts: { state: entry.facts } }) })
     if (entry.state === 'sending') return fail(409, WAIT)
     return json({ error: NOT_SURE, retry: false }, 409)
   }
@@ -143,7 +179,8 @@ export function createDocumentHandlers(ctx: Context) {
         })
         if (outcome.ok) {
           journal.markPosted(submissionId, outcome.noted)
-          return json({ ok: true, state: 'posted', noted: outcome.noted, customer: outcome.customer, replayed: outcome.replayed })
+          const facts = await storeFacts(form, checked.value.answers, createdAt, submissionId, reference, journal)
+          return json({ ok: true, state: 'posted', noted: outcome.noted, customer: outcome.customer, replayed: outcome.replayed, ...(facts && { facts }) })
         }
         if (outcome.kind === 'unknown') {
           journal.markUnknown(submissionId)

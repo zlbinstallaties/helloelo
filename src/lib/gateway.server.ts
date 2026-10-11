@@ -1,5 +1,8 @@
 import '@tanstack/react-start/server-only'
 import { GatewayError } from '#/lib/gateway-error'
+import { setCustomerFactsViaGateway } from '#/lib/gateway-customer-facts'
+import type { SetCustomerFactsOutcome } from '#/lib/gateway-customer-facts'
+import type { CustomerFactValue } from '#/lib/documents/customer-facts'
 import { postDocumentViaGateway } from '#/lib/gateway-document'
 import type { DocumentReference, PostDocumentOutcome } from '#/lib/gateway-document'
 import { addUnavailabilityViaGateway, createEmployeeViaGateway, listPlanningRolesViaGateway, readEmployeeRolesViaGateway, removeUnavailabilityViaGateway, setEmployeeRolesViaGateway } from '#/lib/gateway-employee'
@@ -118,4 +121,15 @@ export async function postDocument(input: { requestId: string; reference: Docume
   if (!gatewayConfigured()) return { ok: false, kind: 'not_enabled', message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
   const { url, token } = config()
   return postDocumentViaGateway({ url, token, ...input })
+}
+
+/**
+ * Fills in the schouw facts of the customer of an appointment (only the fields that are still empty). Never throws: what goes
+ * wrong is an outcome. The customer and the Odoo fields are never named here: the gateway reads the customer from the appointment
+ * and knows the fields itself.
+ */
+export async function setCustomerFacts(input: { requestId: string; reference: DocumentReference; facts: Record<string, CustomerFactValue> }): Promise<SetCustomerFactsOutcome> {
+  if (!gatewayConfigured()) return { ok: false, kind: 'not_enabled', message: 'Odoo-gateway is niet ingesteld (DIG_GATEWAY_URL en DIG_GATEWAY_TOKEN).' }
+  const { url, token } = config()
+  return setCustomerFactsViaGateway({ url, token, ...input })
 }

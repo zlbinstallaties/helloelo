@@ -13,7 +13,7 @@ import { generatePassword, hashPassword } from '../src/lib/password.ts'
  * the Odoo API key is NOT asked for or written: fill it in yourself in `.local/gateway.env`.
  *
  *   node --experimental-strip-types scripts/local-setup.ts [--odoo-url ...] [--database ...] [--company-id 1]
- *        [--responsible-id <Odoo user id>] [--documents] [--force]
+ *        [--responsible-id <Odoo user id>] [--documents] [--customer-facts] [--force]
  *
  * Without --responsible-id the dashboard cannot create employees in Odoo (the action stays off). The planning roles of
  * a technician are chosen by the admin in the dashboard, from the roles that exist in Odoo: when a technician is
@@ -22,6 +22,10 @@ import { generatePassword, hashPassword } from '../src/lib/password.ts'
  *
  * `--documents` switches on, separately, the one action that puts a signed schouw or oplever PDF on the customer of an
  * appointment (docs/documenten.md). It needs an Odoo user who may create attachments and post notes on customers.
+ *
+ * `--customer-facts` switches on, separately again, the one action that fills in the schouw facts on the customer (only fields that
+ * are still empty; docs/formulieren-schouw-oplevering.md). It needs the Odoo module `dig_schouw_facts` and an Odoo user who may write
+ * those fields on customers.
  */
 
 export interface LocalSetupOptions {
@@ -32,6 +36,8 @@ export interface LocalSetupOptions {
   responsibleId: number | null
   /** Switches the action that puts a signed document on the customer on; off by default. */
   documents: boolean
+  /** Switches the action that fills in the schouw facts on the customer on; off by default. */
+  customerFacts: boolean
   adminUsername: string
   gatewayPort: number
   dashboardPort: number
@@ -54,6 +60,7 @@ export const DEFAULTS: LocalSetupOptions = {
   companyId: 1,
   responsibleId: null,
   documents: false,
+  customerFacts: false,
   adminUsername: 'admin',
   gatewayPort: 8070,
   dashboardPort: 3000,
@@ -98,6 +105,7 @@ export function resolveOptions(values: Record<string, string | boolean | undefin
     companyId: positiveInteger(text('company-id'), '--company-id', DEFAULTS.companyId) as number,
     responsibleId,
     documents: values.documents === true,
+    customerFacts: values['customer-facts'] === true,
     adminUsername: singleLine(text('admin-username') ?? DEFAULTS.adminUsername, '--admin-username'),
     gatewayPort: positiveInteger(text('gateway-port'), '--gateway-port', DEFAULTS.gatewayPort) as number,
     dashboardPort: positiveInteger(text('dashboard-port'), '--dashboard-port', DEFAULTS.dashboardPort) as number,
@@ -129,6 +137,7 @@ export function buildLocalSetup(options: LocalSetupOptions, secrets: LocalSetupS
   const actions: Record<string, unknown> = {}
   if (options.responsibleId !== null) Object.assign(actions, { createEmployee: { responsibleUserId: options.responsibleId }, setEmployeePlanningRoles: {}, employeeUnavailability: {} })
   if (options.documents) actions.postDocument = {}
+  if (options.customerFacts) actions.setCustomerFacts = {}
   if (Object.keys(actions).length > 0) project.actions = actions
   else delete project.actions
   const projects = { projects: [project] }
@@ -188,6 +197,7 @@ function main() {
       'company-id': { type: 'string' },
       'responsible-id': { type: 'string' },
       documents: { type: 'boolean' },
+      'customer-facts': { type: 'boolean' },
       'admin-username': { type: 'string' },
       'gateway-port': { type: 'string' },
       'dashboard-port': { type: 'string' },
@@ -228,6 +238,13 @@ function main() {
     out('De Odoo-gebruiker van de API-sleutel moet bijlagen mogen aanmaken en notities op klanten mogen plaatsen.')
   } else {
     out('Schouw- en opleverdocumenten naar Odoo staan UIT: geef --documents mee om ze aan te zetten.')
+  }
+  out()
+  if (options.customerFacts) {
+    out('Schouwgegevens op de klant in Odoo staan AAN (--customer-facts): alleen lege velden van de klant worden gevuld, niets wordt overschreven.')
+    out('Daarvoor moet de Odoo-module dig_schouw_facts zijn geïnstalleerd, en de Odoo-gebruiker van de API-sleutel mag die velden schrijven.')
+  } else {
+    out('Schouwgegevens op de klant in Odoo staan UIT: geef --customer-facts mee om ze aan te zetten.')
   }
 }
 

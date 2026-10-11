@@ -66,11 +66,21 @@ export interface PostDocumentPolicy {
   maxPerHour: number
 }
 
+/**
+ * Filling in the schouw facts of a customer in Odoo (`res.partner`): a few fixed fields (`CUSTOMER_FACTS`), only the ones that are
+ * still empty. The customer is read from an appointment record, never given by the caller. Off unless the project asks for it.
+ */
+export interface SetCustomerFactsPolicy {
+  /** The most calls that may write per hour, per project. */
+  maxPerHour: number
+}
+
 export interface ProjectActions {
   createEmployee?: CreateEmployeePolicy
   setEmployeePlanningRoles?: SetPlanningRolesPolicy
   employeeUnavailability?: EmployeeUnavailabilityPolicy
   postDocument?: PostDocumentPolicy
+  setCustomerFacts?: SetCustomerFactsPolicy
 }
 
 export interface Project {
@@ -82,13 +92,15 @@ export interface Project {
   tokenSha256: Buffer
 }
 
-export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability', 'postDocument'] as const
+export const ACTIONS = ['createEmployee', 'setEmployeePlanningRoles', 'employeeUnavailability', 'postDocument', 'setCustomerFacts'] as const
 const DEFAULT_MAX_PER_HOUR = 20
 const HARD_MAX_PER_HOUR = 200
 /** All technicians of a company share one cap, and many fill in their holidays at the same moment. */
 const DEFAULT_UNAVAILABILITY_PER_HOUR = 100
 /** Technicians post a survey or handover document after most jobs; the whole company shares this cap. */
 const DEFAULT_DOCUMENTS_PER_HOUR = 60
+/** A schouw is posted once per visit, so the facts follow the documents. */
+const DEFAULT_FACTS_PER_HOUR = 60
 const MAX_ALLOWED_ROLES = 50
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/
@@ -208,6 +220,17 @@ function parseActions(projectId: string, raw: unknown): ProjectActions {
       if (key !== 'maxPerHour') fail(`${projectId}: postDocument has an unknown setting ${key}`)
     }
     result.postDocument = { maxPerHour: parseMaxPerHour(projectId, 'postDocument', entry.maxPerHour, DEFAULT_DOCUMENTS_PER_HOUR) }
+  }
+
+  if (actions.setCustomerFacts !== undefined) {
+    const entry = actions.setCustomerFacts as Record<string, unknown> | null
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`${projectId}: setCustomerFacts must be an object (it may be empty)`)
+    }
+    for (const key of Object.keys(entry)) {
+      if (key !== 'maxPerHour') fail(`${projectId}: setCustomerFacts has an unknown setting ${key}`)
+    }
+    result.setCustomerFacts = { maxPerHour: parseMaxPerHour(projectId, 'setCustomerFacts', entry.maxPerHour, DEFAULT_FACTS_PER_HOUR) }
   }
   return result
 }

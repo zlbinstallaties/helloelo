@@ -58,6 +58,7 @@ const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
 const PLAIN_UPSTREAM = /^(?:[A-Za-z_][\w.]{0,80}|upstream status \d{1,3})$/
 /** A document is a PDF of up to 8 MiB, as base64 in JSON; the other routes stay at the small limit. */
 const POST_DOCUMENT_ROUTE = '/v1/actions/post_document'
+const SET_CUSTOMER_FACTS_ROUTE = '/v1/actions/set_customer_facts'
 const DOCUMENT_BODY_BYTES = 12 * 1024 * 1024
 const ADD_UNAVAILABILITY_ROUTE = '/v1/actions/add_employee_unavailability'
 const REMOVE_UNAVAILABILITY_ROUTE = '/v1/actions/remove_employee_unavailability'
@@ -251,6 +252,14 @@ export function createGateway(options: GatewayOptions) {
       if (!ctx.project.actions.employeeUnavailability) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
       const body = await readJson(req)
       return url.pathname === ADD_UNAVAILABILITY_ROUTE ? actions.addEmployeeUnavailability(ctx.project, body, ctx) : actions.removeEmployeeUnavailability(ctx.project, body, ctx)
+    }
+
+    if (url.pathname === SET_CUSTOMER_FACTS_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'res.partner'
+      ctx.project = authenticate(req, projects)
+      if (!ctx.project.actions.setCustomerFacts) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: setCustomerFacts')
+      return actions.setCustomerFacts(ctx.project, await readJson(req), ctx)
     }
 
     if (url.pathname === POST_DOCUMENT_ROUTE) {

@@ -2,11 +2,12 @@
 // Run: node --experimental-strip-types scripts/test-demo-odoo.mjs
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createDemoOdoo } from './demo-odoo.mjs'
+import { CUSTOMER_FACT_FIELDS } from '../src/lib/documents/customer-facts.ts'
+import { createDemoOdoo, DEMO_FACT_FIELDS } from './demo-odoo.mjs'
 
-async function withDemo(run) {
+async function withDemo(run, options = {}) {
   const lines = []
-  const demo = createDemoOdoo({ log: (line) => lines.push(line) })
+  const demo = createDemoOdoo({ log: (line) => lines.push(line), ...options })
   await new Promise((resolve) => demo.server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${demo.server.address().port}`
   const call = async (model, method, body = {}, { auth = true } = {}) => {
@@ -284,4 +285,47 @@ test('res.partner/message_post is as strict as Odoo: only an internal note with 
     await fails({ context: undefined }, 500)
     assert.equal(demo.notes.length, 0, 'no note was posted')
   })
+})
+
+test('the fact fields of the demo are the fact fields of the dashboard', () => {
+  assert.deepEqual([...DEMO_FACT_FIELDS].sort(), [...CUSTOMER_FACT_FIELDS].sort())
+})
+
+test('a customer of the sample data can be read and written for the schouw facts, and nothing else of the customer', async () => {
+  await withDemo(async ({ call, demo, lines }) => {
+    const wanted = ['id', ...DEMO_FACT_FIELDS]
+    const before = await call('res.partner', 'search_read', { domain: [['id', '=', 101]], fields: wanted, limit: 1 })
+    assert.equal(before.status, 200)
+    assert.equal(before.body.length, 1)
+    assert.equal(before.body[0].id, 101)
+    assert.ok(DEMO_FACT_FIELDS.every((field) => before.body[0][field] === false), 'a field that was never set is false, as in Odoo')
+
+    const written = await call('res.partner', 'write', { ids: [101], vals: { dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3 }, context })
+    assert.deepEqual(written, { status: 200, body: true })
+    const after = await call('res.partner', 'search_read', { domain: [['id', '=', 101]], fields: ['id', 'dig_schouw_isolatie', 'dig_schouw_aantal_personen', 'dig_schouw_bouwjaar'], limit: 1 })
+    assert.deepEqual(after.body, [{ id: 101, dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3, dig_schouw_bouwjaar: false }])
+    assert.deepEqual(demo.partnerFacts.get(101), { dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3 })
+    assert.match(lines.join('\n'), /FACTS res\.partner 101 \(Familie Jansen\) set \{"dig_schouw_isolatie":"matig","dig_schouw_aantal_personen":3\}/)
+
+    assert.deepEqual((await call('res.partner', 'search_read', { domain: [['id', '=', 4242]], fields: ['id'] })).body, [], 'another customer is not found')
+    for (const badVals of [{ name: 'Nieuwe naam' }, { email: 'x@example.com' }, { dig_schouw_isolatie: 'goed', parent_id: 5 }]) {
+      assert.equal((await call('res.partner', 'write', { ids: [101], vals: badVals, context })).status, 500, JSON.stringify(badVals))
+    }
+    assert.equal((await call('res.partner', 'write', { ids: [4242], vals: { dig_schouw_isolatie: 'goed' } })).status, 404)
+    assert.equal((await call('res.partner', 'write', { ids: [101, 102], vals: { dig_schouw_isolatie: 'goed' } })).status, 404, 'one customer at a time')
+    assert.equal((await call('res.partner', 'write', { ids: [101], vals: {} })).status, 422)
+    assert.equal((await call('res.partner', 'write', { ids: [101], vals: { dig_schouw_isolatie: 'goed' }, extra: 1 })).status, 422)
+    assert.equal((await call('res.partner', 'read', { ids: [101] })).status, 404, 'other methods do not exist')
+    assert.deepEqual(demo.partnerFacts.get(101), { dig_schouw_isolatie: 'matig', dig_schouw_aantal_personen: 3 }, 'the refused writes left nothing')
+  })
+})
+
+test('without the module the demo answers "Invalid field", as a real Odoo does', async () => {
+  await withDemo(async ({ call }) => {
+    const read = await call('res.partner', 'search_read', { domain: [['id', '=', 101]], fields: ['id', 'dig_schouw_isolatie'], limit: 1 })
+    assert.equal(read.status, 500)
+    assert.equal(read.body.name, 'builtins.ValueError')
+    assert.match(read.body.message, /Invalid field/)
+    assert.equal((await call('res.partner', 'write', { ids: [101], vals: { dig_schouw_isolatie: 'goed' } })).status, 500)
+  }, { factFields: false })
 })

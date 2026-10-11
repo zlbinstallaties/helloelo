@@ -19,6 +19,15 @@ import type { DocumentType } from './documents/forms.ts'
 
 export type DocumentState = 'sending' | 'posted' | 'unknown'
 
+/**
+ * What became of the schouw facts for the customer, after the document itself was posted (a schouw only):
+ *   saved      at least one field of the customer was filled in
+ *   unchanged  every field already had a value, so nothing was written
+ *   failed     it was tried and did not work; the document is on the customer all the same
+ *   off        the gateway does not allow it
+ */
+export type FactsState = 'saved' | 'unchanged' | 'failed' | 'off'
+
 export type DocumentEntry = {
   /** Made by the phone for ONE filled-in document; a repeat of the same document has the same one. */
   submissionId: string
@@ -33,6 +42,8 @@ export type DocumentEntry = {
   at: string
   updatedAt: string
   noted?: boolean
+  /** Only for a posted schouw; see `FactsState`. */
+  facts?: FactsState
 }
 
 export class DocumentJournalError extends Error {
@@ -54,6 +65,7 @@ export class DocumentJournalFileError extends Error {
 
 const FILE_VERSION = 1
 const STATES: readonly DocumentState[] = ['sending', 'posted', 'unknown']
+const FACTS_STATES: readonly string[] = ['saved', 'unchanged', 'failed', 'off']
 const KEEP_POSTED_MS = 30 * 24 * 60 * 60_000
 const MAX_ENTRIES = 2000
 /** The gateway gives up after two minutes; an entry that is still "sending" after this long has no answer coming. */
@@ -62,6 +74,11 @@ const STALE_SENDING_MS = 5 * 60_000
 /** The request id for the gateway: letters, digits and dashes, 16 to 64 long, and the same for the same submission. */
 export function requestIdFor(submissionId: string): string {
   return `doc-${createHash('sha256').update(submissionId).digest('hex').slice(0, 40)}`
+}
+
+/** The request id for the facts of the same submission: another id, so the gateway keeps the two apart. */
+export function factsRequestIdFor(submissionId: string): string {
+  return `facts-${createHash('sha256').update(submissionId).digest('hex').slice(0, 40)}`
 }
 
 function parse(text: string | null): DocumentEntry[] {
@@ -83,7 +100,8 @@ function parse(text: string | null): DocumentEntry[] {
       typeof e?.submissionId !== 'string' || !e.submissionId || typeof e.requestId !== 'string' || !e.requestId ||
       !STATES.includes(e.state as DocumentState) || !isDocumentType(e.type) ||
       typeof e.appointmentId !== 'string' || typeof e.by !== 'string' || typeof e.at !== 'string' || typeof e.updatedAt !== 'string' ||
-      (e.noted !== undefined && typeof e.noted !== 'boolean')
+      (e.noted !== undefined && typeof e.noted !== 'boolean') ||
+      (e.facts !== undefined && !FACTS_STATES.includes(e.facts as string))
     ) {
       throw new DocumentJournalFileError(`document ${index + 1} mist een veld of heeft een onjuiste waarde.`)
     }
@@ -153,6 +171,12 @@ export function createDocumentJournal(options: { io: AccountIo; now?: () => Date
       change(submissionId, ['sending'], (entry) => {
         entry.state = 'posted'
         entry.noted = noted
+      }),
+
+    /** What became of the facts of a posted schouw. */
+    markFacts: (submissionId: string, facts: FactsState) =>
+      change(submissionId, ['posted'], (entry) => {
+        entry.facts = facts
       }),
 
     markUnknown: (submissionId: string) =>

@@ -113,6 +113,12 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
     async postDocument() {
       throw new Error('unexpected call: postDocument')
     },
+    async readCustomerFacts() {
+      throw new Error('unexpected call: readCustomerFacts')
+    },
+    async writeCustomerFacts() {
+      throw new Error('unexpected call: writeCustomerFacts')
+    },
     ...overrides,
   }
   const count = (method: string) => calls.filter((call) => call.method === method).length

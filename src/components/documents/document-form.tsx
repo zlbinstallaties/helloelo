@@ -34,7 +34,9 @@ const RING = 'focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:rin
 const CONTROL = `h-12 text-base ${RING}`
 const domId = (id: string) => `f-${id.replace(/\./g, '-')}`
 
-type Posted = { ok: true; state: 'posted'; noted: boolean; customer: string | null; replayed: boolean }
+/** What became of the schouw facts on the customer (a schouw only): `off` and no `facts` at all say nothing to the technician. */
+type PostedFacts = { state: 'saved' | 'unchanged' | 'failed' | 'off'; written?: number; kept?: number; message?: string }
+type Posted = { ok: true; state: 'posted'; noted: boolean; customer: string | null; replayed: boolean; facts?: PostedFacts }
 /** What happened to the last try to send. `retry`: nothing was placed, so the same document may be sent again. */
 type Problem = { kind: 'failed'; message: string; retry: boolean } | { kind: 'unknown'; message: string } | { kind: 'offline'; message: string }
 
@@ -333,6 +335,15 @@ export function DocumentForm({ form, appointment, user }: { form: FormDef; appoi
           <AlertDescription className="grid gap-2">
             <span>{posted.customer ? `Het ondertekende document staat nu bij ${posted.customer} in Odoo.` : 'Het ondertekende document staat bij de klant in Odoo.'}</span>
             {!posted.noted && <span>Let op: de melding in het logboek van de klant ontbreekt. Het bestand zelf staat wel bij de klant.</span>}
+            {posted.facts?.state === 'saved' && (
+              <span data-testid="document-facts">
+                De gegevens voor de offerte staan nu ook bij de klant{typeof posted.facts.written === 'number' ? ` (${posted.facts.written} ingevuld${posted.facts.kept ? `, ${posted.facts.kept} stonden er al en zijn niet overschreven` : ''})` : ''}.
+              </span>
+            )}
+            {posted.facts?.state === 'unchanged' && <span data-testid="document-facts">De schouwgegevens van de klant waren al ingevuld; er is niets overschreven.</span>}
+            {posted.facts?.state === 'failed' && (
+              <span data-testid="document-facts">Let op: de gegevens voor de offerte zijn niet bij de klant gezet{posted.facts.message ? ` (${posted.facts.message})` : ''}. Het document staat er wel; de gegevens staan ook in het PDF.</span>
+            )}
           </AlertDescription>
         </Alert>
         <Button asChild className={`h-12 text-base ${RING}`}>

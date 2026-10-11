@@ -4,6 +4,7 @@ import { createAuth } from '../src/lib/auth.ts'
 import { createAvailabilityStore } from '../src/lib/availability.ts'
 import { createDocumentJournal } from '../src/lib/document-journal.ts'
 import { createJournal } from '../src/lib/employee-journal.ts'
+import type { SetCustomerFactsOutcome } from '../src/lib/gateway-customer-facts.ts'
 import type { PostDocumentOutcome } from '../src/lib/gateway-document.ts'
 import type { AddUnavailabilityOutcome, EmployeeRolesOutcome, GatewayOutcome, PlanningRolesOutcome, RemoveUnavailabilityOutcome, SetRolesOutcome } from '../src/lib/gateway-employee.ts'
 import { createHandlers } from '../src/lib/handlers.ts'
@@ -99,6 +100,11 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
       posts: [] as Array<{ requestId: string; reference: { model: string; id: number }; filename: string; summary: string; pdf: Uint8Array }>,
       answer: (): PostDocumentOutcome | Promise<PostDocumentOutcome> => ({ ok: true, noted: true, customer: 'Klant van Odoo', replayed: false }),
     },
+    /** What the gateway is asked about the facts of a schouw on the customer, and what it answers. Nothing here is a real Odoo. */
+    facts: {
+      posts: [] as Array<{ requestId: string; reference: { model: string; id: number }; facts: Record<string, string | number> }>,
+      answer: (input: { facts: Record<string, string | number> }): SetCustomerFactsOutcome | Promise<SetCustomerFactsOutcome> => ({ ok: true, written: Object.keys(input.facts), kept: [], customer: 'Klant van Odoo', replayed: false }),
+    },
     outcome: (): GatewayOutcome | Promise<GatewayOutcome> => ({ kind: 'created', id: 41, verified: true, planningRoles: 0, replayed: false }),
   }
   const mode = options.mode ?? 'on'
@@ -155,6 +161,10 @@ export function setup(options: { mode?: 'on' | 'off'; configured?: boolean; secu
     postDocument: async (input) => {
       odoo.docs.posts.push(input)
       return odoo.docs.answer()
+    },
+    setCustomerFacts: async (input) => {
+      odoo.facts.posts.push(input)
+      return odoo.facts.answer(input)
     },
     generatePassword: () => GENERATED,
   })

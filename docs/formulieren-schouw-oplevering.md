@@ -91,20 +91,44 @@ koudemiddel, voor het apparaat bij de klant.
 Bewust **niet** gevraagd, omdat het uit een andere bron komt: het benodigde vermogen (kW, uit de EP-berekening), het
 energielabel, BAG-gegevens en de contactgegevens van de klant.
 
-### Waar de gegevens in Odoo komen: nog te beslissen
+### Waar de gegevens in Odoo komen: op de klant (gekozen)
 
-Dit repository kent de gegevens nu alleen als `dig.facts/1`. Er gaat nog **niets** naar Odoo, want dat vraagt een keuze en
-velden aan de Odoo-kant (de module staat niet in deze repository). De opties:
+Gekozen is **op de klant** (`res.partner`): de gegevens van een schouw komen als velden bij de klant, op het tabblad **Schouwgegevens**.
+Zo ziet iedereen ze bij de klant en kan de offerte-assistent ze later overnemen (bijvoorbeeld met een knop die vult wat leeg is).
 
-| Optie | Voor | Tegen |
-|---|---|---|
-| A. Op de intake van de offerte-assistent (`dig.quote.intake`) | de engine leest het direct en vult alleen lege velden | nieuwe velden in `dig_quote_assistant`, dat volgens de bron nog niet is gecommit |
-| B. Op de klant (`res.partner`), als velden of een tabblad "Schouwgegevens" | zichtbaar bij de klant en bruikbaar voor elke module | eigen velden in Odoo, en een nieuwe smalle schrijfactie in de gateway |
-| C. Als bestand bij het PDF (`schouw-gegevens-<datum>.json`) | kleinste wijziging, leesbaar en later te verwerken | geen veld om op te zoeken of te filteren |
+Zo werkt het:
 
-De regels van de engine zelf gelden voor elke keuze: nooit een door een medewerker ingevuld veld overschrijven, de klant alleen
-koppelen als dat zeker is (hier komt die uit de afspraak), en nooit iets verzenden of bevestigen. Elke nieuwe schrijfactie naar
-Odoo is een opdracht die een mens beoordeelt (`RULES.md`).
+1. De monteur verstuurt een **schouwdocument**. Het PDF komt bij de klant (de bestaande actie `post_document`).
+2. **Daarna**, en alleen voor een schouw, vraagt het dashboard de gateway de schouwgegevens bij de klant in te vullen
+   (`set_customer_facts`). Wat er gaat, staat in `src/lib/documents/customer-facts.ts`: de lijst van 19 gegevens (de datum van de schouw
+   erbij), hun Odoo-veld (`dig_schouw_...`), type en toegestane waarden. Ja en nee zijn een keuze (*ja* of *nee*), geen vinkje, want een
+   vinkje kan *nee* niet van *niet ingevuld* onderscheiden.
+3. De gateway leest welke van die velden bij de klant **nog leeg** zijn en vult **alleen die**. Wat iemand zelf invulde, of wat een
+   eerdere schouw er al zette, wordt **nooit overschreven**: dat is ook de regel van de offerte-assistent. Het antwoord zegt hoeveel er is
+   ingevuld en hoeveel er al stond, en het scherm van de monteur laat dat zien.
+4. Mislukt dit, dan blijft het document gewoon bij de klant staan; het scherm zegt dat de gegevens niet zijn gezet, en ze staan ook in het PDF. Het
+   wordt niet vanzelf opnieuw geprobeerd. Een oplevering geeft geen gegevens voor de klant (het apparaat hoort later bij een eigen apparaatrecord).
+
+Instellen:
+
+- **Odoo:** installeer de module `odoo_addon/dig_schouw_facts` (zet de map in het addons-pad en installeer *DIG Schouwgegevens op de klant*). Ze
+  maakt de velden aan en het tabblad; ze heeft geen eigen tabellen of toegangsregels. De Odoo-gebruiker achter de API-sleutel van de gateway moet
+  contacten mogen wijzigen (in Odoo bijvoorbeeld de groep *Contact aanmaken*; niet in Odoo 20 gecontroleerd).
+- **Gateway:** in het projectconfig `"actions": { "setCustomerFacts": {} }` (standaard hoogstens 60 schrijfacties per uur); lokaal
+  `bun run local:setup ... --customer-facts`. **Zonder deze instelling doet het dashboard niets bij de klant** (de monteur ziet niets). Zonder de module
+  in Odoo is het antwoord `fields_not_installed` en staat er niets geschreven.
+- Een test (`test/odoo-addon-facts.test.ts`) controleert dat de namen, typen en keuzes van de module hetzelfde zijn als die van de lijst in het
+  dashboard. Wijzig je het één, wijzig dan ook het ander.
+
+Wat dit **niet** doet:
+
+- De offerte-assistent leest de velden nog niet; dat is een wijziging in `dig_quote_assistant` (niet in deze repository). Hij kan ze bij een
+  nieuwe intake invullen waar die leeg is, op dezelfde manier als zijn andere automatische velden.
+- Het is een gegeven **per klant**, niet per project: een tweede schouw bij dezelfde klant overschrijft niets en vult alleen wat nog leeg is. Wil
+  een planner ze vervangen, dan doet hij dat in Odoo met de hand.
+- Niets is tegen een echte Odoo geprobeerd: de aanroepen (`search_read` en `write` op `res.partner`) en de module zijn opgesteld uit de
+  documentatie van Odoo 20 en getest tegen de demo-Odoo en met tests; de module is hier niet in Odoo geladen. Probeer eerst op een lokale of
+  weggooi-Odoo.
 
 ## Wijzigen
 
@@ -115,7 +139,8 @@ drukt de versie af.
 ## Nog niet gedaan
 
 - Vergelijken met de echte DIG-formulieren en de IBS-documentatie, en de technische punten laten nakijken.
-- De gegevens bij de klant opslaan (zie hierboven; eerst kiezen waar).
+- De offerte-assistent de schouwgegevens van de klant laten overnemen (`dig_quote_assistant`).
+- De module en de actie op een echte Odoo 20 proberen (eerst lokaal of op een weggooi-database).
 - Een eigen veldsoort voor meetwaarden met de uitkomsten *gemeten*, *onbekend* en *niet van toepassing*. Nu is leeg
   "niet ingevuld".
 - Per type een eigen vervolg voor airco, thuisbatterij, vloerverwarming en ventilatie (de schouw heeft nu een algemene

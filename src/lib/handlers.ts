@@ -6,6 +6,8 @@ import type { AvailabilityStore } from './availability.ts'
 import { createAvailabilityHandlers } from './availability-handlers.ts'
 import { createDocumentHandlers } from './document-handlers.ts'
 import type { DocumentJournal } from './document-journal.ts'
+import type { CustomerFactValue } from './documents/customer-facts.ts'
+import type { SetCustomerFactsOutcome } from './gateway-customer-facts.ts'
 import type { DocumentReference, PostDocumentOutcome } from './gateway-document.ts'
 import { canManageAccounts, canRefresh, technicianChoicesFor, visibleAppointments } from './authorization.ts'
 import type { User } from './authorization.ts'
@@ -61,6 +63,8 @@ export interface HandlerDeps {
    * appointment, a file name, a one-line summary and the file go out; the customer is read by the gateway from Odoo.
    */
   postDocument: (input: { requestId: string; reference: DocumentReference; filename: string; summary: string; pdf: Uint8Array }) => Promise<PostDocumentOutcome>
+  /** Fills in the schouw facts on the customer of the appointment (only empty fields); never throws. */
+  setCustomerFacts: (input: { requestId: string; reference: DocumentReference; facts: Record<string, CustomerFactValue> }) => Promise<SetCustomerFactsOutcome>
   generatePassword: () => string
 }
 

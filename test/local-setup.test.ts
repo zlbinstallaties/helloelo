@@ -54,6 +54,20 @@ test('posting documents is a separate switch: off by default, and on it adds onl
   assert.equal(resolveOptions({ documents: true }).documents, true)
 })
 
+test('filling in the schouw facts on the customer is a separate switch: off by default, and on it adds only that action', () => {
+  assert.equal(DEFAULTS.customerFacts, false)
+  assert.equal('setCustomerFacts' in build().projects.projects[0].actions, false, 'a responsible alone does not switch it on')
+  assert.equal('setCustomerFacts' in build({ documents: true }).projects.projects[0].actions, false, 'neither do the documents')
+  const only = build({ responsibleId: null, customerFacts: true })
+  assert.deepEqual(only.projects.projects[0].actions, { setCustomerFacts: {} })
+  assert.equal(parseProjects(only.projects)[0].actions.setCustomerFacts?.maxPerHour, 60)
+  assert.equal(parseProjects(only.projects)[0].actions.postDocument, undefined)
+  const all = build({ documents: true, customerFacts: true })
+  assert.deepEqual(all.projects.projects[0].actions, { createEmployee: { responsibleUserId: 7 }, setEmployeePlanningRoles: {}, employeeUnavailability: {}, postDocument: {}, setCustomerFacts: {} })
+  assert.equal(resolveOptions({}).customerFacts, false)
+  assert.equal(resolveOptions({ 'customer-facts': true }).customerFacts, true)
+})
+
 test('dashboard.env: login is on, the secret is long enough, the hash fits the printed password, no password on disk', () => {
   const { secrets, files } = build()
   const env = parseEnv(files['dashboard.env'])

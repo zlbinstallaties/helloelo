@@ -28,13 +28,13 @@ bun run local:rehearsal reset     # stopt en verwijdert .local (alleen als het b
 Open `http://127.0.0.1:3000`, log in met `admin` en het getoonde wachtwoord, kies **Beheer** en voeg een monteur toe.
 Dan staat er in `logs` precies één `CREATE hr.employee` met `user_id: false`. Ook het versturen van schouw- en opleverdocumenten staat in
 de demo aan: hang een monteuraccount aan een medewerker van de demo-planning (Beheer, Accounts; bijvoorbeeld *Jan de Vries*), log in als die
-monteur, kies bij *Familie Jansen* **Details** en dan **Schouw invullen**. Na het versturen staan in `logs` de regels `ATTACH ir.attachment ...`
+monteur, kies bij *Familie Jansen* **Details** en dan **Schouw invullen**. Na het versturen van een schouw staan in `logs` ook de regels `FACTS res.partner ...` (de schouwgegevens die bij de klant zijn gezet; alleen lege velden) en `ATTACH ir.attachment ...`
 en `NOTE res.partner ... no mail, no recipients`. Is een poort bezet (18069, 8070 of
 3000), dan zegt het commando welke en wat je kunt doen. `.local` is voor één Odoo tegelijk: doe `reset` voordat je
 `local:setup` voor de echte proef draait. `start` en `reset` raken een `.local` die niet bij de demo hoort nooit aan.
 
 Wat dit commando doet, als je het met de hand wilt: `bun run local:setup --odoo-url http://127.0.0.1:18069
---company-id 2 --responsible-id 2 --documents`, in `.local/gateway.env` `ODOO_API_KEY=demo` invullen, en dan in drie terminals
+--company-id 2 --responsible-id 2 --documents --customer-facts`, in `.local/gateway.env` `ODOO_API_KEY=demo` invullen, en dan in drie terminals
 `bun run local:demo-odoo`, `bun run local:gateway` en `bun run build && bun run local:dashboard`.
 
 ## 1. Odoo 20 lokaal starten

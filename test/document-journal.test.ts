@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AccountIo } from '../src/lib/accounts.ts'
-import { createDocumentJournal, DocumentJournalError, DocumentJournalFileError, requestIdFor } from '../src/lib/document-journal.ts'
+import { createDocumentJournal, DocumentJournalError, DocumentJournalFileError, factsRequestIdFor, requestIdFor } from '../src/lib/document-journal.ts'
 
 const SUBMISSION = 'f3b1c2d4-5e6f-4a7b-8c9d-0123456789ab'
 
@@ -109,4 +109,25 @@ test('a damaged file is a clear error, not an empty journal', () => {
   }
   state.text = JSON.stringify({ version: 1, documents: [{ submissionId: 'a-submission-000000001', requestId: 'doc-a-submission-000000001', state: 'sending', type: 'schouw', appointmentId: 'slot-1', by: 'acc', at: 'x', updatedAt: 'x' }, { submissionId: 'a-submission-000000001', requestId: 'doc-a-submission-000000002', state: 'sending', type: 'schouw', appointmentId: 'slot-1', by: 'acc', at: 'x', updatedAt: 'x' }] })
   assert.throws(() => journal.list(), DocumentJournalFileError, 'the same submission twice')
+})
+
+test('what became of the facts of a posted schouw is kept, only for a posted document, and a bad value is a damaged file', () => {
+  const { journal, state } = setup()
+  journal.begin(entry)
+  assert.throws(() => journal.markFacts(SUBMISSION, 'saved'), DocumentJournalError, 'a document that is not posted has no facts yet')
+  journal.markPosted(SUBMISSION, true)
+  assert.equal(journal.markFacts(SUBMISSION, 'failed').facts, 'failed')
+  assert.equal(journal.get(SUBMISSION)?.facts, 'failed')
+  assert.ok(!(state.text ?? '').includes('Jansen'), 'only a state, never a value')
+  const damaged = JSON.parse(state.text ?? '{}')
+  damaged.documents[0].facts = 'maybe'
+  state.text = JSON.stringify(damaged)
+  assert.throws(() => journal.list(), DocumentJournalFileError)
+})
+
+test('the request id of the facts is another id than the one of the document, the same for the same submission, and one the gateway accepts', () => {
+  assert.equal(factsRequestIdFor(SUBMISSION), factsRequestIdFor(SUBMISSION))
+  assert.notEqual(factsRequestIdFor(SUBMISSION), requestIdFor(SUBMISSION))
+  assert.notEqual(factsRequestIdFor(SUBMISSION), factsRequestIdFor(`${SUBMISSION}0`))
+  assert.match(factsRequestIdFor(SUBMISSION), /^[A-Za-z0-9_-]{16,64}$/)
 })

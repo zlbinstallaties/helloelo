@@ -32,7 +32,7 @@ function fakeOdoo(overrides: Partial<OdooClient> = {}) {
     searchRead: unexpected('searchRead'), searchCount: unexpected('searchCount'), fieldsGet: unexpected('fieldsGet'), createEmployee: unexpected('createEmployee'),
     setEmployeePlanningRoles: unexpected('setEmployeePlanningRoles'), checkResponsible: unexpected('checkResponsible'), checkPlanningRoles: unexpected('checkPlanningRoles'),
     listPlanningRoles: unexpected('listPlanningRoles'), readEmployee: unexpected('readEmployee'), createUnavailability: unexpected('createUnavailability'),
-    readUnavailability: unexpected('readUnavailability'), removeUnavailability: unexpected('removeUnavailability'),
+    readUnavailability: unexpected('readUnavailability'), removeUnavailability: unexpected('removeUnavailability'), readCustomerFacts: unexpected('readCustomerFacts'), writeCustomerFacts: unexpected('writeCustomerFacts'),
     async readReferencePartner(params) {
       calls.push({ method: 'readReferencePartner', params })
       return params.id === 12 ? { partnerId: 77, partnerName: 'Familie Van den Berg' } : params.id === 13 ? { partnerId: null, partnerName: null } : null

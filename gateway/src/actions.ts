@@ -1,4 +1,6 @@
-import { OdooWriteError, type OdooClient } from '../../src/lib/odoo-client.ts'
+import { CustomerFactsNotInstalledError, OdooWriteError, type OdooClient } from '../../src/lib/odoo-client.ts'
+import { customerFactSpec, validateCustomerFacts } from '../../src/lib/documents/customer-facts.ts'
+import type { CustomerFactValue } from '../../src/lib/documents/customer-facts.ts'
 import { GatewayError } from './errors.ts'
 import type { Project } from './projects.ts'
 import { createHash } from 'node:crypto'
@@ -34,6 +36,28 @@ const DOCUMENT_REFERENCES = ['planning.slot', 'svs.tech.visit'] as const
 export const MAX_PDF_BYTES = 8 * 1024 * 1024
 const FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.pdf$/
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+
+type FactsEntry = {
+  same: string
+  state: 'pending' | 'done'
+  result?: { written: string[]; kept: string[]; customer: string | null }
+  expires: number
+}
+
+/** The reference of a document or of facts: a record of the planning or of a visit, from which the customer is read. */
+function parseReference(raw: unknown): { model: string; id: number } {
+  const reference = raw as Record<string, unknown> | null | undefined
+  if (
+    !reference || typeof reference !== 'object' || Array.isArray(reference) || Object.keys(reference).some((key) => key !== 'model' && key !== 'id') ||
+    !(DOCUMENT_REFERENCES as readonly unknown[]).includes(reference.model) || typeof reference.id !== 'number' || !Number.isInteger(reference.id) || reference.id <= 0 || reference.id > 2_147_483_647
+  ) {
+    throw new GatewayError(400, 'invalid_reference', 'reference must be {model: planning.slot or svs.tech.visit, id}')
+  }
+  return { model: reference.model as string, id: reference.id }
+}
+
+/** Empty in Odoo: not set (false or null), an empty text or a zero. */
+const isEmptyValue = (value: unknown) => value === false || value === null || value === undefined || value === '' || value === 0
 
 type DocumentEntry = {
   same: string
@@ -154,6 +178,7 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
   const entries = new Map<string, Entry>()
   const unavailabilityEntries = new Map<string, UnavailabilityEntry>()
   const documentEntries = new Map<string, DocumentEntry>()
+  const factsEntries = new Map<string, FactsEntry>()
   const attempts = new Map<string, number[]>()
 
   function remember(key: string, entry: Entry) {
@@ -359,15 +384,7 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
       const requestId = validateRequestId(body.requestId)
       ctx.requestId = requestId
 
-      const reference = body.reference as Record<string, unknown> | null | undefined
-      if (
-        !reference || typeof reference !== 'object' || Array.isArray(reference) || Object.keys(reference).some((key) => key !== 'model' && key !== 'id') ||
-        !(DOCUMENT_REFERENCES as readonly unknown[]).includes(reference.model) || typeof reference.id !== 'number' || !Number.isInteger(reference.id) || reference.id <= 0 || reference.id > 2_147_483_647
-      ) {
-        throw new GatewayError(400, 'invalid_reference', 'reference must be {model: planning.slot or svs.tech.visit, id}')
-      }
-      const model = reference.model as string
-      const id = reference.id
+      const { model, id } = parseReference(body.reference)
       if (typeof body.filename !== 'string' || !FILENAME.test(body.filename)) throw new GatewayError(400, 'invalid_filename', 'filename must be letters, digits, dot, dash or underscore and end in .pdf')
       const filename = body.filename
       const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
@@ -421,6 +438,85 @@ export function createActions(options: { odoo: OdooClient; now: () => number }) 
         return entry.result
       } catch (error) {
         if (!attempted) documentEntries.delete(key)
+        throw error
+      }
+    },
+
+    /**
+     * Fills in the schouw facts of the customer of an appointment: a few fixed fields of the customer (`CUSTOMER_FACTS`) and nothing
+     * else. Only fields that are still EMPTY are set; what somebody typed, or an earlier schouw put there, is kept. The customer is
+     * read from the planning.slot or svs.tech.visit that is named; the caller can not name a customer or a field.
+     *
+     * Doing it twice does no harm (the second time the fields are not empty any more), so after an answer that did not come
+     * the request may simply be sent again.
+     */
+    async setCustomerFacts(project: Project, body: Record<string, unknown>, ctx: ActionContext) {
+      const policy = project.actions.setCustomerFacts
+      if (!policy) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: setCustomerFacts')
+      const extra = Object.keys(body).filter((key) => !['requestId', 'reference', 'facts'].includes(key))
+      if (extra.length > 0) throw new GatewayError(400, 'unknown_parameter', `unknown parameter: ${extra[0].slice(0, 40)}`)
+      const requestId = validateRequestId(body.requestId)
+      ctx.requestId = requestId
+      const { model, id } = parseReference(body.reference)
+      const checked = validateCustomerFacts(body.facts)
+      if (!checked.ok) throw new GatewayError(400, 'invalid_facts', checked.error)
+      const facts = checked.facts
+      const same = JSON.stringify([model, id, Object.entries(facts).sort(([a], [b]) => (a < b ? -1 : 1))])
+
+      const key = `${project.id}:facts:${requestId}`
+      const known = factsEntries.get(key)
+      if (known && known.expires > now()) {
+        if (known.same !== same) throw new GatewayError(409, 'request_id_reused', 'this requestId was used for other facts')
+        if (known.state === 'pending') throw new GatewayError(409, 'in_progress', 'this request is still running')
+        return { ...known.result, replayed: true }
+      }
+
+      const entry: FactsEntry = { same, state: 'pending', expires: now() + ENTRY_TTL_MS }
+      factsEntries.set(key, entry)
+      try {
+        const partner = await odoo.readReferencePartner({ model, id, companyId: project.companyId })
+        if (!partner) throw new GatewayError(404, 'reference_not_found', 'no such record in the company of the project')
+        if (partner.partnerId === null) throw new GatewayError(409, 'reference_has_no_customer', 'the record has no customer')
+
+        let current: Record<string, unknown> | null
+        try {
+          current = await odoo.readCustomerFacts({ partnerId: partner.partnerId, companyId: project.companyId })
+        } catch (error) {
+          if (error instanceof CustomerFactsNotInstalledError) throw new GatewayError(409, 'fields_not_installed', 'the customer fact fields do not exist in Odoo')
+          throw error
+        }
+        if (!current) throw new GatewayError(404, 'reference_not_found', 'the customer does not exist')
+
+        const values: Record<string, CustomerFactValue> = {}
+        const written: string[] = []
+        const kept: string[] = []
+        for (const [factKey, value] of Object.entries(facts)) {
+          const spec = customerFactSpec(factKey)
+          if (spec && isEmptyValue(current[spec.field])) {
+            values[spec.field] = value
+            written.push(factKey)
+          } else {
+            kept.push(factKey)
+          }
+        }
+
+        if (written.length > 0) {
+          const bucket = `${project.id}:facts`
+          if (limitReached(bucket, policy.maxPerHour)) throw new GatewayError(429, 'rate_limited', `at most ${policy.maxPerHour} writes of customer facts per hour`)
+          attempts.set(bucket, [...(attempts.get(bucket) ?? []), now()])
+          try {
+            await odoo.writeCustomerFacts({ partnerId: partner.partnerId, companyId: project.companyId, values })
+          } catch (error) {
+            if (error instanceof OdooWriteError && error.outcome === 'rejected') throw new GatewayError(502, 'odoo_rejected', error.odooName ?? `upstream status ${error.status}`)
+            throw new GatewayError(504, 'outcome_unknown', 'it is not known whether the facts were written; sending them again is safe')
+          }
+        }
+        entry.state = 'done'
+        entry.result = { written, kept, customer: partner.partnerName }
+        return { ...entry.result, replayed: false }
+      } catch (error) {
+        // Whatever went wrong, nothing is half done in a way that matters: a repeat is allowed.
+        if (entry.state === 'pending') factsEntries.delete(key)
         throw error
       }
     },

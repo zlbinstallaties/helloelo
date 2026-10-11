@@ -6,7 +6,7 @@
 - Odoo wordt gelezen via `src/lib/gateway.server.ts` (`searchRead`, `searchReadAll`). Geen directe Odoo-aanroepen.
   De gateway staat alleen de velden toe die `odoo_schema` laat zien; een nieuw veld voeg je toe aan de lijst in
   `src/lib/cache.ts` en aan de types in `src/lib/dashboard-types.ts`.
-- Er zijn **vier** schrijfacties naar Odoo. Elk is een vaste, smalle gateway-actie die standaard uit staat en alleen
+- Er zijn **vijf** schrijfacties naar Odoo. Elk is een vaste, smalle gateway-actie die standaard uit staat en alleen
   aangaat als het projectconfig van de gateway erom vraagt:
   1. een planner voegt een monteur toe als medewerker in Odoo, zonder Odoo-account (`src/lib/employee-service.ts`,
      `gateway-employee.ts`, `admin-handlers.ts`, in de gateway `gateway/src/actions.ts`; `docs/accounts.md`);
@@ -16,7 +16,11 @@
      (`src/lib/availability-handlers.ts`, `gateway-employee.ts`; `docs/beschikbaarheid.md`);
   4. een monteur of planner verstuurt een getekend schouw- of opleverdocument: één PDF als bijlage plus een interne
      notitie zonder ontvangers op de klant van de afspraak (`src/lib/document-handlers.ts`, `gateway-document.ts`,
-     `document-journal.ts`; `docs/documenten.md`).
+     `document-journal.ts`; `docs/documenten.md`);
+  5. na zo'n schouwdocument vult het dashboard de schouwgegevens in op de klant, in een vaste lijst velden en alleen
+     als die nog leeg zijn (`src/lib/documents/customer-facts.ts`, `gateway-customer-facts.ts`, in de gateway
+     `set_customer_facts`, en de Odoo-module `odoo_addon/dig_schouw_facts`; `docs/formulieren-schouw-oplevering.md`).
+     Er wordt nooit een veld overschreven en er wordt nooit iets anders van de klant aangeraakt.
   Voeg geen andere schrijfacties toe, en wijzig, kopieer of verbreed deze niet: wat er naar Odoo gaat, wie het mag, het
   journaal en de volgorde zijn met opzet vast. Een nieuwe schrijfactie hoort bij een opdracht die daar expliciet over
   gaat en door een mens wordt beoordeeld.
