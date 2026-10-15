@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { LogOut } from 'lucide-react'
-import { LogoMark, Wordmark } from '@/components/logo'
+import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import { api } from '#/lib/api-client'
 import type { Me } from '#/lib/session'
@@ -28,12 +28,9 @@ export function AppHeader({ me, active }: { me: Me | undefined; active: Page }) 
   return (
     <header className="border-b border-border bg-card">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          <LogoMark />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monteursdashboard · Odoo 20</p>
-            <h1 className="text-xl leading-tight"><Wordmark /></h1>
-          </div>
+        <div className="flex items-center gap-4">
+          <h1 className="m-0"><Logo /></h1>
+          <p className="hidden border-l border-border pl-4 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground md:block">Monteursdashboard · Odoo 20</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {user && (

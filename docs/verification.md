@@ -187,6 +187,18 @@ bijlage met een interne notitie (geen mail) bij de klant van de afspraak.
 | Opzettelijke fouten | 133 in gateway, client, server, journaal, telefoonlogica en opslag; 130 gevangen (veel pas na extra tests), 3 gelijkwaardig: een controle zit er dubbel (het project heeft de actie, in de route én in de actie; een `author` wordt al door de onbekende-velden-controle geweigerd) |
 | Niet gedaan | **tegen een echte Odoo 20**: `ir.attachment/create` met `vals_list`, `res.partner/message_post` met `ids` en `subtype_xmlid`, `partner_id` lezen op `planning.slot` en `svs.tech.visit` (de lokale Odoo mist die velden), de rechten van de gateway-gebruiker (bijlagen maken, notities plaatsen), en of Odoo er echt geen mail bij verstuurt; echte telefoons (camera, iOS en Android, het uit het geheugen halen van de tab) en andere browsers dan Chromium; mail naar de klant is niet gebouwd; de formuliervelden zijn voorbeeldvelden |
 
+## Huisstijl en logo
+
+`docs/huisstijl.md`. Het logo is de horizontale lock-up uit het Logopakket De Installatiegroep (koperen staaf, navy D, woordmerk in Inter Medium).
+
+| Laag | Wat is gecontroleerd |
+|---|---|
+| Vorm (`test/documents-logo.test.ts`, 7 tests) | staaf en D zijn die van het pakket (maten, plaats in de lock-up), de bogen van de D liggen op de cirkel, het woordmerk is twee contouren rechts van het teken en binnen de lock-up, de padlezer weigert wat hij niet kan tekenen, de PDF-briefkop bevat de D (even-odd) en honderden curven en niet meer het oude vierkantje, het icoon van het tabblad heeft hetzelfde teken en de inverse kleuren |
+| Chromium op 1200 px en 390 px, licht en donker | het logo is minstens 180 px breed (197 px in de kop, 251 px op het inlogscherm); in licht de kleur-variant (koper `#B87333`, navy `#16283C`) en in donker de inverse (koper `#CA8E56`, off-white `#F7F5F1`), gelezen uit de getekende kleuren; geen horizontaal scrollen; geen browserfouten |
+| Opzettelijke fouten | 10 in de vorm, de padlezer en het PDF (schaal, plaats, bogen, binnenste halve cirkel, even-odd, kleur van de staaf, woordmerk weg, onbekende opdracht); alle gevangen, één pas na een scherpere test |
+| Gezien | het logo op het inlogscherm en in de kop, licht en donker, op een telefoonscherm; het PDF (bekeken als beeld); het icoon op 96, 32 en 16 px op een lichte en een donkere ondergrond |
+| Niet gedaan | echte telefoons en andere browsers dan Chromium; het icoon op een echt tabblad in Safari; het PDF afgedrukt |
+
 ## Lokaal testpakket
 
 `docs/lokaal-testen.md`, `scripts/local-setup.ts`, `scripts/demo-odoo.mjs` en de scripts `local:*`. Met echte processen

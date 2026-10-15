@@ -1,7 +1,9 @@
 import type { JpegInfo } from './jpeg.ts'
+import type { PathSegment } from './logo.ts'
 
 /*
- * A small PDF writer with no dependencies: text in Helvetica and Times, lines, rectangles and JPEG images, on A4 pages.
+ * A small PDF writer with no dependencies: text in Helvetica and Times, lines, rectangles, filled shapes (the logo) and JPEG
+ * images, on A4 pages.
  * Enough for a form with photos and a signature; it is not a general PDF library.
  *
  *  - Text is written in WinAnsi, so Dutch accents work. A character outside it becomes "?".
@@ -128,6 +130,7 @@ type Page = { ops: string[]; images: PageImage[] }
 export type TextOptions = { size: number; font?: Font; /** `#RRGGBB`, default black. */ color?: string }
 export type LineOptions = { width?: number; color?: string }
 export type RectOptions = { stroke?: string; fill?: string; lineWidth?: number }
+export type PathOptions = { fill: string; /** Fill with the even-odd rule (a shape with a hole in it); default is the non-zero rule. */ evenOdd?: boolean }
 
 export class PdfBuilder {
   private readonly pages: Page[] = []
@@ -226,6 +229,23 @@ export class PdfBuilder {
     parts.push(options.fill !== undefined && options.stroke !== undefined ? 'B' : options.fill !== undefined ? 'f' : 'S')
     parts.push('Q')
     this.page().ops.push(parts.join(' '))
+  }
+
+  /** A filled shape made of lines and curves, in points from the bottom left. */
+  path(segments: readonly PathSegment[], options: PathOptions) {
+    const ops = segments.map((segment) => {
+      switch (segment[0]) {
+        case 'M':
+          return `${num(segment[1])} ${num(segment[2])} m`
+        case 'L':
+          return `${num(segment[1])} ${num(segment[2])} l`
+        case 'C':
+          return `${num(segment[1])} ${num(segment[2])} ${num(segment[3])} ${num(segment[4])} ${num(segment[5])} ${num(segment[6])} c`
+        case 'Z':
+          return 'h'
+      }
+    })
+    this.page().ops.push(`q ${rgb(options.fill)} rg ${ops.join(' ')} ${options.evenOdd ? 'f*' : 'f'} Q`)
   }
 
   /** Draws a JPEG with its lower left corner at (x, y), scaled to width x height points. */

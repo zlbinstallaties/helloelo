@@ -1,6 +1,7 @@
 import { YES_NO_LABELS } from './forms.ts'
 import type { FieldDef, FormDef } from './forms.ts'
 import { dataUrlToBytes, parseJpeg } from './jpeg.ts'
+import { LOCKUP, LOCKUP_MARK, MARK_BAR, mapSegments, markSegments, parsePath, WORDMARK_PATHS } from './logo.ts'
 import { PAGE_HEIGHT, PAGE_WIDTH, PdfBuilder } from './pdf.ts'
 import type { Font, PdfImage } from './pdf.ts'
 import type { CleanAnswer, CleanSubmission } from './submission.ts'
@@ -43,7 +44,7 @@ const BRAND = {
   ink: '#16283C',
   /** Secondary text; about 5:1 on white. */
   muted: '#4E6B87',
-  /** The seam of the mark and the full stop of the wordmark. Decoration only: copper is too light for small text. */
+  /** The bar of the logo and the rules under the titles. Decoration only: copper is too light for small text. */
   copper: '#B87333',
   /** The copper that may carry small text. */
   copperText: '#9F6229',
@@ -126,6 +127,23 @@ function valueText(field: FieldDef, answer: CleanAnswer | undefined): { text: st
   }
 }
 
+/**
+ * The logo of De Installatiegroep with its top left corner at (left, top): copper bar and navy D (the mark), then the wordmark, as
+ * filled shapes, so it is sharp at every size and needs no font. The lock-up is 4.49 times as wide as it is high.
+ */
+export function drawLogo(pdf: PdfBuilder, left: number, top: number, height: number) {
+  const k = height / LOCKUP.height
+  const toPdf = (x: number, y: number) => [left + x * k, top - y * k] as const
+  const inMark = (x: number, y: number) => toPdf(LOCKUP_MARK.x + (x - 6) * LOCKUP_MARK.scale, LOCKUP_MARK.y + (y - 8) * LOCKUP_MARK.scale)
+
+  const bar = MARK_BAR
+  const [barLeft, barTop] = inMark(bar.x, bar.y)
+  const [, barBottom] = inMark(bar.x, bar.y + bar.height)
+  pdf.rect(barLeft, barBottom, bar.width * LOCKUP_MARK.scale * k, barTop - barBottom, { fill: BRAND.copper })
+  pdf.path(mapSegments(markSegments(), inMark), { fill: BRAND.ink, evenOdd: true })
+  for (const d of WORDMARK_PATHS) pdf.path(mapSegments(parsePath(d), toPdf), { fill: BRAND.ink })
+}
+
 export function renderDocumentPdf(form: FormDef, context: RenderContext, submission: CleanSubmission): Uint8Array {
   const pdf = new PdfBuilder({
     title: `${form.title} – ${context.customer}`,
@@ -173,21 +191,12 @@ export function renderDocumentPdf(form: FormDef, context: RenderContext, submiss
     return label + 2 + (photoRows.get(field.id)?.[0]?.height ?? 14) + PHOTO_GAP
   }
 
-  // Letterhead: the mark (navy square with the copper seam), the wordmark and the environment on the right.
-  const mark = 26
-  pdf.rect(MARGIN, y - mark, mark, mark, { fill: BRAND.ink })
-  pdf.rect(MARGIN + (mark * 40) / 64, y - mark, (mark * 4) / 64, mark, { fill: BRAND.copper })
-  const wordmarkX = MARGIN + mark + 10
-  const wordmarkSize = 16
-  pdf.text(wordmarkX, y - mark + 8, 'De Installatiegroep', { size: wordmarkSize, font: 'serif-bold', color: BRAND.ink })
-  pdf.text(wordmarkX + pdf.textWidth('De Installatiegroep', wordmarkSize, 'serif-bold'), y - mark + 8, '.', {
-    size: wordmarkSize,
-    font: 'serif-bold',
-    color: BRAND.copper,
-  })
+  // Letterhead: the logo (the horizontal lock-up of the logo pack) and the environment on the right.
+  const logoHeight = 30
+  drawLogo(pdf, MARGIN, y, logoHeight)
   const environment = pdf.textWidth(context.companyName, 8.5)
-  pdf.text(PAGE_WIDTH - MARGIN - environment, y - mark + 9, context.companyName, { size: 8.5, color: BRAND.muted })
-  y -= mark + 14
+  pdf.text(PAGE_WIDTH - MARGIN - environment, y - logoHeight / 2 - 3, context.companyName, { size: 8.5, color: BRAND.muted })
+  y -= logoHeight + 14
   pdf.line(MARGIN, y, PAGE_WIDTH - MARGIN, y, { width: 0.75, color: BRAND.hairline })
   y -= 30
 

@@ -52,7 +52,7 @@ aanmaken en notities op klanten mogen plaatsen. Staat het uit, dan krijgt de mon
 | `src/lib/documents/form-state.ts` | Het concept op de telefoon (wijzigingen, foto's, handtekening), `toPayload`, `validateDraft`, `parseDraft`; zonder React |
 | `src/lib/documents/draft-store.ts` | Het concept bewaren (IndexedDB, met een geheugenversie voor tests); fouten van de opslag breken het formulier nooit |
 | `src/lib/documents/photo.ts`, `photo-browser.ts` | Foto's verkleinen naar 1600 px, JPEG 0,8, en zo nodig kleiner tot ze onder de grens van de server zitten |
-| `src/lib/documents/jpeg.ts`, `pdf.ts`, `render.ts` | JPEG lezen, kleine PDF-schrijver, `renderDocumentPdf`, `documentFilename`, `documentSummary` |
+| `src/lib/documents/jpeg.ts`, `pdf.ts`, `render.ts`, `logo.ts` | JPEG lezen, kleine PDF-schrijver (tekst, lijnen, vlakken, vormen, JPEG's), `renderDocumentPdf`, `documentFilename`, `documentSummary`, en de vorm van het logo |
 | `src/lib/document-handlers.ts`, `document-journal.ts` | De serverroute met rechten, en het journaal |
 | `src/lib/gateway-document.ts`, `gateway.server.ts` | De aanroep van de gateway en de uitleg van het antwoord |
 | `src/components/documents/*`, `src/routes/document.$type.$appointmentId.tsx` | Het scherm: formulier, handtekening, foto's |
@@ -86,18 +86,18 @@ Bronnen: "Logo De Installatiegroep" en "Audit — De Installatiegroep Design Sys
 
 | Token | Waarde | Gebruik |
 |---|---|---|
-| Navy (ink) | `#16283C` | tekst, titels, het merkteken |
+| Navy (ink) | `#16283C` | tekst, titels, de D en het woordmerk van het logo |
 | Papier | `#F7F5F1` | achtergrond van panelen |
-| Koper (naad) | `#B87333` | alleen decoratie: de naad in het merkteken, de punt in het woordmerk, streepjes |
+| Koper | `#B87333` | alleen decoratie: de staaf van het logo, de streepjes onder titels |
 | Koper voor tekst | `#9F6229` | kleine tekst in koper |
 | Secundaire tekst | `#4E6B87` | labels, voettekst (ongeveer 5:1 op wit) |
 | Haarlijn | `#DCDCDB` | randen en scheidingslijnen |
 
 - Lettertypen: Fraunces (serif) voor titels, Inter voor lopende tekst.
-- Woordmerk: "De Installatiegroep" in Fraunces 600 met een koperen punt; merkteken is een navy vierkant met een
-  koperen streep op 40/64 van de breedte.
-- **PDF**: gebruikt deze kleuren. Het gebruikt Times-Bold en Helvetica als vervanging voor Fraunces en Inter (dat zijn
-  de reservelettertypen uit de huisstijl zelf). De echte lettertypen insluiten vraagt de fontbestanden en een
+- Logo: de horizontale lock-up uit het Logopakket De Installatiegroep (koperen staaf, navy D, woordmerk in Inter Medium); zie
+  `docs/huisstijl.md`.
+- **PDF**: tekent het logo als gevulde vormen (`drawLogo`), dus scherp op elke schaal en zonder lettertype. De titels gebruiken Times-Bold en de
+  tekst Helvetica als vervanging voor Fraunces en Inter (dat zijn de reservelettertypen uit de huisstijl zelf). De echte lettertypen insluiten vraagt de fontbestanden en een
   subset-stap; dat is niet gedaan.
 - **Dashboard**: `src/styles.css` heeft dezelfde waarden als tokens (zie `docs/huisstijl.md`), dus scherm en PDF passen bij
   elkaar. Het formulier gebruikt de shadcn-componenten met die kleuren, niet de eigen formuliercomponenten van het

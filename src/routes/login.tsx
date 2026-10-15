@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { LogIn } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { LogoMark, Wordmark } from '@/components/logo'
+import { Logo } from '@/components/logo'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,12 +44,9 @@ function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-3">
-          <LogoMark />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monteursdashboard</p>
-            <h1 className="text-xl leading-tight"><Wordmark /></h1>
-          </div>
+        <div className="mb-6 grid justify-items-center gap-3">
+          <h1 className="m-0"><Logo className="h-14 w-auto" /></h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monteursdashboard</p>
         </div>
         <Card>
           <CardHeader>
