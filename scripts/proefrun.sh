@@ -2,7 +2,7 @@
 # Proefrun van de DIG Builder-agent op het monteursdashboard.
 #
 #   ANTHROPIC_API_KEY=sk-ant-... scripts/proefrun.sh "<opdracht>"
-#   ANTHROPIC_API_KEY=sk-ant-... scripts/proefrun.sh zoekveld | kaart | monteur | alles
+#   ANTHROPIC_API_KEY=sk-ant-... scripts/proefrun.sh zoekveld | kaart | alles
 #
 # Een vaste opdracht kies je op naam; "alles" draait ze na elkaar en maakt één rapport (zie docs/proefrun.md).
 #
@@ -18,19 +18,17 @@ set -euo pipefail
 
 ARG="${1:-}"
 if [ -z "$ARG" ]; then
-  echo "gebruik: scripts/proefrun.sh \"<opdracht>\" | zoekveld | kaart | monteur | alles   (zie docs/proefrun.md)" >&2
+  echo "gebruik: scripts/proefrun.sh \"<opdracht>\" | zoekveld | kaart | alles   (zie docs/proefrun.md)" >&2
   exit 1
 fi
 TASK_ZOEKVELD="Voeg boven de lijst met afspraken een zoekveld toe waarmee je afspraken kunt filteren op klantnaam of adres, zonder op hoofdletters te letten. Het filter werkt in de browser op de afspraken die al getoond worden; een lege zoekterm toont alles. Laat een duidelijke melding zien als er niets gevonden is."
 TASK_KAART="Voeg bij het overzicht bovenaan een kaart toe met het aantal DIG-bezoeken per status (concept, in uitvoering, afgerond), voor de afspraken die getoond worden. Gebruik alleen gegevens die het dashboard al ophaalt."
-TASK_MONTEUR="Het monteursfilter werkt nu op naam, waardoor twee monteurs met dezelfde naam door elkaar lopen. Laat het filter werken op een stabiel id van de monteur in plaats van op de naam. In de keuzelijst blijft de naam staan, en ook bij gelijke namen moet elke keuze afzonderlijk te kiezen zijn."
 LABELS=()
 TASKS=()
 case "$ARG" in
   zoekveld) LABELS=(zoekveld); TASKS=("$TASK_ZOEKVELD") ;;
   kaart)    LABELS=(kaart);    TASKS=("$TASK_KAART") ;;
-  monteur)  LABELS=(monteur);  TASKS=("$TASK_MONTEUR") ;;
-  alles)    LABELS=(zoekveld kaart monteur); TASKS=("$TASK_ZOEKVELD" "$TASK_KAART" "$TASK_MONTEUR") ;;
+  alles)    LABELS=(zoekveld kaart); TASKS=("$TASK_ZOEKVELD" "$TASK_KAART") ;;
   *)        LABELS=(eigen);    TASKS=("$ARG") ;;
 esac
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ] && [ -z "${ANTHROPIC_BASE_URL:-}" ]; then

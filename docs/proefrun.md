@@ -21,21 +21,21 @@ export ANTHROPIC_API_KEY=sk-ant-...
 scripts/proefrun.sh alles
 ```
 
-`alles` draait drie opdrachten na elkaar op een schone kopie van het dashboard, met een demo-Odoo vol lastige
+`alles` draait twee opdrachten na elkaar op een schone kopie van het dashboard, met een demo-Odoo vol lastige
 testgegevens, en maakt aan het eind **één rapport** om terug te sturen. Je kunt ze ook los draaien:
 
 | Naam | Opdracht | Waarom |
 |---|---|---|
 | `zoekveld` | Een zoekveld boven de lijst om op klantnaam of adres te filteren (in de browser, hoofdletterongevoelig, melding bij geen resultaat) | Kleine, frontend-gerichte wijziging |
 | `kaart` | Een kaart met het aantal DIG-bezoeken per status voor de getoonde afspraken, alleen met gegevens die al worden opgehaald | Werkt met de gegevens en met onbekende statussen |
-| `monteur` | Het monteursfilter werkt op naam, dus twee monteurs met dezelfde naam lopen door elkaar; laat het op een stabiel id werken | Echt ontwerpwerk: er zijn verschillende id's (medewerker, gebruiker) |
 
-Of geef zelf een opdracht: `scripts/proefrun.sh "Als ... dan ..."`. (De eerdere opdracht over meerdere bezoeken per
-afspraak is opgelost; zie `docs/proefrun-resultaten.md`.)
+Of geef zelf een opdracht: `scripts/proefrun.sh "Als ... dan ..."`. (De eerdere opdrachten over meerdere bezoeken per
+afspraak en over het monteursfilter op een stabiel id zijn opgelost; zie `docs/proefrun-resultaten.md`
+en `docs/verification.md`.)
 
 Elke run begint op `master` van de kopie. Standaard geldt per run een **kostenlimiet van $5** en maximaal 40
 beurten; de run stopt zelf vóór het volgende verzoek als de schatting de limiet bereikt. Reken op ongeveer
-$0.50 per opdracht, dus $1 tot $2 voor `alles`.
+$0.50 per opdracht, dus ongeveer $1 voor `alles`.
 
 De agent heeft naast de checks (typecheck, lint, test, build) de tool `probe_app`: die bouwt de app, start hem op
 de testgegevens van `scripts/demo-data.mjs` en geeft terug wat een aantal adressen opleveren, zodat hij ziet wat

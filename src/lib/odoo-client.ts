@@ -1,16 +1,29 @@
 /*
- * Standalone, read-only Odoo client (External JSON-2 API, Odoo 19+).
+ * Standalone Odoo client (External JSON-2 API, Odoo 19+).
  *
- * No platform imports on purpose: this file can run in a Worker, Node or a
- * test. Config and secrets are injected by `odoo.server.ts`.
+ * No platform imports on purpose: this file can run in Node or a test.
+ * Config and secrets are injected by the caller (`gateway/src/main.ts`).
  *
  * Safety properties:
- *  - Only read methods are exposed (`search_read`, `search_count`,
- *    `fields_get`). No create / write / unlink / generic call.
- *  - Models are checked against an allowlist given at construction time.
+ *  - The generic methods are read-only (`search_read`, `search_count`,
+ *    `fields_get`). There is no generic create / write / unlink / call.
+ *  - Models of the generic methods are checked against an allowlist given at
+ *    construction time. `hr.employee` and `res.users` are not on it.
  *  - A company filter is always added to the domain and to the context.
  *  - The API key is sent only in the Authorization header and never ends up
  *    in error messages.
+ *
+ * The one write is `createEmployee`: it creates a technician as an `hr.employee`
+ * WITHOUT an Odoo user (`user_id` is always false) from a fixed set of values.
+ * It cannot take another model, another field or another value for `user_id`.
+ * Next to it two fixed reads: `checkResponsible` (is this Odoo user a valid
+ * responsible for the company) and `readEmployee` (read back what was created).
+ *
+ * The other writes are just as narrow and each takes a fixed set of values: `setEmployeePlanningRoles` (the planning
+ * roles of one employee), `createUnavailability` and `removeUnavailability` (one `resource.calendar.leaves` record that
+ * says one employee is not available: it is no shift and no planning), and `postDocument` (one PDF as an attachment
+ * of one customer, with an internal note that sends no mail). The customer of a document is read from a planning.slot
+ * or svs.tech.visit (`readReferencePartner`); it is never a value the caller can choose.
  */
 
 export interface OdooClientConfig {
@@ -54,22 +67,153 @@ export interface OdooFieldInfo {
   [key: string]: unknown
 }
 
+export interface CreateEmployeeParams {
+  /** Display name of the technician. */
+  name: string
+  companyId: number
+  /** The Odoo user who is responsible for the employee (`hr_responsible_id`). Never the technician. */
+  responsibleUserId: number
+  /** Start date of the first version of the employee, `YYYY-MM-DD`. */
+  dateVersion: string
+  /** `planning.role` ids the employee gets (`planning_role_ids`); empty or absent: none. */
+  planningRoleIds?: readonly number[]
+  /** One of `planningRoleIds` (`default_planning_role_id`). */
+  defaultPlanningRoleId?: number | null
+}
+
+/** Whether an Odoo user may be the responsible of an employee of a company. */
+export interface ResponsibleCheck {
+  exists: boolean
+  active: boolean
+  /** An internal user, not a portal or public one. */
+  internal: boolean
+  inCompany: boolean
+}
+
+export interface EmployeeRecord {
+  id: number
+  name: string
+  companyId: number | null
+  /** `planning_role_ids`; null when they were not asked for. */
+  planningRoleIds: number[] | null
+  /** `default_planning_role_id`; null when it was not asked for or is empty. */
+  defaultPlanningRoleId: number | null
+  /** The Odoo user linked to the employee, when Odoo gave its id in a shape we understand. */
+  userId: number | null
+  /**
+   * True unless Odoo said `user_id` is empty (`false`). Also true when a user is linked but its id could not be read,
+   * so an unexpected answer never counts as "no Odoo login".
+   */
+  userLinked: boolean
+  active: boolean
+  /** `resource_id`, `resource_calendar_id` and `tz`; null when they were not asked for (`resource: true`) or are empty. */
+  resourceId: number | null
+  resourceCalendarId: number | null
+  tz: string | null
+}
+
+/** One `resource.calendar.leaves` record, as read back. The dates are Odoo's own `YYYY-MM-DD HH:MM:SS` (UTC). */
+export interface UnavailabilityRecord {
+  id: number
+  name: string
+  /** The resource (the employee) it is for; null for a leave of nobody in particular. */
+  resourceId: number | null
+  dateFrom: string
+  dateTo: string
+}
+
+export interface CreateUnavailabilityParams {
+  name: string
+  /** `resource.resource` of the employee. */
+  resourceId: number
+  /** The working schedule of the employee, when known; none is sent otherwise. */
+  calendarId?: number | null
+  companyId: number
+  /** `YYYY-MM-DD HH:MM:SS`, UTC. */
+  dateFrom: string
+  dateTo: string
+}
+
+export interface ReferencePartner {
+  partnerId: number | null
+  partnerName: string | null
+}
+
+export interface PostDocumentParams {
+  /** The customer (`res.partner`) the file goes on; read from the reference record, never from a caller. */
+  partnerId: number
+  companyId: number
+  /** `schouw-familie-20261008.pdf`: letters, digits, dot, dash and underscore. */
+  filename: string
+  pdfBase64: string
+  /** One line for the internal note. */
+  note: string
+}
+
+export interface PostDocumentResult {
+  attachmentId: number
+  /** False when the file is on the customer but the note could not be added. */
+  noted: boolean
+}
+
+/** The only records a document can be tied to; both hold the customer in `partner_id`. */
+const REFERENCE_MODELS = ['planning.slot', 'svs.tech.visit'] as const
+
 export interface OdooClient {
   searchRead<T = Record<string, unknown>>(params: SearchReadParams): Promise<T[]>
   searchCount(params: SearchCountParams): Promise<number>
   /** Field definitions of an allowed model; contains no records. */
   fieldsGet(model: string, attributes?: string[]): Promise<Record<string, OdooFieldInfo>>
+  /** Creates one `hr.employee` without an Odoo user and returns the id Odoo confirms. Throws `OdooWriteError`. */
+  createEmployee(params: CreateEmployeeParams): Promise<number>
+  checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck>
+  /** Which of these `planning.role` ids exist and are active. */
+  checkPlanningRoles(params: { ids: readonly number[]; companyId: number }): Promise<number[]>
+  /** The active planning roles (`planning.role`), by name: what a planner can give a new employee. */
+  listPlanningRoles(params: { companyId: number }): Promise<Array<{ id: number; name: string }>>
+  /** Replaces the planning roles of one employee (`write` of `planning_role_ids` and `default_planning_role_id` only). Throws `OdooWriteError`. */
+  setEmployeePlanningRoles(params: { id: number; companyId: number; planningRoleIds: readonly number[]; defaultPlanningRoleId?: number | null }): Promise<void>
+  /** `planningRoles: true` also reads `planning_role_ids` and `default_planning_role_id` (the Planning module must be installed). */
+  readEmployee(params: { id: number; companyId: number; planningRoles?: boolean; resource?: boolean }): Promise<EmployeeRecord | null>
+  /** Creates one `resource.calendar.leaves` for one employee and returns the id Odoo confirms. Throws `OdooWriteError`. */
+  createUnavailability(params: CreateUnavailabilityParams): Promise<number>
+  /** One fixed `resource.calendar.leaves` record by id, or null when there is none. */
+  readUnavailability(params: { id: number; companyId: number }): Promise<UnavailabilityRecord | null>
+  /** Removes one `resource.calendar.leaves` record. Throws `OdooWriteError`. */
+  removeUnavailability(params: { id: number; companyId: number }): Promise<void>
+  /** The customer of a planning.slot or svs.tech.visit in the company, or null when there is no such record. */
+  readReferencePartner(params: { model: string; id: number; companyId: number }): Promise<ReferencePartner | null>
+  /** Puts a PDF on a customer: an attachment and an internal note without recipients. Throws `OdooWriteError` (see there). */
+  postDocument(params: PostDocumentParams): Promise<PostDocumentResult>
 }
 
 export class OdooError extends Error {
   status: number
   odooName: string | null
+  /** Odoo itself answered with an error (as opposed to no or an unusable answer). */
+  answered: boolean
 
-  constructor(message: string, status: number, odooName: string | null = null) {
+  constructor(message: string, status: number, odooName: string | null = null, answered = false) {
     super(message)
     this.name = 'OdooError'
     this.status = status
     this.odooName = odooName
+    this.answered = answered
+  }
+}
+
+/**
+ * A failed write. `rejected`: Odoo answered with an error, so nothing was created and trying again is safe.
+ * `unknown`: no usable answer (network, time-out, a proxy error, an odd reply): the record may exist, so
+ * trying again could create a second one.
+ */
+export class OdooWriteError extends OdooError {
+  outcome: 'rejected' | 'unknown'
+
+  constructor(message: string, status: number, outcome: 'rejected' | 'unknown', odooName: string | null = null) {
+    super(message, status, odooName, outcome === 'rejected')
+    this.name = 'OdooWriteError'
+    this.outcome = outcome
   }
 }
 
@@ -113,7 +257,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     }
   }
 
-  async function call(model: string, method: string, body: Record<string, unknown>): Promise<unknown> {
+  async function call(model: string, method: string, body: Record<string, unknown>, verb = 'read', callTimeoutMs = timeoutMs): Promise<unknown> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json; charset=utf-8',
       Authorization: `bearer ${config.apiKey}`,
@@ -121,7 +265,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     if (config.database) headers['X-Odoo-Database'] = config.database
 
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs)
     let response: Response
     try {
       response = await doFetch(`${baseUrl}/json/2/${model}/${method}`, {
@@ -133,7 +277,7 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     } catch (error) {
       const timedOut = error instanceof Error && error.name === 'AbortError'
       throw new OdooError(
-        timedOut ? `Odoo ${model} read timed out` : `Odoo ${model} read failed (network)`,
+        timedOut ? `Odoo ${model} ${verb} timed out` : `Odoo ${model} ${verb} failed (network)`,
         0,
       )
     } finally {
@@ -155,9 +299,10 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
       const odooName = typeof info.name === 'string' ? info.name : null
       const message = typeof info.message === 'string' ? info.message.slice(0, 200) : ''
       throw new OdooError(
-        `Odoo ${model} read failed (${response.status})${message ? `: ${message}` : ''}`,
+        `Odoo ${model} ${verb} failed (${response.status})${message ? `: ${message}` : ''}`,
         response.status,
         odooName,
+        odooName !== null,
       )
     }
     return payload
@@ -215,5 +360,350 @@ export function createOdooClient(config: OdooClientConfig): OdooClient {
     return payload as Record<string, OdooFieldInfo>
   }
 
-  return { searchRead, searchCount, fieldsGet }
+  const isId = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0
+  /** The id of a related record: Odoo 20 sends `[id, display_name]` for a many2one; a bare id or `{id}` is accepted too. */
+  const relatedId = (value: unknown): number | null => {
+    if (isId(value)) return value
+    if (Array.isArray(value)) return isId(value[0]) ? value[0] : null
+    if (value && typeof value === 'object' && isId((value as { id?: unknown }).id)) return (value as { id: number }).id
+    return null
+  }
+  const hasControlCharacter = (value: string) => [...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+
+  function validDate(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+    const date = new Date(`${value}T00:00:00Z`)
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  }
+
+  /** `rejected` only when Odoo itself answered with an error; every other failure leaves the outcome open. */
+  function toWriteError(error: unknown): OdooWriteError {
+    if (error instanceof OdooWriteError) return error
+    if (error instanceof OdooError) {
+      const definite = error.answered && ((error.status >= 400 && error.status < 500) || error.status === 500)
+      return new OdooWriteError(error.message, error.status, definite ? 'rejected' : 'unknown', error.odooName)
+    }
+    return new OdooWriteError('Odoo hr.employee write failed', 0, 'unknown')
+  }
+
+  async function createEmployee(params: CreateEmployeeParams): Promise<number> {
+    // Only these four values are read; anything else in `params` is ignored, `user_id` is never taken from it.
+    const name = typeof params?.name === 'string' ? params.name.trim() : ''
+    if (name.length < 1 || name.length > 80 || hasControlCharacter(name)) {
+      throw new OdooWriteError('Invalid employee name', 0, 'rejected')
+    }
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (!isId(params.responsibleUserId)) throw new OdooWriteError('responsibleUserId is required', 0, 'rejected')
+    if (!validDate(params.dateVersion)) throw new OdooWriteError('Invalid dateVersion', 0, 'rejected')
+
+    const roles = params.planningRoleIds ?? []
+    if (!Array.isArray(roles) || roles.length > 5 || roles.some((id) => !isId(id)) || new Set(roles).size !== roles.length) {
+      throw new OdooWriteError('Invalid planningRoleIds', 0, 'rejected')
+    }
+    const defaultRole = params.defaultPlanningRoleId ?? null
+    if (defaultRole !== null && (!isId(defaultRole) || !roles.includes(defaultRole))) {
+      throw new OdooWriteError('Invalid defaultPlanningRoleId', 0, 'rejected')
+    }
+    const vals: Record<string, unknown> = {
+      name,
+      company_id: params.companyId,
+      hr_responsible_id: params.responsibleUserId,
+      user_id: false,
+      date_version: params.dateVersion,
+    }
+    // Planning roles are set only when the configuration says so; never from a request.
+    if (roles.length > 0) vals.planning_role_ids = [[6, 0, [...roles]]]
+    if (defaultRole !== null) vals.default_planning_role_id = defaultRole
+    let payload: unknown
+    try {
+      payload = await call(
+        'hr.employee',
+        'create',
+        {
+          vals_list: [vals],
+          // No chatter followers or mails because of this create.
+          context: { allowed_company_ids: [params.companyId], mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true },
+        },
+        'write',
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const id = Array.isArray(payload) && payload.length === 1 ? payload[0] : payload
+    if (!isId(id)) throw new OdooWriteError('Odoo hr.employee returned an unexpected response', 200, 'unknown')
+    return id
+  }
+
+  async function checkResponsible(params: { userId: number; companyId: number }): Promise<ResponsibleCheck> {
+    if (!isId(params?.userId)) throw new OdooError('userId is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('res.users', 'search_read', {
+      domain: [['id', '=', params.userId]],
+      fields: ['id', 'active', 'share', 'company_ids'],
+      limit: 1,
+      // Inactive users are found too, so that they can be reported as inactive.
+      context: { allowed_company_ids: [params.companyId], active_test: false },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo res.users returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.userId)
+    if (!row) return { exists: false, active: false, internal: false, inCompany: false }
+    return {
+      exists: true,
+      active: row.active === true,
+      internal: row.share === false,
+      // `company_ids` is a many2many: Odoo 20 sends a list of ids; a list of `[id, name]` pairs is accepted too.
+      inCompany: Array.isArray(row.company_ids) && row.company_ids.some((item) => relatedId(item) === params.companyId),
+    }
+  }
+
+  async function setEmployeePlanningRoles(params: { id: number; companyId: number; planningRoleIds: readonly number[]; defaultPlanningRoleId?: number | null }): Promise<void> {
+    // Only these four values are read from `params`: the one employee, the company and the roles. Nothing else is written.
+    if (!isId(params?.id)) throw new OdooWriteError('id is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    const roles = params.planningRoleIds
+    if (!Array.isArray(roles) || roles.length > 5 || roles.some((id) => !isId(id)) || new Set(roles).size !== roles.length) {
+      throw new OdooWriteError('Invalid planningRoleIds', 0, 'rejected')
+    }
+    const defaultRole = params.defaultPlanningRoleId ?? null
+    if (defaultRole !== null && (!isId(defaultRole) || !roles.includes(defaultRole))) {
+      throw new OdooWriteError('Invalid defaultPlanningRoleId', 0, 'rejected')
+    }
+    let payload: unknown
+    try {
+      payload = await call(
+        'hr.employee',
+        'write',
+        {
+          ids: [params.id],
+          vals: { planning_role_ids: [[6, 0, [...roles]]], default_planning_role_id: defaultRole ?? false },
+          context: { allowed_company_ids: [params.companyId], mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true },
+        },
+        'write',
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    // Odoo answers `true`; anything else is not a usable answer: the outcome is open (a repeat is safe: it sets the same roles).
+    if (payload !== true) throw new OdooWriteError('Odoo hr.employee returned an unexpected response', 200, 'unknown')
+  }
+
+  async function checkPlanningRoles(params: { ids: readonly number[]; companyId: number }): Promise<number[]> {
+    if (!Array.isArray(params?.ids) || params.ids.length === 0 || params.ids.length > 5 || params.ids.some((id) => !isId(id))) {
+      throw new OdooError('ids must be 1 to 5 positive integers', 0)
+    }
+    checkCompany(params.companyId)
+    const payload = await call('planning.role', 'search_read', {
+      domain: [['id', 'in', [...params.ids]]],
+      fields: ['id'],
+      limit: 5,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo planning.role returned an unexpected response', 200)
+    return (payload as Array<Record<string, unknown>>).map((row) => row?.id).filter((id): id is number => isId(id) && params.ids.includes(id))
+  }
+
+  async function listPlanningRoles(params: { companyId: number }): Promise<Array<{ id: number; name: string }>> {
+    checkCompany(params.companyId)
+    const payload = await call('planning.role', 'search_read', {
+      domain: [],
+      fields: ['id', 'name'],
+      order: 'name, id',
+      limit: 200,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo planning.role returned an unexpected response', 200)
+    return (payload as Array<Record<string, unknown>>)
+      .filter((row) => isId(row?.id) && typeof row.name === 'string' && row.name.trim() !== '')
+      .map((row) => ({ id: row.id as number, name: (row.name as string).slice(0, 80) }))
+  }
+
+  async function readEmployee(params: { id: number; companyId: number; planningRoles?: boolean; resource?: boolean }): Promise<EmployeeRecord | null> {
+    if (!isId(params?.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('hr.employee', 'search_read', {
+      // No company in the domain: an employee in another company must show up as such, not as "not found".
+      domain: [['id', '=', params.id]],
+      fields: [
+        'id', 'name', 'company_id', 'user_id', 'active',
+        ...(params.planningRoles === true ? ['planning_role_ids', 'default_planning_role_id'] : []),
+        ...(params.resource === true ? ['resource_id', 'resource_calendar_id', 'tz'] : []),
+      ],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId], active_test: false },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo hr.employee returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    return {
+      id: params.id,
+      name: typeof row.name === 'string' ? row.name : '',
+      companyId: relatedId(row.company_id),
+      // A many2many comes as a list of ids; only ids are kept, anything else is ignored.
+      planningRoleIds: params.planningRoles === true ? (Array.isArray(row.planning_role_ids) ? row.planning_role_ids.map(relatedId).filter((id): id is number => id !== null) : []) : null,
+      defaultPlanningRoleId: params.planningRoles === true ? relatedId(row.default_planning_role_id) : null,
+      userId: relatedId(row.user_id),
+      // Only an explicit empty value means "no Odoo login"; a missing field or an odd shape counts as linked.
+      userLinked: row.user_id !== false && row.user_id !== null,
+      active: row.active === true,
+      resourceId: params.resource === true ? relatedId(row.resource_id) : null,
+      resourceCalendarId: params.resource === true ? relatedId(row.resource_calendar_id) : null,
+      tz: params.resource === true && typeof row.tz === 'string' && row.tz !== '' ? row.tz : null,
+    }
+  }
+
+  const odooDateTime = (value: unknown): value is string => {
+    if (typeof value !== 'string') return false
+    const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value)
+    if (!match) return false
+    const [, year, month, day, hour, minute, second] = match.map(Number)
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second))
+    return date.toISOString().slice(0, 19).replace('T', ' ') === value
+  }
+
+  async function createUnavailability(params: CreateUnavailabilityParams): Promise<number> {
+    // Only these values are read from `params`; the company of the record is Odoo's own business (a computed field).
+    const name = typeof params?.name === 'string' ? params.name.trim() : ''
+    if (name.length < 1 || name.length > 255 || hasControlCharacter(name)) throw new OdooWriteError('Invalid name', 0, 'rejected')
+    if (!isId(params.resourceId)) throw new OdooWriteError('resourceId is required', 0, 'rejected')
+    const calendarId = params.calendarId ?? null
+    if (calendarId !== null && !isId(calendarId)) throw new OdooWriteError('Invalid calendarId', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (!odooDateTime(params.dateFrom) || !odooDateTime(params.dateTo) || params.dateFrom >= params.dateTo) {
+      throw new OdooWriteError('Invalid dates', 0, 'rejected')
+    }
+    let payload: unknown
+    try {
+      payload = await call(
+        'resource.calendar.leaves',
+        'create',
+        {
+          vals_list: [{ name, resource_id: params.resourceId, ...(calendarId !== null && { calendar_id: calendarId }), date_from: params.dateFrom, date_to: params.dateTo }],
+          context: { allowed_company_ids: [params.companyId], mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true },
+        },
+        'write',
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const id = Array.isArray(payload) && payload.length === 1 ? payload[0] : null
+    if (!isId(id)) throw new OdooWriteError('Odoo resource.calendar.leaves returned an unexpected response', 200, 'unknown')
+    return id
+  }
+
+  async function readUnavailability(params: { id: number; companyId: number }): Promise<UnavailabilityRecord | null> {
+    if (!isId(params?.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call('resource.calendar.leaves', 'search_read', {
+      domain: [['id', '=', params.id]],
+      fields: ['id', 'name', 'resource_id', 'date_from', 'date_to'],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError('Odoo resource.calendar.leaves returned an unexpected response', 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    return {
+      id: params.id,
+      name: typeof row.name === 'string' ? row.name : '',
+      resourceId: relatedId(row.resource_id),
+      dateFrom: typeof row.date_from === 'string' ? row.date_from : '',
+      dateTo: typeof row.date_to === 'string' ? row.date_to : '',
+    }
+  }
+
+  async function removeUnavailability(params: { id: number; companyId: number }): Promise<void> {
+    if (!isId(params?.id)) throw new OdooWriteError('id is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    let payload: unknown
+    try {
+      payload = await call('resource.calendar.leaves', 'unlink', { ids: [params.id], context: { allowed_company_ids: [params.companyId] } }, 'write')
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    // Odoo answers `true`; anything else is not a usable answer: the record may or may not be gone (removing it again is harmless).
+    if (payload !== true) throw new OdooWriteError('Odoo resource.calendar.leaves returned an unexpected response', 200, 'unknown')
+  }
+
+  async function readReferencePartner(params: { model: string; id: number; companyId: number }): Promise<ReferencePartner | null> {
+    if (!(REFERENCE_MODELS as readonly string[]).includes(params?.model)) throw new OdooError('model is not a reference of a document', 0)
+    if (!isId(params.id)) throw new OdooError('id is required', 0)
+    checkCompany(params.companyId)
+    const payload = await call(params.model, 'search_read', {
+      domain: [['id', '=', params.id], ['company_id', '=', params.companyId]],
+      fields: ['id', 'partner_id'],
+      limit: 1,
+      context: { allowed_company_ids: [params.companyId] },
+    })
+    if (!Array.isArray(payload)) throw new OdooError(`Odoo ${params.model} returned an unexpected response`, 200)
+    const row = (payload as Array<Record<string, unknown>>).find((item) => item?.id === params.id)
+    if (!row) return null
+    const partnerId = relatedId(row.partner_id)
+    const name = Array.isArray(row.partner_id) && typeof row.partner_id[1] === 'string' ? row.partner_id[1].slice(0, 120) : null
+    return { partnerId, partnerName: partnerId === null ? null : name }
+  }
+
+  const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+  const MAX_PDF_BASE64 = 12_000_000
+  const DOCUMENT_TIMEOUT_MS = 60_000
+
+  /** The note is plain text: markup characters are not sent, so that a name can never be taken as HTML. */
+  const plainNote = (text: string) => text.replace(/[<>&]/g, ' ').replace(/ {2,}/g, ' ').trim()
+
+  async function postDocument(params: PostDocumentParams): Promise<PostDocumentResult> {
+    // Only these five values are read from `params`; the customer is the one the caller got from `readReferencePartner`.
+    if (!isId(params?.partnerId)) throw new OdooWriteError('partnerId is required', 0, 'rejected')
+    if (!isId(params.companyId)) throw new OdooWriteError('companyId is required', 0, 'rejected')
+    if (typeof params.filename !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,100}\.pdf$/.test(params.filename)) throw new OdooWriteError('Invalid filename', 0, 'rejected')
+    const data = params.pdfBase64
+    if (typeof data !== 'string' || data.length < 8 || data.length > MAX_PDF_BASE64 || data.length % 4 !== 0 || !BASE64.test(data)) throw new OdooWriteError('Invalid file', 0, 'rejected')
+    const head = Buffer.from(data.slice(0, 8), 'base64').toString('latin1')
+    const tail = Buffer.from(data.slice(-2048), 'base64').toString('latin1')
+    if (!head.startsWith('%PDF-') || !tail.includes('%%EOF')) throw new OdooWriteError('The file is not a PDF', 0, 'rejected')
+    const note = typeof params.note === 'string' ? plainNote(params.note) : ''
+    if (note.length < 1 || params.note.length > 500 || hasControlCharacter(params.note)) throw new OdooWriteError('Invalid note', 0, 'rejected')
+
+    let created: unknown
+    try {
+      created = await call(
+        'ir.attachment',
+        'create',
+        {
+          vals_list: [{ name: params.filename, type: 'binary', datas: data, mimetype: 'application/pdf', res_model: 'res.partner', res_id: params.partnerId }],
+          context: { allowed_company_ids: [params.companyId] },
+        },
+        'write',
+        DOCUMENT_TIMEOUT_MS,
+      )
+    } catch (error) {
+      throw toWriteError(error)
+    }
+    const attachmentId = Array.isArray(created) && created.length === 1 ? created[0] : null
+    if (!isId(attachmentId)) throw new OdooWriteError('Odoo ir.attachment returned an unexpected response', 200, 'unknown')
+
+    // The file is on the customer now. The note only makes it show up in the chatter; if it fails the document is still there.
+    try {
+      await call(
+        'res.partner',
+        'message_post',
+        {
+          ids: [params.partnerId],
+          body: note,
+          message_type: 'comment',
+          // An internal note, with no recipients: it sends no mail.
+          subtype_xmlid: 'mail.mt_note',
+          attachment_ids: [attachmentId],
+          context: { allowed_company_ids: [params.companyId], mail_post_autofollow: false, mail_create_nosubscribe: true, mail_auto_subscribe_no_notify: true, mail_notrack: true },
+        },
+        'write',
+      )
+    } catch {
+      return { attachmentId, noted: false }
+    }
+    return { attachmentId, noted: true }
+  }
+
+  return {
+    searchRead, searchCount, fieldsGet, createEmployee, setEmployeePlanningRoles, checkResponsible, checkPlanningRoles, listPlanningRoles, readEmployee,
+    createUnavailability, readUnavailability, removeUnavailability, readReferencePartner, postDocument,
+  }
 }

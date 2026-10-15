@@ -1,5 +1,9 @@
 /*
- * HelloLeo Design System -- READ BEFORE STYLING.
+ * De Installatiegroep -- design tokens. READ BEFORE STYLING.
+ *
+ * The colours, the typefaces and the logo come from the brand in Claude Design (the canvas "Logo De Installatiegroep" and the
+ * tokens of the design system, light and dark): paper #F7F5F1 and navy ink #16283C, with a copper accent (the "seam") #B87333.
+ * Fraunces (display) and Inter (text) are served from this app (no request to a font service). See docs/huisstijl.md.
  *
  * Design tokens are the single source of truth and power the no-code Design
  * panel (the user edits colors / fonts / radius visually). Conventions:
@@ -19,6 +23,8 @@
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces/opsz.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -59,117 +65,140 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Inter", system-ui, sans-serif;
-  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --color-copper: var(--copper);
+  --color-copper-soft: var(--copper-soft);
+  --color-seam: var(--seam);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-paper: var(--brand-paper);
+  --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.375rem;
+  /* paper, sheet and ink */
+  --background: #F7F5F1;
+  --foreground: #16283C;
+  --card: #FFFFFF;
+  --card-foreground: #16283C;
+  --popover: #FFFFFF;
+  --popover-foreground: #16283C;
+  --primary: #16283C;
+  --primary-foreground: #F7F5F1;
+  --secondary: #F0EDE6;
+  --secondary-foreground: #16283C;
+  --muted: #F0EDE6;
+  --muted-foreground: #4E6B87;
+  --accent: #F6EBDD;
+  --accent-foreground: #16283C;
+  --destructive: #B00020;
+  --destructive-foreground: #FFFFFF;
+  --border: rgb(22 40 60 / 14%);
+  --input: rgb(22 40 60 / 24%);
+  --ring: #B87333;
+  /* the copper of the brand: --copper is for text on paper (readable), --seam is the line of the logo */
+  --copper: #9F6229;
+  --copper-soft: #F6EBDD;
+  --seam: #B87333;
+  /* the logo tile keeps its own colours in every theme */
+  --brand-navy: #16283C;
+  --brand-paper: #F7F5F1;
+  --chart-1: #B87333;
+  --chart-2: #4E6B87;
+  --chart-3: #1E6B4F;
+  --chart-4: #8A6116;
+  --chart-5: #7A8FA3;
+  --sidebar: #F0EDE6;
+  --sidebar-foreground: #16283C;
+  --sidebar-primary: #16283C;
+  --sidebar-primary-foreground: #F7F5F1;
+  --sidebar-accent: #F6EBDD;
+  --sidebar-accent-foreground: #16283C;
+  --sidebar-border: rgb(22 40 60 / 14%);
+  --sidebar-ring: #B87333;
 }
 
 /* Dark palette -- kept identical in .dark (explicit) and the media block
  * (system default). Edit BOTH when changing a token. */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0A121C;
+  --foreground: #F7F5F1;
+  --card: #16283C;
+  --card-foreground: #F7F5F1;
+  --popover: #16283C;
+  --popover-foreground: #F7F5F1;
+  --primary: #F7F5F1;
+  --primary-foreground: #16283C;
+  --secondary: #101B28;
+  --secondary-foreground: #F7F5F1;
+  --muted: #101B28;
+  --muted-foreground: #B9C6D2;
+  --accent: #2C2117;
+  --accent-foreground: #F7F5F1;
+  --destructive: #F0788C;
+  --destructive-foreground: #0A121C;
+  --border: rgb(247 245 241 / 18%);
+  --input: rgb(247 245 241 / 26%);
+  --ring: #CA8E56;
+  --copper: #CA8E56;
+  --copper-soft: #2C2117;
+  --seam: #CA8E56;
+  --brand-navy: #16283C;
+  --brand-paper: #F7F5F1;
+  --chart-1: #CA8E56;
+  --chart-2: #B9C6D2;
+  --chart-3: #6FBF97;
+  --chart-4: #E0B45C;
+  --chart-5: #8298AC;
+  --sidebar: #101B28;
+  --sidebar-foreground: #F7F5F1;
+  --sidebar-primary: #F7F5F1;
+  --sidebar-primary-foreground: #16283C;
+  --sidebar-accent: #2C2117;
+  --sidebar-accent-foreground: #F7F5F1;
+  --sidebar-border: rgb(247 245 241 / 18%);
+  --sidebar-ring: #CA8E56;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.488 0.243 264.376);
-    --chart-2: oklch(0.696 0.17 162.48);
-    --chart-3: oklch(0.769 0.188 70.08);
-    --chart-4: oklch(0.627 0.265 303.9);
-    --chart-5: oklch(0.645 0.246 16.439);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: #0A121C;
+    --foreground: #F7F5F1;
+    --card: #16283C;
+    --card-foreground: #F7F5F1;
+    --popover: #16283C;
+    --popover-foreground: #F7F5F1;
+    --primary: #F7F5F1;
+    --primary-foreground: #16283C;
+    --secondary: #101B28;
+    --secondary-foreground: #F7F5F1;
+    --muted: #101B28;
+    --muted-foreground: #B9C6D2;
+    --accent: #2C2117;
+    --accent-foreground: #F7F5F1;
+    --destructive: #F0788C;
+    --destructive-foreground: #0A121C;
+    --border: rgb(247 245 241 / 18%);
+    --input: rgb(247 245 241 / 26%);
+    --ring: #CA8E56;
+    --copper: #CA8E56;
+    --copper-soft: #2C2117;
+    --seam: #CA8E56;
+    --brand-navy: #16283C;
+    --brand-paper: #F7F5F1;
+    --chart-1: #CA8E56;
+    --chart-2: #B9C6D2;
+    --chart-3: #6FBF97;
+    --chart-4: #E0B45C;
+    --chart-5: #8298AC;
+    --sidebar: #101B28;
+    --sidebar-foreground: #F7F5F1;
+    --sidebar-primary: #F7F5F1;
+    --sidebar-primary-foreground: #16283C;
+    --sidebar-accent: #2C2117;
+    --sidebar-accent-foreground: #F7F5F1;
+    --sidebar-border: rgb(247 245 241 / 18%);
+    --sidebar-ring: #CA8E56;
   }
 }
 
@@ -188,7 +217,7 @@
   }
   h1, h2, h3, h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
 }
 

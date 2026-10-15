@@ -1,5 +1,5 @@
 import type { DashboardData } from '#/lib/dashboard-types'
-import { searchRead } from '#/lib/gateway.server'
+import { searchReadAll } from '#/lib/gateway.server'
 import { withCache } from '#/lib/ttl-cache'
 
 // Display only: the gateway project config enforces the company on every read.
@@ -9,7 +9,9 @@ export const getDigDashboardData = withCache(
   'odoo:dig-dashboard',
   300,
   async (): Promise<DashboardData> => {
-    const slots = await searchRead<DashboardData['slots'][number]>('planning.slot', [
+    // Newest first, so that when the maximum is reached (src/lib/paging.ts) the oldest appointments are the ones
+    // left out. `id` as the last key gives every record a fixed place, which paging needs.
+    const slotsRead = await searchReadAll<DashboardData['slots'][number]>('planning.slot', [
         'id',
         'name',
         'start_datetime',
@@ -28,8 +30,8 @@ export const getDigDashboardData = withCache(
         'travel_time_in',
         'travel_time_out',
         'travel_times_up_to_date',
-      ])
-    const visits = await searchRead<DashboardData['visits'][number]>('svs.tech.visit', [
+      ], 'start_datetime desc, id desc')
+    const visitsRead = await searchReadAll<DashboardData['visits'][number]>('svs.tech.visit', [
         'id',
         'name',
         'state',
@@ -46,15 +48,16 @@ export const getDigDashboardData = withCache(
         'photo_count',
         'photo_ids',
         'notes',
-      ])
+      ], 'visit_date desc, id desc')
 
     return {
       company: {
         id: TEST_COMPANY_ID,
         name: 'De Installatiegroep B.V. [TEST]',
       },
-      slots,
-      visits,
+      slots: slotsRead.records,
+      visits: visitsRead.records,
+      truncated: slotsRead.truncated || visitsRead.truncated,
       loadedAt: new Date().toISOString(),
     }
   },

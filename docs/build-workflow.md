@@ -1,5 +1,11 @@
 # Zichtbare bouwworkflow
 
+> **Historisch.** Dit beschrijft hoe het dashboard op 2026-10-04 op het HelloLeo-platform is gebouwd.
+> De genoemde tools (`helloleo_*`, `odoo_execute_method`, `scaffold`, `skill(cache)`) bestaan in deze
+> repository niet meer; het dashboard wordt nu met de DIG Builder-agent aangepast
+> (`docs/dig-builder-agent.md`, `docs/builder-app.md`). De huidige controles staan in
+> `docs/verification.md`.
+
 ## Daadwerkelijk uitgevoerd
 
 1. De verbonden Odoo 20-testomgeving is via de beschikbare Odoo-leesfunctie onderzocht met `search_read` op modelmetadata, veldmetadata en beperkte recordsteekproeven.

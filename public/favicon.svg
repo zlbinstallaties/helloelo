@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="De Installatiegroep">
+  <rect width="64" height="64" rx="12" fill="#16283C"/>
+  <g transform="translate(7.43 7.04) scale(0.78)">
+    <rect x="6" y="8" width="11" height="48" fill="#CA8E56"/>
+    <path fill="#F7F5F1" fill-rule="evenodd" d="M25 8 H33 A24 24 0 0 1 33 56 H25 Z M25 19 H33 A13 13 0 0 1 33 45 H25 Z"/>
+  </g>
+</svg>

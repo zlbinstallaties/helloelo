@@ -53,6 +53,39 @@ function fakeOdoo(calls: Call[], overrides: Partial<OdooClient> = {}): OdooClien
         password_hash: { type: 'char' },
       }
     },
+    async createEmployee() {
+      throw new Error('createEmployee is not used in these tests')
+    },
+    async createUnavailability() {
+      throw new Error('createUnavailability is not used in these tests')
+    },
+    async readUnavailability() {
+      throw new Error('readUnavailability is not used in these tests')
+    },
+    async removeUnavailability() {
+      throw new Error('removeUnavailability is not used in these tests')
+    },
+    async readReferencePartner() {
+      throw new Error('readReferencePartner is not used in these tests')
+    },
+    async postDocument() {
+      throw new Error('postDocument is not used in these tests')
+    },
+    async checkResponsible() {
+      throw new Error('checkResponsible is not used in these tests')
+    },
+    async checkPlanningRoles() {
+      throw new Error('checkPlanningRoles is not used in these tests')
+    },
+    async listPlanningRoles() {
+      throw new Error('listPlanningRoles is not used in these tests')
+    },
+    async setEmployeePlanningRoles() {
+      throw new Error('setEmployeePlanningRoles is not used in these tests')
+    },
+    async readEmployee() {
+      throw new Error('readEmployee is not used in these tests')
+    },
     ...overrides,
   }
 }
@@ -194,6 +227,47 @@ test('schema only lists allowlisted fields and reports missing ones', async () =
     assert.equal(calls.filter((c) => c.method === 'fields_get').length, 2, 'fields_get is cached per model')
   } finally {
     await gw.close()
+  }
+})
+
+test('schema: a model this Odoo does not have is reported, and the other models are still answered', async () => {
+  const gw = await start(
+    fakeOdoo([], {
+      async fieldsGet(model) {
+        if (model === 'svs.tech.visit') throw new OdooError("Odoo svs.tech.visit read failed (404): the model 'svs.tech.visit' does not exist", 404, 'werkzeug.exceptions.NotFound', true)
+        return { id: { type: 'integer', string: 'ID' }, name: { type: 'char', string: 'Naam' }, state: { type: 'char', string: 'Status' } }
+      },
+    }),
+  )
+  try {
+    const r = await gw.request('/v1/schema')
+    assert.equal(r.status, 200)
+    const byName = Object.fromEntries(r.json.models.map((m: { name: string }) => [m.name, m]))
+    assert.deepEqual(byName['planning.slot'].fields.map((f: { name: string }) => f.name), ['id', 'name', 'state'])
+    assert.equal(byName['planning.slot'].unknownModel, undefined)
+    assert.equal(byName['svs.tech.visit'].unknownModel, true)
+    assert.deepEqual(byName['svs.tech.visit'].fields, [])
+    assert.deepEqual(byName['svs.tech.visit'].missing, ['id', 'name'])
+  } finally {
+    await gw.close()
+  }
+})
+
+test('schema: other errors are not hidden as an unknown model', async () => {
+  for (const [error, status] of [
+    [new OdooError('Odoo svs.tech.visit read failed (404): the model needs another route', 404, 'werkzeug.exceptions.NotFound', true), 502],
+    [new OdooError('Odoo svs.tech.visit read failed (404)', 404), 502],
+    [new OdooError("Odoo svs.tech.visit read failed (404): the model 'svs.tech.visit' does not exist", 404), 502], // no Odoo error body: not proof
+    [new OdooError('Odoo svs.tech.visit read failed (403): the model does not exist for you', 403, 'odoo.exceptions.AccessError', true), 502],
+    [new OdooError('Odoo svs.tech.visit read timed out', 0), 504],
+  ] as const) {
+    const gw = await start(fakeOdoo([], { async fieldsGet() { throw error } }))
+    try {
+      const r = await gw.request('/v1/schema')
+      assert.equal(r.status, status, error.message)
+    } finally {
+      await gw.close()
+    }
   }
 })
 

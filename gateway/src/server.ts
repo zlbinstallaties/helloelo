@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { OdooError, type OdooClient, type OdooFieldInfo } from '../../src/lib/odoo-client.ts'
+import { createActions } from './actions.ts'
 import { validateDomain, validateFields, validateOrder } from './domain.ts'
 import { GatewayError } from './errors.ts'
 import { findProject, type Project, type ReadMethod } from './projects.ts'
@@ -11,6 +12,13 @@ import { findProject, type Project, type ReadMethod } from './projects.ts'
  *   GET  /v1/schema                          allowlisted models and fields
  *   POST /v1/models/<model>/search_read      {fields?, domain?, limit?, offset?, order?}
  *   POST /v1/models/<model>/search_count     {domain?}
+ *   GET  /v1/planning-roles                  the planning roles a planner can give a new employee (only for
+ *                                            a project that has the createEmployee action)
+ *   GET  /v1/employees/<id>/planning-roles   the planning roles one employee has now (only with setEmployeePlanningRoles)
+ *   POST /v1/actions/set_employee_planning_roles  {employeeId, planningRoleIds}: the roles of ONE employee, nothing else
+ *                                            (only with setEmployeePlanningRoles; off by default)
+ *   POST /v1/actions/create_employee         {requestId, name, planningRoleIds?}: an hr.employee without an Odoo user,
+ *                                            only for projects whose config has the action (off by default)
  *
  * Every /v1 call needs `Authorization: Bearer <project token>`. The project
  * decides company, models, fields and methods; the request cannot widen them.
@@ -27,6 +35,10 @@ export interface AccessLogEntry {
   rows?: number
   fields?: number
   domainFields?: string[]
+  requestId?: string
+  employeeId?: number
+  /** For an error of Odoo: the class name Odoo gave (`odoo.exceptions.AccessDenied`) or its status; never Odoo's own text. */
+  upstream?: string
 }
 
 export interface GatewayOptions {
@@ -39,14 +51,28 @@ export interface GatewayOptions {
 
 const MAX_BODY_BYTES = 64 * 1024
 const MODEL_ROUTE = /^\/v1\/models\/([a-z0-9_.]+)\/(search_read|search_count)$/
+const CREATE_EMPLOYEE_ROUTE = '/v1/actions/create_employee'
+const PLANNING_ROLES_ROUTE = '/v1/planning-roles'
+const SET_ROLES_ROUTE = '/v1/actions/set_employee_planning_roles'
+/** What may be logged of an error of Odoo: a class name like odoo.exceptions.AccessDenied, or `upstream status 401`. */
+const PLAIN_UPSTREAM = /^(?:[A-Za-z_][\w.]{0,80}|upstream status \d{1,3})$/
+/** A document is a PDF of up to 8 MiB, as base64 in JSON; the other routes stay at the small limit. */
+const POST_DOCUMENT_ROUTE = '/v1/actions/post_document'
+const DOCUMENT_BODY_BYTES = 12 * 1024 * 1024
+const ADD_UNAVAILABILITY_ROUTE = '/v1/actions/add_employee_unavailability'
+const REMOVE_UNAVAILABILITY_ROUTE = '/v1/actions/remove_employee_unavailability'
+const EMPLOYEE_ROLES_ROUTE = /^\/v1\/employees\/([0-9]+)\/planning-roles$/
 const SCHEMA_ATTRIBUTES = ['type', 'string', 'relation', 'required', 'readonly']
 
 interface Context {
   project: Project | null
   model: string | null
+  upstream?: string
   rows?: number
   fields?: number
   domainFields?: string[]
+  requestId?: string
+  employeeId?: number
 }
 
 function send(res: ServerResponse, status: number, payload: unknown) {
@@ -59,16 +85,19 @@ function send(res: ServerResponse, status: number, payload: unknown) {
   res.end(body)
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
   const type = req.headers['content-type'] ?? ''
   if (!type.toLowerCase().startsWith('application/json')) {
     throw new GatewayError(415, 'unsupported_media_type', 'content-type must be application/json')
   }
+  // A body that says it is too big is refused before a single byte of it is read.
+  const declared = Number(req.headers['content-length'])
+  if (Number.isFinite(declared) && declared > limit) throw new GatewayError(413, 'body_too_large')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > MAX_BODY_BYTES) throw new GatewayError(413, 'body_too_large')
+    if (size > limit) throw new GatewayError(413, 'body_too_large')
     chunks.push(chunk as Buffer)
   }
   if (size === 0) return {}
@@ -130,6 +159,7 @@ export function createGateway(options: GatewayOptions) {
   const now = options.now ?? Date.now
   const schemaTtlMs = options.schemaTtlMs ?? 5 * 60_000
   const fieldCache = new Map<string, { at: number; fields: Record<string, OdooFieldInfo> }>()
+  const actions = createActions({ odoo, now })
 
   async function modelFields(model: string) {
     const hit = fieldCache.get(model)
@@ -142,7 +172,18 @@ export function createGateway(options: GatewayOptions) {
   async function schema(project: Project) {
     const models = []
     for (const [name, policy] of Object.entries(project.models)) {
-      const odooFields = await modelFields(name)
+      let odooFields: Record<string, OdooFieldInfo>
+      try {
+        odooFields = await modelFields(name)
+      } catch (error) {
+        // A model this database does not have (a custom module that is not installed): say so, so that one
+        // unknown model does not hide the answer for the others. Any other error is still an error.
+        if (error instanceof OdooError && error.answered && error.status === 404 && error.message.includes('does not exist')) {
+          models.push({ name, methods: policy.methods, fields: [], missing: [...policy.fields], unknownModel: true })
+          continue
+        }
+        throw error
+      }
       models.push({
         name,
         methods: policy.methods,
@@ -176,6 +217,58 @@ export function createGateway(options: GatewayOptions) {
       if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
       ctx.project = authenticate(req, projects)
       return schema(ctx.project)
+    }
+
+    if (url.pathname === PLANNING_ROLES_ROUTE) {
+      if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'planning.role'
+      ctx.project = authenticate(req, projects)
+      return actions.listPlanningRoles(ctx.project)
+    }
+
+    const rolesMatch = EMPLOYEE_ROLES_ROUTE.exec(url.pathname)
+    if (rolesMatch) {
+      if (req.method !== 'GET') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      return actions.employeePlanningRoles(ctx.project, rolesMatch[1], ctx)
+    }
+
+    if (url.pathname === SET_ROLES_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.setEmployeePlanningRoles) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: setEmployeePlanningRoles')
+      return actions.setEmployeePlanningRoles(ctx.project, await readJson(req), ctx)
+    }
+
+    if (url.pathname === ADD_UNAVAILABILITY_ROUTE || url.pathname === REMOVE_UNAVAILABILITY_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'resource.calendar.leaves'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.employeeUnavailability) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: employeeUnavailability')
+      const body = await readJson(req)
+      return url.pathname === ADD_UNAVAILABILITY_ROUTE ? actions.addEmployeeUnavailability(ctx.project, body, ctx) : actions.removeEmployeeUnavailability(ctx.project, body, ctx)
+    }
+
+    if (url.pathname === POST_DOCUMENT_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'res.partner'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body (up to 12 MB) is even read.
+      if (!ctx.project.actions.postDocument) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: postDocument')
+      return actions.postDocument(ctx.project, await readJson(req, DOCUMENT_BODY_BYTES), ctx)
+    }
+
+    if (url.pathname === CREATE_EMPLOYEE_ROUTE) {
+      if (req.method !== 'POST') throw new GatewayError(405, 'method_not_allowed')
+      ctx.model = 'hr.employee'
+      ctx.project = authenticate(req, projects)
+      // Not allowed for the project: refused before the body is even read.
+      if (!ctx.project.actions.createEmployee) throw new GatewayError(403, 'action_not_allowed', 'action not allowed: createEmployee')
+      return actions.createEmployee(ctx.project, await readJson(req), ctx)
     }
 
     const match = MODEL_ROUTE.exec(url.pathname)
@@ -232,7 +325,9 @@ export function createGateway(options: GatewayOptions) {
       const failure = toGatewayError(error)
       status = failure.status
       code = failure.code
-      send(res, status, { error: failure.code, message: failure.message })
+      // Which kind of error Odoo gave helps to find a wrong key or a missing right; only a plain class name is logged.
+      if (failure.code === 'odoo_error' && PLAIN_UPSTREAM.test(failure.message)) ctx.upstream = failure.message
+      send(res, status, { error: failure.code, message: failure.message, ...(failure.details && { details: failure.details }) })
     } finally {
       if (url.pathname !== '/healthz') {
         log({
@@ -246,6 +341,9 @@ export function createGateway(options: GatewayOptions) {
           ...(ctx.rows !== undefined && { rows: ctx.rows }),
           ...(ctx.fields !== undefined && { fields: ctx.fields }),
           ...(ctx.domainFields && { domainFields: ctx.domainFields }),
+          ...(ctx.requestId !== undefined && { requestId: ctx.requestId }),
+          ...(ctx.employeeId !== undefined && { employeeId: ctx.employeeId }),
+          ...(ctx.upstream !== undefined && { upstream: ctx.upstream }),
         })
       }
     }
